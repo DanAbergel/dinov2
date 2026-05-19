@@ -40,15 +40,15 @@ set -euo pipefail
 
 N_GPUS=${N_GPUS:-1}
 
-LAB_DIR="/sci/labs/arieljaffe/dan.abergel1"
-OFFICIAL_DIR="$LAB_DIR/repos/FAIR_official"
-VENV_DIR="$LAB_DIR/torch_env"
-CKPT_DIR="$LAB_DIR/checkpoints"
-DINOV2_INIT="$CKPT_DIR/dinov2_vits14_reg4_fmri_init.pth"
+export LAB_DIR="/sci/labs/arieljaffe/dan.abergel1"
+export OFFICIAL_DIR="$LAB_DIR/repos/FAIR_official"
+export VENV_DIR="$LAB_DIR/torch_env"
+export CKPT_DIR="$LAB_DIR/checkpoints"
+export DINOV2_INIT="$CKPT_DIR/dinov2_vits14_reg4_fmri_init.pth"
 
-CONFIG_FILE="dinov2/configs/train/fmri_vits.yaml"
-RUN_NAME="dinov2_fmri_$(date +%Y%m%d_%H%M%S)"
-OUTPUT_DIR="$OFFICIAL_DIR/outputs/$RUN_NAME"
+export CONFIG_FILE="dinov2/configs/train/fmri_vits.yaml"
+export RUN_NAME="dinov2_fmri_$(date +%Y%m%d_%H%M%S)"
+export OUTPUT_DIR="$OFFICIAL_DIR/outputs/$RUN_NAME"
 
 export TMPDIR="$LAB_DIR/tmp"
 export PIP_CACHE_DIR="$LAB_DIR/cache/pip"
@@ -58,6 +58,16 @@ export PYTORCH_CUDA_ALLOC_CONF=expandable_segments:True
 # distributed.enable() expects a rendezvous endpoint even for 1 GPU.
 export MASTER_ADDR="127.0.0.1"
 export MASTER_PORT=29513
+# Verbose diagnostics — printed to the .out / .err files so we can see
+# the real traceback when torchrun loses it.
+export NCCL_DEBUG=INFO
+export TORCH_DISTRIBUTED_DEBUG=DETAIL
+export TORCH_NCCL_BLOCKING_WAIT=1
+export TORCH_NCCL_ASYNC_ERROR_HANDLING=1
+export PYTHONUNBUFFERED=1
+# Print every bash command before execution (with line numbers).
+set -x
+PS4='+ ${BASH_SOURCE##*/}:${LINENO}: '
 mkdir -p "$TMPDIR" "$PIP_CACHE_DIR" "$TORCH_HOME" "$OUTPUT_DIR" "$CKPT_DIR"
 mkdir -p "$OFFICIAL_DIR/slurm_jobs/logs"
 
@@ -119,10 +129,43 @@ grep -E "^(  dataset_path|  batch_size_per_gpu|  fmri_|  arch|  patch_size|  num
     "$CONFIG_FILE" | sed 's/^/    /'
 echo ""
 
-# ----- 4. Launch -----
+# ----- 4. Pre-flight: verify the model + config load cleanly on CPU -----
+# This catches schema / import errors before we burn a GPU slot. If this
+# fails we exit early with the python traceback in the log.
+echo ""
+echo "  Pre-flight: build_model_from_cfg on CPU"
+python - <<'PY'
+import warnings; warnings.filterwarnings("ignore", category=UserWarning)
+import os, sys, traceback
+sys.path.insert(0, os.environ.get("OFFICIAL_DIR", "."))
+from omegaconf import OmegaConf
+from dinov2.configs import dinov2_default_config
+cfg = OmegaConf.merge(
+    OmegaConf.create(dinov2_default_config),
+    OmegaConf.load(os.environ["CONFIG_FILE"]),
+)
+print(f"    cfg.train.dataset_path = {cfg.train.dataset_path}")
+print(f"    cfg.student.fmri_mode  = {cfg.student.fmri_mode}")
+try:
+    from dinov2.models import build_model_from_cfg
+    student, teacher, embed_dim = build_model_from_cfg(cfg)
+    print(f"    student total params = {sum(p.numel() for p in student.parameters()):,}")
+    print(f"    pre-flight OK")
+except Exception:
+    print("    pre-flight FAILED:")
+    traceback.print_exc()
+    sys.exit(2)
+PY
+
+# ----- 5. Launch (with per-rank logs in slurm_jobs/logs/torchrun_<jobid>/) -----
+RANK_LOG_DIR="$OFFICIAL_DIR/slurm_jobs/logs/torchrun_${SLURM_JOB_ID:-local}"
+mkdir -p "$RANK_LOG_DIR"
 torchrun \
     --nproc_per_node=$N_GPUS \
     --master_port=$MASTER_PORT \
+    --redirects 3 \
+    --tee 3 \
+    --log-dir "$RANK_LOG_DIR" \
     -m dinov2.train.train \
         --config-file "$CONFIG_FILE" \
         --output-dir "$OUTPUT_DIR"
