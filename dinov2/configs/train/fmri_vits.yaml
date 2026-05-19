@@ -7,8 +7,8 @@
 
 train:
   dataset_path: HCP                   # resolves to HCPFullScanDataset in _parse_dataset_str
-  batch_size_per_gpu: 1               # one full scan per GPU (T=1200 is heavy)
-  num_workers: 2
+  batch_size_per_gpu: 2               # 2 full scans/GPU: KoLeo needs >=2 CLS per chunk to compute NN distance
+  num_workers: 8                      # data loading is the bottleneck (T=1200 NFS reads)
   cache_dataset: false
   OFFICIAL_EPOCH_LENGTH: 1000         # ~ N_subjects with batch 1; tune to your subject count
   centering: "sinkhorn_knopp"
