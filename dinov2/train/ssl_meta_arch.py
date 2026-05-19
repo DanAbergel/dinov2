@@ -348,9 +348,22 @@ class SSLMetaArch(nn.Module):
     def fsdp_synchronize_streams(self):
         if self.need_to_synchronize_fsdp_streams:
             torch.cuda.synchronize()
-            self.student.dino_head._streams = (
-                self.teacher.dino_head._streams
-            ) = self.student.backbone._streams = self.teacher.backbone._streams
+            # FMRI CHANGE: guard `_streams` access. WHY: this workaround
+            # comes from FSDP's PyTorch-2.0 internals where each wrapped
+            # module exposed a `_streams` attribute. PyTorch >= ~2.3
+            # removed that public attribute (the API now manages streams
+            # internally), so this assignment raises AttributeError. The
+            # whole hack is a first-iteration one-shot to share streams
+            # between student/teacher backbones+heads; skipping it on
+            # newer PyTorch is safe — FSDP handles stream synchronization
+            # automatically. Original (kept for old torch versions):
+            #   self.student.dino_head._streams = (
+            #       self.teacher.dino_head._streams
+            #   ) = self.student.backbone._streams = self.teacher.backbone._streams
+            if hasattr(self.teacher.backbone, "_streams"):
+                self.student.dino_head._streams = (
+                    self.teacher.dino_head._streams
+                ) = self.student.backbone._streams = self.teacher.backbone._streams
             self.need_to_synchronize_fsdp_streams = False
 
     def update_teacher(self, m):
