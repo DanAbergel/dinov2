@@ -180,6 +180,13 @@ PY
 # ----- 5. Launch (with per-rank logs in slurm_jobs/logs/torchrun_<jobid>/) -----
 RANK_LOG_DIR="$OFFICIAL_DIR/slurm_jobs/logs/torchrun_${SLURM_JOB_ID:-local}"
 mkdir -p "$RANK_LOG_DIR"
+# Hide SLURM_JOB_ID from the children so dinov2.distributed.enable()
+# stops trying _set_from_slurm_env() (which needs SLURM_NTASKS/SLURM_PROCID/
+# SLURM_LOCALID — only set by `srun`, not by plain `sbatch`). With it
+# unset, _TorchDistributedEnvironment falls back to _set_from_preset_env()
+# which reads MASTER_ADDR/PORT/RANK/WORLD_SIZE/LOCAL_RANK/LOCAL_WORLD_SIZE
+# — exactly what torchrun injects into every spawned worker.
+env -u SLURM_JOB_ID -u SLURM_JOB_NUM_NODES -u SLURM_JOB_NODELIST \
 torchrun \
     --nproc_per_node=$N_GPUS \
     --master_port=$MASTER_PORT \
