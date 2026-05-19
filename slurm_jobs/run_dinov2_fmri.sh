@@ -28,8 +28,8 @@
 #SBATCH --cpus-per-task=8
 #SBATCH --mem=128G
 #SBATCH --time=72:00:00
-#SBATCH --output=slurm_jobs/logs/dinov2_fmri_%j.out
-#SBATCH --error=slurm_jobs/logs/dinov2_fmri_%j.err
+#SBATCH --output=slurm_jobs/logs/dinov2_fmri.out
+#SBATCH --error=slurm_jobs/logs/dinov2_fmri.err
 #SBATCH --chdir=/sci/labs/arieljaffe/dan.abergel1/repos/FAIR_official
 
 # To use 2 GPUs:
