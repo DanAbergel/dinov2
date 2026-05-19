@@ -10,7 +10,13 @@ from typing import Any, Callable, List, Optional, TypeVar
 import torch
 from torch.utils.data import Sampler
 
-from .datasets import ImageNet, ImageNet22k, HPAone, HPAFoV, CHAMMI_CP, CHAMMI_HPA, CHAMMI_WTC
+# FMRI CHANGE: HCPFullScanDataset / ADNIFullScanDataset are re-exported from
+# .datasets. WHY: same import surface as ImageNet so make_dataset / do_train
+# don't need to know about fMRI specifically.
+from .datasets import (
+    ImageNet, ImageNet22k, HPAone, HPAFoV, CHAMMI_CP, CHAMMI_HPA, CHAMMI_WTC,
+    HCPFullScanDataset, ADNIFullScanDataset,
+)
 from .samplers import EpochSampler, InfiniteSampler, ShardedInfiniteSampler
 
 
@@ -68,6 +74,13 @@ def _parse_dataset_str(dataset_str: str):
         class_ = CHAMMI_WTC
     elif name == "CHAMMI_HPA":
         class_ = CHAMMI_HPA
+    # FMRI CHANGE: two new dataset names. WHY: lets us write
+    # `cfg.train.dataset_path: "HCP"` or `"ADNI:root=/path/to/file.pt"` in the
+    # fMRI YAML and have `make_dataset` resolve it like any other dataset.
+    elif name == "HCP":
+        class_ = HCPFullScanDataset
+    elif name == "ADNI":
+        class_ = ADNIFullScanDataset
     else:
         raise ValueError(f'Unsupported dataset "{name}"')
 

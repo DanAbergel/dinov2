@@ -1,0 +1,100 @@
+# fMRI SSL config. Inherits from ssl_default_config.yaml (merged by
+# dinov2.utils.config.setup) — every field below overrides a default
+# rather than redefining the schema, so the official `do_train`,
+# `SSLMetaArch.__init__` and `build_model_from_cfg` see a config that
+# is structurally identical to the ImageNet one and only differs on the
+# values that genuinely need to change for fMRI.
+
+train:
+  dataset_path: HCP                   # resolves to HCPFullScanDataset in _parse_dataset_str
+  batch_size_per_gpu: 1               # one full scan per GPU (T=1200 is heavy)
+  num_workers: 2
+  cache_dataset: false
+  OFFICIAL_EPOCH_LENGTH: 1000         # ~ N_subjects with batch 1; tune to your subject count
+  centering: "sinkhorn_knopp"
+  cell_augmentation: false
+  fmri_augmentation: true             # NEW; triggers MultiCrop3D + (T_eff, N_spatial) MaskingGenerator
+  seed: 42
+
+student:
+  arch: vit_small
+  patch_size: 9                       # spatial Conv3d kernel/stride
+  drop_path_rate: 0.1
+  layerscale: 1.0e-05
+  drop_path_uniform: true
+  ffn_layer: "mlp"
+  block_chunks: 0
+  qkv_bias: true
+  proj_bias: true
+  ffn_bias: true
+  num_register_tokens: 4
+  interpolate_antialias: false
+  interpolate_offset: 0.1
+  in_chans: 1
+  channel_adaptive: false
+  # Filtered DINOv2 ViT-S/14 reg4 ImageNet checkpoint (pos_embed +
+  # patch_embed.* removed because their shapes don't match the fMRI
+  # 3D+1D embedding / token grid). Prepared by jobs/run_dinov2_fmri.sh
+  # before the run. Set to '' to train from random init.
+  pretrained_weights: "/sci/labs/arieljaffe/dan.abergel1/checkpoints/dinov2_vits14_reg4_fmri_init.pth"
+  # ----- fMRI-specific fields (consumed by build_model_from_cfg) -----
+  fmri_mode: true
+  fmri_img_size: [45, 54, 45]         # HCP downsampled volume; patch=9 -> 5*6*5 = 150 spatial tokens
+  fmri_temporal_size: 1200            # full HCP REST1_LR scan; tune for ADNI (140) etc.
+  fmri_temporal_kernel: 10            # non-overlapping temporal Conv1d -> T_eff = 120
+  # Token grid: T_eff * N_spatial = 120 * 150 = 18 000 tokens.
+  # Factorised pos params: (120 + 150 + 1) * 384 = 104 064 (vs flat 18001 * 384 = 6.9 M).
+  # Attention is still O(N^2) in compute, so tune fmri_temporal_size or
+  # raise fmri_temporal_kernel / patch_size if you OOM at run time.
+
+teacher:
+  momentum_teacher: 0.992
+  final_momentum_teacher: 1.0
+  warmup_teacher_temp: 0.04
+  teacher_temp: 0.07
+  warmup_teacher_temp_epochs: 5
+  in_chans: 1
+  channel_adaptive: false
+
+optim:
+  epochs: 20
+  weight_decay: 0.04
+  weight_decay_end: 0.4
+  base_lr: 3.0e-4
+  warmup_epochs: 1
+  min_lr: 1.0e-06
+  clip_grad: 3.0
+  freeze_last_layer_epochs: 1
+  scaling_rule: sqrt_wrt_1024
+  patch_embed_lr_mult: 0.2
+  layerwise_decay: 1.0
+  adamw_beta1: 0.9
+  adamw_beta2: 0.999
+
+crops:
+  global_crops_scale: [0.32, 1.0]
+  local_crops_number: 8
+  local_crops_scale: [0.05, 0.32]
+  global_crops_size: 224              # unused in fmri_mode (img_size comes from fmri_img_size) but must be present for the schema
+  local_crops_size: 96                # same — accepted for API parity with DataAugmentationDINO
+
+dino:
+  loss_weight: 1.0
+  head_n_prototypes: 4096
+  head_bottleneck_dim: 256
+  head_nlayers: 3
+  head_hidden_dim: 2048
+  koleo_loss_weight: 0.1
+
+ibot:
+  loss_weight: 1.0
+  mask_sample_probability: 0.5
+  mask_ratio_min_max: [0.1, 0.5]
+  separate_head: false
+  head_n_prototypes: 4096
+  head_bottleneck_dim: 256
+  head_nlayers: 3
+  head_hidden_dim: 2048
+
+evaluation:
+  eval_period_iterations: 0           # no in-loop evaluation; we evaluate the saved checkpoint separately

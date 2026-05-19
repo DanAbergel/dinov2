@@ -13,7 +13,12 @@ from fvcore.common.checkpoint import PeriodicCheckpointer
 import torch
 
 from dinov2.data import SamplerType, make_data_loader, make_dataset
-from dinov2.data import collate_data_and_cast, DataAugmentationDINO, CellAugmentationDINO, MaskingGenerator
+# FMRI CHANGE: import MultiCrop3D alongside the official transforms.
+# WHY: needed for the fmri_augmentation branch in do_train below.
+from dinov2.data import (
+    collate_data_and_cast, DataAugmentationDINO, CellAugmentationDINO,
+    MaskingGenerator, MultiCrop3D,
+)
 import dinov2.distributed as distributed
 from dinov2.fsdp import FSDPCheckpointer
 from dinov2.logging import MetricLogger
@@ -164,16 +169,43 @@ def do_train(cfg, model, resume=False):
 
     # setup data preprocessing
 
-    img_size = cfg.crops.global_crops_size
-    patch_size = cfg.student.patch_size
-    n_tokens = (img_size // patch_size) ** 2
-    mask_generator = MaskingGenerator(
-        input_size=(img_size // patch_size, img_size // patch_size),
-        max_num_patches=0.5 * img_size // patch_size * img_size // patch_size,
-    )
+    # FMRI CHANGE: compute (n_tokens, mask_generator) differently when the
+    # token grid is (T_eff, N_spatial) instead of (img_size/patch_size)^2.
+    # OFFICIAL (kept in the else branch): n_tokens = (img/p)^2 and a 2D
+    # (img/p, img/p) MaskingGenerator. WHY: fMRI tokens come from
+    # PatchEmbed3DPlus1D so the official scalar `img_size` doesn't apply.
+    if getattr(cfg.train, "fmri_augmentation", False):
+        patch_size = cfg.student.patch_size
+        gx, gy, gz = (s // patch_size for s in cfg.student.fmri_img_size)
+        n_spatial = gx * gy * gz
+        t_eff = cfg.student.fmri_temporal_size // cfg.student.fmri_temporal_kernel
+        n_tokens = t_eff * n_spatial
+        mask_generator = MaskingGenerator(
+            input_size=(t_eff, n_spatial),
+            max_num_patches=int(0.5 * n_tokens),
+        )
+    else:
+        img_size = cfg.crops.global_crops_size
+        patch_size = cfg.student.patch_size
+        n_tokens = (img_size // patch_size) ** 2
+        mask_generator = MaskingGenerator(
+            input_size=(img_size // patch_size, img_size // patch_size),
+            max_num_patches=0.5 * img_size // patch_size * img_size // patch_size,
+        )
 
+    # FMRI CHANGE: third augmentation branch, symmetric to cell_augmentation.
+    # WHY: MultiCrop3D matches DataAugmentationDINO's constructor signature
+    # exactly, so the branch is a one-class swap without further plumbing.
     if cfg.train.cell_augmentation:
         data_transform = CellAugmentationDINO(
+            cfg.crops.global_crops_scale,
+            cfg.crops.local_crops_scale,
+            cfg.crops.local_crops_number,
+            global_crops_size=cfg.crops.global_crops_size,
+            local_crops_size=cfg.crops.local_crops_size,
+        )
+    elif getattr(cfg.train, "fmri_augmentation", False):
+        data_transform = MultiCrop3D(
             cfg.crops.global_crops_scale,
             cfg.crops.local_crops_scale,
             cfg.crops.local_crops_number,
