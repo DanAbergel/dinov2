@@ -26,7 +26,7 @@
 #SBATCH --job-name=dinov2-fmri
 #SBATCH --gres=gpu:h200:1
 #SBATCH --cpus-per-task=8
-#SBATCH --mem=128G
+#SBATCH --mem=256G
 #SBATCH --time=72:00:00
 #SBATCH --output=slurm_jobs/logs/dinov2_fmri.out
 #SBATCH --error=slurm_jobs/logs/dinov2_fmri.err
