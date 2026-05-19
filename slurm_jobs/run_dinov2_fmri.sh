@@ -86,15 +86,35 @@ echo "============================================================"
 source "$VENV_DIR/bin/activate"
 cd "$OFFICIAL_DIR"
 
-# ----- 1. Make sure xformers is installed (NestedTensorBlock needs it) -----
-if ! python -c "import xformers" 2>/dev/null; then
-    echo ""
-    echo "  xformers missing -> pip install xformers"
-    # No --index-url because the venv's torch dictates the right CUDA wheel;
-    # let pip's resolver pick the wheel that matches the installed torch.
-    pip install --no-input xformers
-fi
-python -c "import xformers; print(f'  xformers {xformers.__version__} OK')"
+# ----- 1. Install missing official dinov2 deps (idempotent) -----
+# Only the runtime imports actually used by dinov2/{models,data,train,loss,
+# layers,utils,fsdp,distributed,logging}: torch is already there, we add
+# the missing pieces. We do NOT pin torch / torchvision (the venv already
+# has them at a known-working version) and we skip submitit / cuml / mmcv
+# / mmseg / ftfy which are only needed for eval / segmentation / submitit
+# launcher — none of which we use.
+declare -A REQUIRED_PKGS=(
+    [xformers]=xformers
+    [fvcore]=fvcore
+    [iopath]=iopath
+    [omegaconf]=omegaconf
+    [einops]=einops
+)
+for mod in "${!REQUIRED_PKGS[@]}"; do
+    if ! python -c "import $mod" 2>/dev/null; then
+        echo ""
+        echo "  $mod missing -> pip install ${REQUIRED_PKGS[$mod]}"
+        pip install --no-input "${REQUIRED_PKGS[$mod]}"
+    fi
+done
+python -c "
+import xformers, fvcore, iopath, omegaconf, einops
+print(f'  xformers  {xformers.__version__}')
+print(f'  fvcore    {fvcore.__version__ if hasattr(fvcore, \"__version__\") else \"OK\"}')
+print(f'  iopath    OK')
+print(f'  omegaconf {omegaconf.__version__}')
+print(f'  einops    {einops.__version__}')
+"
 
 # ----- 2. Prepare filtered DINOv2 ImageNet init checkpoint (once) -----
 if [ ! -f "$DINOV2_INIT" ]; then
