@@ -56,6 +56,23 @@ echo "============================================================"
 source "$VENV_DIR/bin/activate"
 cd "$OFFICIAL_DIR"
 
+# ----- 0. Install missing official deps needed by dinov2.eval.* (idempotent) -----
+# `dinov2.eval.utils` imports `torchmetrics.MetricCollection`. The train job
+# skips it (training only needs fvcore for PeriodicCheckpointer), but the
+# probe pulls in the eval package which needs torchmetrics.
+declare -A REQUIRED_PKGS=(
+    [torchmetrics]=torchmetrics
+    [scikit-learn]=scikit-learn
+)
+for mod in "${!REQUIRED_PKGS[@]}"; do
+    python_name=$(echo "$mod" | tr - _)
+    if ! python -c "import $python_name" 2>/dev/null; then
+        echo "  $mod missing -> pip install ${REQUIRED_PKGS[$mod]}"
+        pip install --no-input "${REQUIRED_PKGS[$mod]}"
+    fi
+done
+python -c "import torchmetrics, sklearn; print(f'  torchmetrics {torchmetrics.__version__}  sklearn {sklearn.__version__}')"
+
 # ----- 1. Find the checkpoint (env var overrides auto-discovery) -----
 if [ -z "${CHECKPOINT:-}" ]; then
     # Pick the latest model_*.rank_0.pth from the most recent run.
