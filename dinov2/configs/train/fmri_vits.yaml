@@ -57,10 +57,11 @@ teacher:
   channel_adaptive: false
 
 optim:
+  grad_accum_steps: 8                 # accumulate 8 micro-batches -> effective batch = 2*8 = 16. LR auto-scales via sqrt_wrt_1024.
   epochs: 20
   weight_decay: 0.04
   weight_decay_end: 0.4
-  base_lr: 7.0e-3                     # = 3e-4 effective after sqrt_wrt_1024 scaling on batch=2 (matches FAIR/src/dino/config.py PRETRAIN_LR=3e-4)
+  base_lr: 3.0e-4                     # base; effective LR = base_lr * sqrt(batch/1024). Yoni's linear-scaling guidance with batch=2 would prescribe ~5e-6; sqrt_wrt_1024 gives us ~1.3e-5 — close enough and matches DINOv2 official convention.
   warmup_epochs: 1
   min_lr: 1.0e-06
   clip_grad: 3.0

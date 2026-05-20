@@ -21,9 +21,16 @@ logger = logging.getLogger("dinov2")
 def apply_scaling_rules_to_cfg(cfg):  # to fix
     if cfg.optim.scaling_rule == "sqrt_wrt_1024":
         base_lr = cfg.optim.base_lr
-        cfg.optim.lr = base_lr
-        cfg.optim.lr *= math.sqrt(cfg.train.batch_size_per_gpu * distributed.get_global_size() / 1024.0)
-        logger.info(f"sqrt scaling learning rate; base: {base_lr}, new: {cfg.optim.lr}")
+        # FMRI CHANGE: include `grad_accum_steps` in the effective batch size
+        # so the sqrt scaling rule "knows" we're actually optimising on a
+        # larger batch than what the dataloader returns per iter.
+        grad_accum = int(cfg.optim.get("grad_accum_steps", 1))
+        effective_batch = cfg.train.batch_size_per_gpu * distributed.get_global_size() * grad_accum
+        cfg.optim.lr = base_lr * math.sqrt(effective_batch / 1024.0)
+        logger.info(
+            f"sqrt scaling learning rate; base: {base_lr}, grad_accum: {grad_accum}, "
+            f"effective_batch: {effective_batch}, new lr: {cfg.optim.lr}"
+        )
     else:
         raise NotImplementedError
     return cfg

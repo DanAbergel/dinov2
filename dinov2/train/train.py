@@ -271,6 +271,17 @@ def do_train(cfg, model, resume=False):
         if iteration > max_iter:
             return
 
+        # FMRI CHANGE: gradient accumulation. Read N from cfg.optim
+        # (default 1 = single-step behaviour). The optimizer is stepped
+        # only every N micro-iterations; before each cycle we zero_grad,
+        # and after each cycle we clip + step + EMA. The loss inside
+        # `forward_backward` is divided by N so the accumulated gradient
+        # over N calls matches a single forward_backward on the full
+        # effective batch.
+        grad_accum_steps = int(cfg.optim.get("grad_accum_steps", 1))
+        is_accum_start = (iteration % grad_accum_steps) == 0
+        is_accum_end = ((iteration + 1) % grad_accum_steps) == 0
+
         # apply schedules
 
         lr = lr_schedule[iteration]
@@ -282,27 +293,31 @@ def do_train(cfg, model, resume=False):
 
         # compute losses
 
-        optimizer.zero_grad(set_to_none=True)
-        loss_dict = model.forward_backward(data, teacher_temp=teacher_temp)
+        if is_accum_start:
+            optimizer.zero_grad(set_to_none=True)
+        loss_dict = model.forward_backward(
+            data, teacher_temp=teacher_temp, loss_scale=float(grad_accum_steps),
+        )
 
-        # clip gradients
+        # clip gradients + optimizer step + EMA — only at end of an accum cycle
 
-        if fp16_scaler is not None:
-            if cfg.optim.clip_grad:
-                fp16_scaler.unscale_(optimizer)
-                for v in model.student.values():
-                    v.clip_grad_norm_(cfg.optim.clip_grad)
-            fp16_scaler.step(optimizer)
-            fp16_scaler.update()
-        else:
-            if cfg.optim.clip_grad:
-                for v in model.student.values():
-                    v.clip_grad_norm_(cfg.optim.clip_grad)
-            optimizer.step()
+        if is_accum_end:
+            if fp16_scaler is not None:
+                if cfg.optim.clip_grad:
+                    fp16_scaler.unscale_(optimizer)
+                    for v in model.student.values():
+                        v.clip_grad_norm_(cfg.optim.clip_grad)
+                fp16_scaler.step(optimizer)
+                fp16_scaler.update()
+            else:
+                if cfg.optim.clip_grad:
+                    for v in model.student.values():
+                        v.clip_grad_norm_(cfg.optim.clip_grad)
+                optimizer.step()
 
-        # perform teacher EMA update
+            # perform teacher EMA update
 
-        model.update_teacher(mom)
+            model.update_teacher(mom)
 
         # logging
 

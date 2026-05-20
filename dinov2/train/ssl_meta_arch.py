@@ -129,7 +129,12 @@ class SSLMetaArch(nn.Module):
         else:
             loss.backward()
 
-    def forward_backward(self, images, teacher_temp):
+    def forward_backward(self, images, teacher_temp, loss_scale: float = 1.0):
+        # FMRI CHANGE: `loss_scale` divides the accumulated loss before
+        # backward. Used by do_train's gradient-accumulation loop to keep
+        # the gradient magnitude consistent with a single-step run when
+        # accumulating over `grad_accum_steps` micro-batches.
+        # `loss_scale=1.0` is the official behaviour (a no-op).
         n_global_crops = 2
         assert n_global_crops == 2
         n_local_crops = self.cfg.crops.local_crops_number
@@ -339,7 +344,16 @@ class SSLMetaArch(nn.Module):
             # accumulate loss
             loss_accumulator += self.ibot_loss_weight * ibot_patch_loss
 
-        self.backprop_loss(loss_accumulator)
+        # FMRI CHANGE: divide loss by loss_scale before backward. With
+        # gradient accumulation over N micro-steps we want each micro-step's
+        # backward to contribute 1/N of the per-step gradient; the sum over
+        # N micro-steps then matches a single forward_backward on the full
+        # effective batch. The returned `loss_dict` is left unscaled so the
+        # printed losses match what a single-step run would show.
+        if loss_scale != 1.0:
+            self.backprop_loss(loss_accumulator / loss_scale)
+        else:
+            self.backprop_loss(loss_accumulator)
 
         self.fsdp_synchronize_streams()
 
