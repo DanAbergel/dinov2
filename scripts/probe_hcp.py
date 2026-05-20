@@ -44,7 +44,7 @@ import pandas as pd
 import torch
 import torch.nn as nn
 import torch.nn.functional as F
-from sklearn.linear_model import Ridge
+from sklearn.linear_model import RidgeCV
 from sklearn.metrics import (
     accuracy_score, f1_score, mean_absolute_error,
     precision_score, recall_score, roc_auc_score,
@@ -206,12 +206,15 @@ def _train_one_fold(X_train, y_train, X_val, y_val, *,
     X_val_s = scaler.transform(X_val).astype(np.float32)
 
     if not is_classification:
+        # RidgeCV with inner-CV alpha selection — see probe_adni.py for the
+        # reasoning (n << p means we can't fix alpha=1).
         y_scaler = StandardScaler().fit(y_train.reshape(-1, 1))
         y_train_s = y_scaler.transform(y_train.reshape(-1, 1)).squeeze(-1)
-        ridge = Ridge(alpha=1.0).fit(X_train_s, y_train_s)
+        ridge = RidgeCV(alphas=[0.1, 1, 10, 100, 1000, 10000, 100000, 1000000]).fit(X_train_s, y_train_s)
         preds_s = ridge.predict(X_val_s)
         preds = y_scaler.inverse_transform(preds_s.reshape(-1, 1)).squeeze(-1)
-        return {"MAE": mean_absolute_error(y_val.astype(np.float32), preds)}
+        return {"MAE": mean_absolute_error(y_val.astype(np.float32), preds),
+                "best_alpha": float(ridge.alpha_)}
 
     num_classes = int(y_train.max()) + 1
     y_train_t = torch.from_numpy(y_train.astype(np.int64))
