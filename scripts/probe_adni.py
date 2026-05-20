@@ -34,6 +34,7 @@ import numpy as np
 import torch
 import torch.nn as nn
 import torch.nn.functional as F
+from sklearn.linear_model import Ridge
 from sklearn.metrics import (
     accuracy_score, f1_score, mean_absolute_error,
     precision_score, recall_score, roc_auc_score,
@@ -230,37 +231,41 @@ def extract_features(backbone, device, target_shape, temporal_kernel):
 
 def _train_one_fold(X_train, y_train, X_val, y_val, *,
                     feature_dim, is_classification, device):
-    """SGD training of a LinearClassifier, mirroring dinov2/eval/linear.py recipe.
+    """Linear probe per fold.
 
-    For regression we use num_classes=1 + MSELoss (the only adaptation).
+    Classification: official `LinearClassifier` + SGD + cosine LR (mirrors
+        dinov2/eval/linear.py L235-L256 recipe).
+    Regression: sklearn `Ridge` (closed-form, numerically stable). The
+        official DINOv2 eval pipeline has NO regression analogue, and SGD
+        with MSE on small noisy fMRI batches diverges to NaN; Ridge with
+        L2 reg is the equivalent linear model with a stable solver.
     """
-    num_classes = (int(y_train.max()) + 1) if is_classification else 1
     scaler = StandardScaler().fit(X_train)
     X_train_s = scaler.transform(X_train).astype(np.float32)
     X_val_s = scaler.transform(X_val).astype(np.float32)
-    if is_classification:
-        y_train_t = torch.from_numpy(y_train.astype(np.int64))
-        y_val_t = torch.from_numpy(y_val.astype(np.int64))
-        criterion = nn.CrossEntropyLoss()
-        y_scaler = None
-    else:
-        y_scaler = StandardScaler().fit(y_train.reshape(-1, 1))
-        y_train_s = y_scaler.transform(y_train.reshape(-1, 1)).astype(np.float32)
-        y_train_t = torch.from_numpy(y_train_s).squeeze(-1)
-        y_val_t = torch.from_numpy(y_val.astype(np.float32))
-        criterion = nn.MSELoss()
 
+    if not is_classification:
+        # Sklearn Ridge — analytical, no NaN risk.
+        y_scaler = StandardScaler().fit(y_train.reshape(-1, 1))
+        y_train_s = y_scaler.transform(y_train.reshape(-1, 1)).squeeze(-1)
+        ridge = Ridge(alpha=1.0).fit(X_train_s, y_train_s)
+        preds_s = ridge.predict(X_val_s)
+        preds = y_scaler.inverse_transform(preds_s.reshape(-1, 1)).squeeze(-1)
+        return {"MAE": mean_absolute_error(y_val.astype(np.float32), preds)}
+
+    # ---- Classification: official LinearClassifier + SGD + cosine LR ----
+    num_classes = int(y_train.max()) + 1
+    y_train_t = torch.from_numpy(y_train.astype(np.int64))
     X_train_t = torch.from_numpy(X_train_s)
     X_val_t = torch.from_numpy(X_val_s).to(device)
+    criterion = nn.CrossEntropyLoss()
 
-    # OFFICIAL LinearClassifier (with the wrapped-input expectations of
-    # create_linear_input). Since we pre-computed features, we bypass
-    # ModelWithIntermediateLayers and use the bare linear layer directly.
     classifier = LinearClassifier(
         out_dim=feature_dim, use_n_blocks=N_LAST_BLOCKS,
         use_avgpool=USE_AVGPOOL, num_classes=num_classes,
     ).to(device)
-    # Replace `forward` so it accepts pre-computed feature tensors directly.
+    # Pre-computed features bypass ModelWithIntermediateLayers; use the
+    # bare linear layer directly.
     classifier.forward = lambda feat: classifier.linear(feat)               # type: ignore
 
     optimizer = torch.optim.SGD(
@@ -280,10 +285,7 @@ def _train_one_fold(X_train, y_train, X_val, y_val, *,
             xb = X_train_t[idx].to(device)
             yb = y_train_t[idx].to(device)
             logits = classifier(xb)
-            if is_classification:
-                loss = criterion(logits, yb)
-            else:
-                loss = criterion(logits.squeeze(-1), yb)
+            loss = criterion(logits, yb)
             optimizer.zero_grad(set_to_none=True)
             loss.backward()
             optimizer.step()
@@ -292,26 +294,20 @@ def _train_one_fold(X_train, y_train, X_val, y_val, *,
     classifier.eval()
     with torch.no_grad():
         val_logits = classifier(X_val_t).cpu()
-        if is_classification:
-            if num_classes == 2:
-                probs = F.softmax(val_logits, dim=-1)[:, 1].numpy()
-            else:
-                probs = F.softmax(val_logits, dim=-1).numpy()
-            preds = val_logits.argmax(dim=-1).numpy()
-            y_val_np = y_val.astype(np.int64)
-            metrics = {
-                "Acc":  accuracy_score(y_val_np, preds),
-                "F1":   f1_score(y_val_np, preds, average="binary" if num_classes == 2 else "macro"),
-                "Prec": precision_score(y_val_np, preds, average="binary" if num_classes == 2 else "macro", zero_division=0),
-                "Rec":  recall_score(y_val_np, preds, average="binary" if num_classes == 2 else "macro", zero_division=0),
-            }
-            if num_classes == 2:
-                metrics["AUC"] = roc_auc_score(y_val_np, probs)
+        if num_classes == 2:
+            probs = F.softmax(val_logits, dim=-1)[:, 1].numpy()
         else:
-            preds = val_logits.squeeze(-1).numpy()
-            if y_scaler is not None:
-                preds = y_scaler.inverse_transform(preds.reshape(-1, 1)).squeeze(-1)
-            metrics = {"MAE": mean_absolute_error(y_val.astype(np.float32), preds)}
+            probs = F.softmax(val_logits, dim=-1).numpy()
+        preds = val_logits.argmax(dim=-1).numpy()
+    y_val_np = y_val.astype(np.int64)
+    metrics = {
+        "Acc":  accuracy_score(y_val_np, preds),
+        "F1":   f1_score(y_val_np, preds, average="binary" if num_classes == 2 else "macro"),
+        "Prec": precision_score(y_val_np, preds, average="binary" if num_classes == 2 else "macro", zero_division=0),
+        "Rec":  recall_score(y_val_np, preds, average="binary" if num_classes == 2 else "macro", zero_division=0),
+    }
+    if num_classes == 2:
+        metrics["AUC"] = roc_auc_score(y_val_np, probs)
     return metrics
 
 
