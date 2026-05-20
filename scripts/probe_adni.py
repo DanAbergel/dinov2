@@ -165,43 +165,61 @@ def _zscore_per_frame(scan):
 
 @torch.no_grad()
 def extract_embeddings(backbone, device, target_shape, temporal_kernel):
-    """All ADNI scans -> (N, embed_dim) numpy array of teacher CLS tokens."""
-    print(f"  Loading {ADNI_4D_PT}")
-    data = torch.load(ADNI_4D_PT, weights_only=True, map_location="cpu")
+    """All ADNI scans -> (N, embed_dim) numpy array of teacher CLS tokens.
+
+    Memory: we mmap the on-disk tensor (no full materialization) and copy
+    one scan at a time into RAM/GPU. ADNI full tensor is ~46 GB on disk
+    (812 x 45 x 54 x 45 x 140 fp32) — far above any reasonable cgroup; the
+    previous version called `.contiguous()` after `.permute()` on the whole
+    tensor and got OOM-killed by SLURM. Per-scan permute/contiguous keeps
+    RAM use at ~61 MB peak (one scan).
+    """
+    print(f"  Loading {ADNI_4D_PT} (mmap)")
+    data = torch.load(ADNI_4D_PT, weights_only=True, map_location="cpu", mmap=True)
     print(f"  ADNI shape={tuple(data.shape)} dtype={data.dtype}")
 
-    # Detect time axis: T is the largest non-batch dim for ADNI (~140 vs 45-55).
+    # Detect time axis without materialising the tensor.
+    # ADNI: T is the largest non-batch dim (140 vs spatial ~45-55).
     _, *rest = data.shape
     if data.ndim == 5 and rest[-1] > rest[0]:
-        # (N, X, Y, Z, T) -> permute to (N, T, X, Y, Z)
-        data = data.permute(0, 4, 1, 2, 3).contiguous()
-        print(f"  Permuted to (N, T, X, Y, Z): {tuple(data.shape)}")
+        t_layout = "NXYZT"
+        T = data.shape[-1]
+        X, Y, Z = data.shape[1:4]
+    else:
+        t_layout = "NTXYZ"
+        T = data.shape[1]
+        X, Y, Z = data.shape[2:5]
+    N = data.shape[0]
+    print(f"  Layout {t_layout}: N={N}, T={T}, spatial=({X},{Y},{Z})")
 
-    N, T, X, Y, Z = data.shape
     new_T_eff = T // temporal_kernel
     if T % temporal_kernel != 0:
-        # Trim trailing frames so T is divisible by temporal_kernel.
         T_keep = new_T_eff * temporal_kernel
         print(f"  Trimming T={T} -> {T_keep} (multiple of kernel={temporal_kernel})")
-        data = data[:, :T_keep]
         T = T_keep
     _resize_pos_temporal(backbone, new_T_eff)
 
     embeddings = np.empty((N, backbone.embed_dim), dtype=np.float32)
     t0 = time.time()
     for i in range(N):
-        scan = data[i].float().unsqueeze(1)                        # (T, 1, X, Y, Z)
-        # Resize spatial if needed.
+        # Per-scan slice: only ~61 MB materialised in RAM at any time.
+        if t_layout == "NXYZT":
+            scan = data[i, :, :, :, :T].permute(3, 0, 1, 2).contiguous().float()  # (T, X, Y, Z)
+        else:
+            scan = data[i, :T].contiguous().float()                               # (T, X, Y, Z)
+        scan = scan.unsqueeze(1)                                                  # (T, 1, X, Y, Z)
+        # Resize spatial if the data is not already at target_shape.
         if (X, Y, Z) != tuple(target_shape):
             scan = F.interpolate(
-                scan.unsqueeze(0).permute(0, 2, 1, 3, 4, 5).reshape(1, 1, T, X, Y, Z),
-                size=(T,) + tuple(target_shape),
+                scan, size=tuple(target_shape),
                 mode="trilinear", align_corners=False,
-            ).reshape(1, 1, T, *target_shape).permute(0, 2, 1, 3, 4, 5).squeeze(0)
+            )
         scan = _zscore_per_frame(scan)
-        x = scan.unsqueeze(0).to(device, non_blocking=True)        # (1, T, 1, X, Y, Z)
+        x = scan.unsqueeze(0).to(device, non_blocking=True)         # (1, T, 1, X, Y, Z)
         out = backbone(x, is_training=True)
         embeddings[i] = out["x_norm_clstoken"].squeeze(0).cpu().numpy()
+        # Free GPU memory between scans (T=140 takes ~6 GB at peak).
+        del scan, x, out
         if (i + 1) % 25 == 0 or i == N - 1:
             elapsed = time.time() - t0
             print(f"    {i+1}/{N}  ({elapsed:.0f}s, {elapsed/(i+1)*1000:.0f} ms/scan)")
