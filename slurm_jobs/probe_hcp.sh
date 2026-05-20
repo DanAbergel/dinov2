@@ -19,8 +19,11 @@
 #SBATCH --cpus-per-task=4
 #SBATCH --mem=64G
 #SBATCH --time=04:00:00
-#SBATCH --output=slurm_jobs/logs/probe_hcp_%j.out
-#SBATCH --error=slurm_jobs/logs/probe_hcp_%j.err
+# SLURM's own output is discarded; we redirect to versioned files (v1, v2, ...)
+# in-script below so reruns never overwrite previous logs and the filenames
+# don't depend on the job id.
+#SBATCH --output=/dev/null
+#SBATCH --error=/dev/null
 #SBATCH --chdir=/sci/labs/arieljaffe/dan.abergel1/repos/FAIR_official
 
 set -euo pipefail
@@ -38,6 +41,18 @@ export PYTHONUNBUFFERED=1
 
 mkdir -p "$OFFICIAL_DIR/slurm_jobs/logs"
 mkdir -p "$OFFICIAL_DIR/outputs/probes"
+
+# Versioned log files (v1, v2, ...) — see probe_adni.sh for the reasoning.
+LOG_BASE="$OFFICIAL_DIR/slurm_jobs/logs/probe_hcp"
+V=1
+while [ -e "${LOG_BASE}_v${V}.out" ] || [ -e "${LOG_BASE}_v${V}.err" ]; do
+    V=$((V + 1))
+done
+LOG_OUT="${LOG_BASE}_v${V}.out"
+LOG_ERR="${LOG_BASE}_v${V}.err"
+ln -sf "$(basename "$LOG_OUT")" "${LOG_BASE}_latest.out"
+ln -sf "$(basename "$LOG_ERR")" "${LOG_BASE}_latest.err"
+exec >"$LOG_OUT" 2>"$LOG_ERR"
 
 echo "============================================================"
 echo "  HCP linear probe on DINOv2-fmri checkpoint"
