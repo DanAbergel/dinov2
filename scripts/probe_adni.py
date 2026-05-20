@@ -191,8 +191,9 @@ def extract_features(backbone, device, target_shape, temporal_kernel):
     )
 
     # Figure out the feature dim by running one sample through.
-    probe_shape = (1, 1, *target_shape)
-    sample_in = torch.zeros(1, T, *probe_shape, device=device)
+    # Shape must be exactly 6D: (B=1, T, C=1, X, Y, Z) so prepare_tokens_with_masks
+    # hits our `if x.ndim == 6` branch.
+    sample_in = torch.zeros(1, T, 1, *target_shape, device=device)
     sample_out = wrapper(sample_in)
     feature_dim = create_linear_input(sample_out, N_LAST_BLOCKS, USE_AVGPOOL).shape[1]
     print(f"  Feature dim: {feature_dim}  "
