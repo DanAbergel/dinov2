@@ -1,37 +1,74 @@
 # Factorised 3D-spatial + 1D-temporal patch embedding for fMRI.
 #
-# Drops in as the `embed_layer=` argument of DinoVisionTransformer
-# (constructor signature matches dinov2.layers.PatchEmbed).
+# Two variants, selected via `hierarchical=False/True`:
 #
-# Input:  (B, T, in_chans=1, X, Y, Z)         a batch of full fMRI scans
-# Output: (B, T_eff * N_spatial, embed_dim)   token sequence ready for the ViT
+# 1) SHALLOW (`hierarchical=False`, default): one Conv3d for spatial patchify
+#    + one Conv1d for temporal patchify. Matches the original DINOv2 ViT
+#    patchify philosophy (one big strided conv from raw input to embed_dim).
 #
-# Carries the factorised positional embedding (pos_temporal, pos_spatial,
-# pos_cls) as `nn.Parameter` attributes so the ViT can add them from its
-# 6D branch in `prepare_tokens_with_masks` (replaces the official flat
-# `self.pos_embed` add). Order matches `src/dino/models.py:287-289 +
-# 328-340` of the previous FAIR project:
-#   - patch at (t, n) gets pos_temporal[t] + pos_spatial[n]
-#   - CLS gets pos_cls
-#   - register tokens get no positional embedding (same as official)
+# 2) HIERARCHICAL (`hierarchical=True`): multi-stage hierarchical encoder
+#    inspired by MovieGen TAE (Tuli's fork, github.com/MathieuTuli/MovieGen,
+#    tae.py:740 TemporalEncoder). Three spatial stages with stride-3
+#    downsamples + ResBlocks at each stage, then two temporal stages with
+#    Conv1d + ResBlocks. The token grid (T_eff = T // temporal_kernel,
+#    N_spatial = prod(img // patch_size)) is identical to the shallow
+#    variant so the ViT + factorised pos_embed downstream are unchanged.
+#
+# Both variants carry the factorised positional embedding
+# (pos_temporal + pos_spatial + pos_cls) as `nn.Parameter` attributes,
+# added by the ViT's 6D branch in `prepare_tokens_with_masks`.
 
 import torch
 import torch.nn as nn
+import torch.nn.functional as F
 from einops import rearrange, repeat
 from torch.nn.init import trunc_normal_
 
 
+class _ResBlock3D(nn.Module):
+    """3D residual block: GN + SiLU + Conv3d, twice, with skip."""
+
+    def __init__(self, ch: int):
+        super().__init__()
+        self.norm1 = nn.GroupNorm(min(8, ch), ch)
+        self.conv1 = nn.Conv3d(ch, ch, kernel_size=3, padding=1)
+        self.norm2 = nn.GroupNorm(min(8, ch), ch)
+        self.conv2 = nn.Conv3d(ch, ch, kernel_size=3, padding=1)
+
+    def forward(self, x):
+        h = self.conv1(F.silu(self.norm1(x)))
+        h = self.conv2(F.silu(self.norm2(h)))
+        return x + h
+
+
+class _ResBlock1D(nn.Module):
+    """1D residual block for the temporal axis."""
+
+    def __init__(self, ch: int):
+        super().__init__()
+        self.norm1 = nn.GroupNorm(min(8, ch), ch)
+        self.conv1 = nn.Conv1d(ch, ch, kernel_size=3, padding=1)
+        self.norm2 = nn.GroupNorm(min(8, ch), ch)
+        self.conv2 = nn.Conv1d(ch, ch, kernel_size=3, padding=1)
+
+    def forward(self, x):
+        h = self.conv1(F.silu(self.norm1(x)))
+        h = self.conv2(F.silu(self.norm2(h)))
+        return x + h
+
+
 class PatchEmbed3DPlus1D(nn.Module):
-    """Spatial Conv3d (per-frame) + temporal Conv1d (over frames) + factorised pos."""
+    """Spatial 3D + temporal 1D patchify with factorised pos."""
 
     def __init__(
         self,
-        img_size,                # (X, Y, Z) — read from the data tensor at startup
-        temporal_size: int,      # T — read from the data tensor at startup
+        img_size,                # (X, Y, Z) — read from data at startup
+        temporal_size: int,      # T
         patch_size: int = 9,
         in_chans: int = 1,
         embed_dim: int = 384,
         temporal_kernel: int = 10,
+        hierarchical: bool = False,
     ) -> None:
         super().__init__()
         self.img_size = tuple(img_size)
@@ -40,26 +77,55 @@ class PatchEmbed3DPlus1D(nn.Module):
         self.embed_dim = embed_dim
         self.temporal_size = temporal_size
         self.temporal_kernel = temporal_kernel
+        self.hierarchical = hierarchical
 
-        self.spatial = nn.Conv3d(
-            in_chans, embed_dim,
-            kernel_size=patch_size, stride=patch_size,
-        )
-        self.temporal = nn.Conv1d(
-            embed_dim, embed_dim,
-            kernel_size=temporal_kernel, stride=temporal_kernel,
-        )
+        if hierarchical:
+            # ----- Spatial hierarchical encoder ---------------------------
+            # Three stages, channels 1 -> 32 -> 96 -> embed_dim.
+            # Strides: 1 (stem, no downsample) -> 3 -> 3. Total stride: 9.
+            # For img (45, 54, 45):
+            #   stem      -> (45, 54, 45) @ 32 ch
+            #   down 1    -> (15, 18, 15) @ 96 ch
+            #   down 2    -> (5, 6, 5)    @ embed_dim
+            self.spatial = nn.Sequential(
+                # Stem
+                nn.Conv3d(in_chans, 32, kernel_size=3, padding=1),
+                _ResBlock3D(32),
+                # Downsample 1 (stride 3)
+                nn.Conv3d(32, 96, kernel_size=3, stride=3),
+                _ResBlock3D(96),
+                # Downsample 2 (stride 3, to target embed_dim)
+                nn.Conv3d(96, embed_dim, kernel_size=3, stride=3),
+                _ResBlock3D(embed_dim),
+            )
+            # ----- Temporal hierarchical encoder --------------------------
+            # Two stages, total stride 10 (= temporal_kernel for fMRI).
+            #   down 1: Conv1d stride 2 -> T 1200 -> 600
+            #   down 2: Conv1d stride 5 -> T 600  -> 120
+            self.temporal = nn.Sequential(
+                nn.Conv1d(embed_dim, embed_dim, kernel_size=3, stride=2, padding=1),
+                _ResBlock1D(embed_dim),
+                nn.Conv1d(embed_dim, embed_dim, kernel_size=5, stride=5),
+                _ResBlock1D(embed_dim),
+            )
+        else:
+            # ----- Original shallow patchify (DINOv2-style, 1 conv each) --
+            self.spatial = nn.Conv3d(
+                in_chans, embed_dim,
+                kernel_size=patch_size, stride=patch_size,
+            )
+            self.temporal = nn.Conv1d(
+                embed_dim, embed_dim,
+                kernel_size=temporal_kernel, stride=temporal_kernel,
+            )
 
-        # Token-grid sizes (non-overlapping convs: output length = input // kernel).
+        # Token-grid sizes (identical in both variants).
         gx, gy, gz = (s // patch_size for s in self.img_size)
         self.num_spatial_patches = gx * gy * gz
         self.num_temporal_patches = temporal_size // temporal_kernel
         self.num_patches = self.num_temporal_patches * self.num_spatial_patches
 
-        # Factorised positional embeddings, mirroring FAIR/src/dino/models.py:287-289.
-        # Total params: (T_eff + N_spatial + 1) * embed_dim. For T=1200/k=10 and
-        # img=45x54x45/p=9: (120 + 150 + 1) * 384 = 104 064 params, vs the flat
-        # (1, T_eff*N_spatial+1, embed_dim) = 18001 * 384 = 6 912 384 params.
+        # Factorised positional embeddings.
         self.pos_temporal = nn.Parameter(torch.zeros(1, self.num_temporal_patches, embed_dim))
         self.pos_spatial  = nn.Parameter(torch.zeros(1, self.num_spatial_patches, embed_dim))
         self.pos_cls      = nn.Parameter(torch.zeros(1, 1, embed_dim))
@@ -69,9 +135,7 @@ class PatchEmbed3DPlus1D(nn.Module):
 
     def combined_patch_pos(self) -> torch.Tensor:
         """(1, T_eff * N_spatial, embed_dim) — broadcast sum of the two
-        factorised embeddings. Sequence order is (t outer, n inner), matching
-        the rearrange '(b n) d t -> b (t n) d' in `forward` below and the
-        layout used in FAIR/src/dino/models.py:328-332."""
+        factorised embeddings. Order: (t outer, n inner)."""
         pos_t = repeat(self.pos_temporal, '1 t d -> 1 (t n) d', n=self.num_spatial_patches)
         pos_s = repeat(self.pos_spatial,  '1 n d -> 1 (t n) d', t=self.num_temporal_patches)
         return pos_t + pos_s
@@ -84,19 +148,16 @@ class PatchEmbed3DPlus1D(nn.Module):
             )
         B = x.shape[0]
 
-        # Step 1: spatial Conv3d applied per-frame (frames flattened into batch).
+        # Step 1: spatial encoder applied per-frame.
         x = rearrange(x, 'b t c x y z -> (b t) c x y z')
-        x = self.spatial(x)                                       # (B*T, D, gx, gy, gz)
+        x = self.spatial(x)                                       # (B*T, embed_dim, gx, gy, gz)
         x = rearrange(
             x, '(b t) d gx gy gz -> (b gx gy gz) d t', b=B,
-        )                                                         # (B*N_spatial, D, T)
+        )                                                         # (B*N_spatial, embed_dim, T)
 
-        # Step 2: temporal Conv1d applied per-spatial-location.
-        x = self.temporal(x)                                      # (B*N_spatial, D, T_eff)
+        # Step 2: temporal encoder applied per-spatial-location.
+        x = self.temporal(x)                                      # (B*N_spatial, embed_dim, T_eff)
         x = rearrange(
             x, '(b n) d t -> b (t n) d', b=B,
-        )                                                         # (B, T_eff*N_spatial, D)
-        # Positional embedding is added by the ViT's 6D branch (so iBOT
-        # masks can replace patches *before* pos is added, matching the
-        # official 4D path's ordering).
+        )                                                         # (B, T_eff*N_spatial, embed_dim)
         return x
