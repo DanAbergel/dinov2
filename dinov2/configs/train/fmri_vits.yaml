@@ -60,7 +60,7 @@ optim:
   epochs: 20
   weight_decay: 0.04
   weight_decay_end: 0.4
-  base_lr: 3.0e-4
+  base_lr: 7.0e-3                     # = 3e-4 effective after sqrt_wrt_1024 scaling on batch=2 (matches FAIR/src/dino/config.py PRETRAIN_LR=3e-4)
   warmup_epochs: 1
   min_lr: 1.0e-06
   clip_grad: 3.0
