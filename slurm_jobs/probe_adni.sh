@@ -92,7 +92,7 @@ echo "  Checkpoint: $CHECKPOINT"
 # Derive iteration tag from filename (model_0011999.rank_0.pth -> 0011999).
 ITER_TAG=$(basename "$CHECKPOINT" | sed -E 's/^model_([0-9]+)\.rank_0\.pth$/\1/')
 OUTPUT_JSON="$OFFICIAL_DIR/outputs/probes/probe_iter${ITER_TAG}.json"
-EMBED_CACHE="$OFFICIAL_DIR/outputs/probes/embeddings_iter${ITER_TAG}.npz"
+FEATURES_CACHE="$OFFICIAL_DIR/outputs/probes/features_iter${ITER_TAG}.npz"
 echo "  Output:     $OUTPUT_JSON"
 
 # ----- 2. Run -----
@@ -100,7 +100,7 @@ python scripts/probe_adni.py \
     --checkpoint "$CHECKPOINT" \
     --config-file dinov2/configs/train/fmri_vits.yaml \
     --output "$OUTPUT_JSON" \
-    --embeddings-out "$EMBED_CACHE"
+    --features-out "$FEATURES_CACHE"
 
 echo ""
 echo "============================================================"
