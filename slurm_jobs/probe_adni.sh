@@ -25,8 +25,8 @@
 #SBATCH --cpus-per-task=4
 #SBATCH --mem=64G
 #SBATCH --time=04:00:00
-#SBATCH --output=slurm_jobs/logs/probe_adni.out
-#SBATCH --error=slurm_jobs/logs/probe_adni.err
+#SBATCH --output=slurm_jobs/logs/probe_adni_%j.out
+#SBATCH --error=slurm_jobs/logs/probe_adni_%j.err
 #SBATCH --chdir=/sci/labs/arieljaffe/dan.abergel1/repos/FAIR_official
 
 set -euo pipefail

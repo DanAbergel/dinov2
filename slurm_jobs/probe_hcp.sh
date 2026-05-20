@@ -19,8 +19,8 @@
 #SBATCH --cpus-per-task=4
 #SBATCH --mem=64G
 #SBATCH --time=04:00:00
-#SBATCH --output=slurm_jobs/logs/probe_hcp.out
-#SBATCH --error=slurm_jobs/logs/probe_hcp.err
+#SBATCH --output=slurm_jobs/logs/probe_hcp_%j.out
+#SBATCH --error=slurm_jobs/logs/probe_hcp_%j.err
 #SBATCH --chdir=/sci/labs/arieljaffe/dan.abergel1/repos/FAIR_official
 
 set -euo pipefail
