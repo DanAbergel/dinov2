@@ -75,7 +75,7 @@ optim:
 
 crops:
   global_crops_scale: [0.32, 1.0]
-  local_crops_number: 8
+  local_crops_number: 4               # 8 -> 4: halves the locals to fit the hierarchical patchify activations on H200. Also makes each step ~40% faster.
   local_crops_scale: [0.05, 0.32]
   global_crops_size: 224              # unused in fmri_mode (img_size comes from fmri_img_size) but must be present for the schema
   local_crops_size: 96                # same — accepted for API parity with DataAugmentationDINO
