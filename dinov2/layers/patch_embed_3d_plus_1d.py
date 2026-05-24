@@ -1,22 +1,14 @@
 # Factorised 3D-spatial + 1D-temporal patch embedding for fMRI.
 #
-# Two variants, selected via `hierarchical=False/True`:
+# Hierarchical encoder inspired by MovieGen TAE
+# (github.com/MathieuTuli/MovieGen, tae.py:740 TemporalEncoder):
+# three spatial stages with stride-3 downsamples + ResBlocks at each
+# stage, then two temporal stages with Conv1d + ResBlocks. Token grid:
+# T_eff = T // temporal_kernel, N_spatial = prod(img // patch_size).
 #
-# 1) SHALLOW (`hierarchical=False`, default): one Conv3d for spatial patchify
-#    + one Conv1d for temporal patchify. Matches the original DINOv2 ViT
-#    patchify philosophy (one big strided conv from raw input to embed_dim).
-#
-# 2) HIERARCHICAL (`hierarchical=True`): multi-stage hierarchical encoder
-#    inspired by MovieGen TAE (Tuli's fork, github.com/MathieuTuli/MovieGen,
-#    tae.py:740 TemporalEncoder). Three spatial stages with stride-3
-#    downsamples + ResBlocks at each stage, then two temporal stages with
-#    Conv1d + ResBlocks. The token grid (T_eff = T // temporal_kernel,
-#    N_spatial = prod(img // patch_size)) is identical to the shallow
-#    variant so the ViT + factorised pos_embed downstream are unchanged.
-#
-# Both variants carry the factorised positional embedding
-# (pos_temporal + pos_spatial + pos_cls) as `nn.Parameter` attributes,
-# added by the ViT's 6D branch in `prepare_tokens_with_masks`.
+# Carries the factorised positional embedding (pos_temporal +
+# pos_spatial + pos_cls) as `nn.Parameter` attributes, added by the
+# ViT's 6D branch in `prepare_tokens_with_masks`.
 
 import torch
 import torch.nn as nn
@@ -68,7 +60,6 @@ class PatchEmbed3DPlus1D(nn.Module):
         in_chans: int = 1,
         embed_dim: int = 384,
         temporal_kernel: int = 10,
-        hierarchical: bool = False,
     ) -> None:
         super().__init__()
         self.img_size = tuple(img_size)
@@ -77,53 +68,36 @@ class PatchEmbed3DPlus1D(nn.Module):
         self.embed_dim = embed_dim
         self.temporal_size = temporal_size
         self.temporal_kernel = temporal_kernel
-        self.hierarchical = hierarchical
 
-        if hierarchical:
-            # ----- Spatial hierarchical encoder ---------------------------
-            # Three stages, channels 1 -> 32 -> 96 -> embed_dim.
-            # Strides: 1 (stem, no downsample) -> 3 -> 3. Total stride: 9.
-            # For img (45, 54, 45):
-            #   stem      -> (45, 54, 45) @ 16 ch
-            #   down 1    -> (15, 18, 15) @ 64 ch
-            #   down 2    -> (5, 6, 5)    @ embed_dim
-            # Stem channels were reduced from (32, 96) -> (16, 64) so that the
-            # full-resolution stem activation fits on a single H200 (we OOM'd
-            # at 32 ch because 24k frames x 32 ch x 45x54x45 = 42 GB in fp16).
-            # With 16 ch we land at ~21 GB, comfortably within budget.
-            self.spatial = nn.Sequential(
-                # Stem
-                nn.Conv3d(in_chans, 16, kernel_size=3, padding=1),
-                _ResBlock3D(16),
-                # Downsample 1 (stride 3)
-                nn.Conv3d(16, 64, kernel_size=3, stride=3),
-                _ResBlock3D(64),
-                # Downsample 2 (stride 3, to target embed_dim)
-                nn.Conv3d(64, embed_dim, kernel_size=3, stride=3),
-                _ResBlock3D(embed_dim),
-            )
-            # ----- Temporal hierarchical encoder --------------------------
-            # Two stages, total stride 10 (= temporal_kernel for fMRI).
-            #   down 1: Conv1d stride 2 -> T 1200 -> 600
-            #   down 2: Conv1d stride 5 -> T 600  -> 120
-            self.temporal = nn.Sequential(
-                nn.Conv1d(embed_dim, embed_dim, kernel_size=3, stride=2, padding=1),
-                _ResBlock1D(embed_dim),
-                nn.Conv1d(embed_dim, embed_dim, kernel_size=5, stride=5),
-                _ResBlock1D(embed_dim),
-            )
-        else:
-            # ----- Original shallow patchify (DINOv2-style, 1 conv each) --
-            self.spatial = nn.Conv3d(
-                in_chans, embed_dim,
-                kernel_size=patch_size, stride=patch_size,
-            )
-            self.temporal = nn.Conv1d(
-                embed_dim, embed_dim,
-                kernel_size=temporal_kernel, stride=temporal_kernel,
-            )
+        # ----- Spatial hierarchical encoder -------------------------------
+        # Three stages with stride-3 downsamples (total spatial stride: 9).
+        # For img (45, 54, 45):
+        #   stem      -> (45, 54, 45) @ 16 ch
+        #   down 1    -> (15, 18, 15) @ 64 ch
+        #   down 2    -> (5, 6, 5)    @ embed_dim
+        self.spatial = nn.Sequential(
+            # Stem
+            nn.Conv3d(in_chans, 16, kernel_size=3, padding=1),
+            _ResBlock3D(16),
+            # Downsample 1 (stride 3)
+            nn.Conv3d(16, 64, kernel_size=3, stride=3),
+            _ResBlock3D(64),
+            # Downsample 2 (stride 3, to target embed_dim)
+            nn.Conv3d(64, embed_dim, kernel_size=3, stride=3),
+            _ResBlock3D(embed_dim),
+        )
+        # ----- Temporal hierarchical encoder ------------------------------
+        # Two stages, total temporal stride 10 (= temporal_kernel for fMRI).
+        #   down 1: Conv1d stride 2 -> T 1200 -> 600
+        #   down 2: Conv1d stride 5 -> T 600  -> 120
+        self.temporal = nn.Sequential(
+            nn.Conv1d(embed_dim, embed_dim, kernel_size=3, stride=2, padding=1),
+            _ResBlock1D(embed_dim),
+            nn.Conv1d(embed_dim, embed_dim, kernel_size=5, stride=5),
+            _ResBlock1D(embed_dim),
+        )
 
-        # Token-grid sizes (identical in both variants).
+        # Token-grid sizes.
         gx, gy, gz = (s // patch_size for s in self.img_size)
         self.num_spatial_patches = gx * gy * gz
         self.num_temporal_patches = temporal_size // temporal_kernel

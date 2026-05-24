@@ -65,10 +65,6 @@ def build_model_from_cfg(cfg, only_teacher=False):
             PatchEmbed3DPlus1D,
             temporal_size=cfg.student.fmri_temporal_size,
             temporal_kernel=cfg.student.fmri_temporal_kernel,
-            # FMRI CHANGE: optional hierarchical patchify (MovieGen-TAE style)
-            # selected via cfg.student.patchify_hierarchical. Defaults to False
-            # = original 1-Conv3d + 1-Conv1d shallow patchify.
-            hierarchical=getattr(cfg.student, "patchify_hierarchical", False),
         )
         img_size = tuple(cfg.student.fmri_img_size)
     return build_model(

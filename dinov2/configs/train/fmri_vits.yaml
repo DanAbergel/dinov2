@@ -42,7 +42,6 @@ student:
   fmri_img_size: [45, 54, 45]         # HCP downsampled volume; patch=9 -> 5*6*5 = 150 spatial tokens
   fmri_temporal_size: 1200            # full HCP REST1_LR scan; tune for ADNI (140) etc.
   fmri_temporal_kernel: 10            # non-overlapping temporal Conv1d -> T_eff = 120
-  patchify_hierarchical: true         # multi-stage MovieGen-TAE style patchify; false = shallow 1-Conv3d + 1-Conv1d
   # Token grid: T_eff * N_spatial = 120 * 150 = 18 000 tokens.
   # Factorised pos params: (120 + 150 + 1) * 384 = 104 064 (vs flat 18001 * 384 = 6.9 M).
   # Attention is still O(N^2) in compute, so tune fmri_temporal_size or
