@@ -1,14 +1,22 @@
 # Factorised 3D-spatial + 1D-temporal patch embedding for fMRI.
 #
-# Hierarchical encoder inspired by MovieGen TAE
-# (github.com/MathieuTuli/MovieGen, tae.py:740 TemporalEncoder):
-# three spatial stages with stride-3 downsamples + ResBlocks at each
-# stage, then two temporal stages with Conv1d + ResBlocks. Token grid:
-# T_eff = T // temporal_kernel, N_spatial = prod(img // patch_size).
+# Architecture follows MovieGen TAE TemporalEncoder
+# (github.com/MathieuTuli/MovieGen, tae.py:740) but adapted to 4D fMRI:
+#   - Conv3Plus1d is the fMRI equivalent of MovieGen Conv2Plus1d:
+#     a separable spatial-3D + temporal-1D conv used as the basic block
+#     at every level of the encoder (NOT just split between two phases).
+#   - ResBlocks contain TWO Conv3Plus1d each (same as TemporalResnetBlock).
+#   - Downsamples are Conv3Plus1d with strided spatial AND temporal.
+#   - Each hierarchical level uses Conv3Plus1d-based blocks; we never have
+#     a "pure spatial then pure temporal" phase.
 #
-# Carries the factorised positional embedding (pos_temporal +
-# pos_spatial + pos_cls) as `nn.Parameter` attributes, added by the
-# ViT's 6D branch in `prepare_tokens_with_masks`.
+# Strides for fMRI (HCP):
+#   Level 0 -> Level 1: spatial stride 3, temporal stride 2  (1200 -> 600, 45 -> 15)
+#   Level 1 -> Level 2: spatial stride 3, temporal stride 10 (600 -> 60, 15 -> 5)
+# Total: 9x spatial (matches patch_size=9), 20x temporal (= temporal_kernel).
+#
+# Carries the factorised positional embedding (pos_temporal + pos_spatial
+# + pos_cls) added by the ViT's 6D branch in `prepare_tokens_with_masks`.
 
 import torch
 import torch.nn as nn
@@ -17,31 +25,55 @@ from einops import rearrange, repeat
 from torch.nn.init import trunc_normal_
 
 
-class _ResBlock3D(nn.Module):
-    """3D residual block: GN + SiLU + Conv3d, twice, with skip."""
+class Conv3Plus1d(nn.Module):
+    """Spatial 3D conv + temporal 1D conv applied sequentially.
+
+    fMRI equivalent of MovieGen's `Conv2Plus1d` (tae.py L573):
+      - the spatial part is a Conv3d acting per-frame (treats T as batch)
+      - the temporal part is a Conv1d acting per-voxel-position (treats
+        the spatial grid as batch)
+
+    Together they implement a SEPARABLE 4D conv (T, X, Y, Z) — equivalent
+    to a full (T, X, Y, Z) Conv4d but with far fewer parameters and using
+    only standard PyTorch primitives (no Conv4d in PyTorch).
+
+    Input/output layout: (B, C, T, X, Y, Z).
+    """
+
+    def __init__(
+        self, in_c, out_c,
+        K_s: int = 3, S_s: int = 1, P_s: int = 1,
+        K_t: int = 3, S_t: int = 1, P_t: int = 1,
+    ):
+        super().__init__()
+        self.spatial = nn.Conv3d(in_c, out_c, kernel_size=K_s, stride=S_s, padding=P_s)
+        self.temporal = nn.Conv1d(out_c, out_c, kernel_size=K_t, stride=S_t, padding=P_t)
+
+    def forward(self, x: torch.Tensor) -> torch.Tensor:
+        # x: (B, C, T, X, Y, Z)
+        B, _, T, _, _, _ = x.shape
+        # Spatial: process each frame independently
+        x = rearrange(x, 'b c t x y z -> (b t) c x y z')
+        x = self.spatial(x)                                       # (B*T, C', X', Y', Z')
+        _, _, X2, Y2, Z2 = x.shape
+        # Temporal: process each spatial position independently
+        x = rearrange(x, '(b t) c x y z -> (b x y z) c t', b=B, t=T)
+        x = self.temporal(x)                                      # (B*X2*Y2*Z2, C', T')
+        # Back to 6D
+        x = rearrange(x, '(b x y z) c t -> b c t x y z', b=B, x=X2, y=Y2, z=Z2)
+        return x
+
+
+class _ResBlock3Plus1d(nn.Module):
+    """Residual block with two Conv3Plus1d. Equivalent to MovieGen's
+    `TemporalResnetBlock` (tae.py L643)."""
 
     def __init__(self, ch: int):
         super().__init__()
         self.norm1 = nn.GroupNorm(min(8, ch), ch)
-        self.conv1 = nn.Conv3d(ch, ch, kernel_size=3, padding=1)
+        self.conv1 = Conv3Plus1d(ch, ch)
         self.norm2 = nn.GroupNorm(min(8, ch), ch)
-        self.conv2 = nn.Conv3d(ch, ch, kernel_size=3, padding=1)
-
-    def forward(self, x):
-        h = self.conv1(F.silu(self.norm1(x)))
-        h = self.conv2(F.silu(self.norm2(h)))
-        return x + h
-
-
-class _ResBlock1D(nn.Module):
-    """1D residual block for the temporal axis."""
-
-    def __init__(self, ch: int):
-        super().__init__()
-        self.norm1 = nn.GroupNorm(min(8, ch), ch)
-        self.conv1 = nn.Conv1d(ch, ch, kernel_size=3, padding=1)
-        self.norm2 = nn.GroupNorm(min(8, ch), ch)
-        self.conv2 = nn.Conv1d(ch, ch, kernel_size=3, padding=1)
+        self.conv2 = Conv3Plus1d(ch, ch)
 
     def forward(self, x):
         h = self.conv1(F.silu(self.norm1(x)))
@@ -50,7 +82,13 @@ class _ResBlock1D(nn.Module):
 
 
 class PatchEmbed3DPlus1D(nn.Module):
-    """Spatial 3D + temporal 1D patchify with factorised pos."""
+    """Hierarchical spatio-temporal encoder for fMRI, MovieGen-TAE style.
+
+    Constructor signature is the dinov2 PatchEmbed contract so this drops
+    in as the `embed_layer=` of DinoVisionTransformer; the fMRI-specific
+    `temporal_size` and `temporal_kernel` are bound via `functools.partial`
+    in `build_model_from_cfg`.
+    """
 
     def __init__(
         self,
@@ -59,7 +97,7 @@ class PatchEmbed3DPlus1D(nn.Module):
         patch_size: int = 9,
         in_chans: int = 1,
         embed_dim: int = 384,
-        temporal_kernel: int = 10,
+        temporal_kernel: int = 20,
     ) -> None:
         super().__init__()
         self.img_size = tuple(img_size)
@@ -69,34 +107,32 @@ class PatchEmbed3DPlus1D(nn.Module):
         self.temporal_size = temporal_size
         self.temporal_kernel = temporal_kernel
 
-        # ----- Spatial hierarchical encoder -------------------------------
-        # Three stages with stride-3 downsamples (total spatial stride: 9).
-        # For img (45, 54, 45):
-        #   stem      -> (45, 54, 45) @ 16 ch
-        #   down 1    -> (15, 18, 15) @ 64 ch
-        #   down 2    -> (5, 6, 5)    @ embed_dim
-        self.spatial = nn.Sequential(
-            # Stem
-            nn.Conv3d(in_chans, 16, kernel_size=3, padding=1),
-            _ResBlock3D(16),
-            # Downsample 1 (stride 3)
-            nn.Conv3d(16, 64, kernel_size=3, stride=3),
-            _ResBlock3D(64),
-            # Downsample 2 (stride 3, to target embed_dim)
-            nn.Conv3d(64, embed_dim, kernel_size=3, stride=3),
-            _ResBlock3D(embed_dim),
-        )
-        # ----- Temporal hierarchical encoder ------------------------------
-        # Two stages, total stride must equal temporal_kernel.
-        # For kernel=20: strides (2, 10), T 1200 -> 600 -> 60.
-        # If you change temporal_kernel in the YAML, update the 2nd stride
-        # below so that 2 * stride_2 == temporal_kernel.
-        self.temporal = nn.Sequential(
-            nn.Conv1d(embed_dim, embed_dim, kernel_size=3, stride=2, padding=1),
-            _ResBlock1D(embed_dim),
-            nn.Conv1d(embed_dim, embed_dim, kernel_size=10, stride=10),
-            _ResBlock1D(embed_dim),
-        )
+        # ----- 3 hierarchical levels with Conv3Plus1d throughout ----------
+        # Strides per level transition (spatial, temporal):
+        #   conv_in -> level_0: (1, 1)       full resolution
+        #   level_0 -> level_1: (3, 2)       9x reduction so far: 3 spatial, 2 temporal
+        #   level_1 -> level_2: (3, 10)      9x spatial, 20x temporal (= temporal_kernel)
+        # Channels: 1 -> 16 -> 64 -> embed_dim.
+
+        # Initial projection (full resolution, no downsample).
+        self.conv_in = Conv3Plus1d(in_chans, 16, K_s=3, S_s=1, P_s=1, K_t=3, S_t=1, P_t=1)
+
+        # Level 0 (full resolution, 16 ch).
+        self.block_0 = _ResBlock3Plus1d(16)
+        # Downsample to /3 spatial, /2 temporal, channels 16 -> 64.
+        self.down_0 = Conv3Plus1d(16, 64,
+                                  K_s=3, S_s=3, P_s=0,
+                                  K_t=3, S_t=2, P_t=1)
+
+        # Level 1 (at /3 spatial, /2 temporal; 64 ch).
+        self.block_1 = _ResBlock3Plus1d(64)
+        # Downsample to /9 spatial total, /20 temporal total; 64 -> embed_dim.
+        self.down_1 = Conv3Plus1d(64, embed_dim,
+                                  K_s=3, S_s=3, P_s=0,
+                                  K_t=10, S_t=10, P_t=0)
+
+        # Level 2 (target resolution = token grid: (T_eff, gx, gy, gz)).
+        self.block_2 = _ResBlock3Plus1d(embed_dim)
 
         # Token-grid sizes.
         gx, gy, gz = (s // patch_size for s in self.img_size)
@@ -119,40 +155,37 @@ class PatchEmbed3DPlus1D(nn.Module):
         pos_s = repeat(self.pos_spatial,  '1 n d -> 1 (t n) d', t=self.num_temporal_patches)
         return pos_t + pos_s
 
+    def _encoder_forward(self, x: torch.Tensor) -> torch.Tensor:
+        """Single pass through the hierarchical encoder. Wrapped by checkpoint
+        in `forward` when in training mode."""
+        x = self.conv_in(x)
+        x = self.block_0(x)
+        x = self.down_0(x)
+        x = self.block_1(x)
+        x = self.down_1(x)
+        x = self.block_2(x)
+        return x
+
     def forward(self, x: torch.Tensor) -> torch.Tensor:
-        # x: (B, T, in_chans, X, Y, Z)
+        # x in: (B, T, in_chans, X, Y, Z)  — dinov2's 6D layout
         if x.ndim != 6:
             raise ValueError(
                 f"PatchEmbed3DPlus1D expects shape (B, T, C, X, Y, Z); got {tuple(x.shape)}"
             )
-        B = x.shape[0]
 
-        # Step 1: spatial encoder applied per-frame.
-        # Activation checkpointing: store only input + output of self.spatial
-        # and recompute the intermediates during backward. The stem output at
-        # full spatial resolution (16 ch x 45x54x45 per frame, x 24k frames
-        # with batch=2 + 2 globals + 8 locals) is ~84 GB in fp16 — too big to
-        # store. Recomputing during backward costs ~30% extra forward FLOPs
-        # but is the only way to keep the architecture intact + 8 local crops.
-        x = rearrange(x, 'b t c x y z -> (b t) c x y z')
+        # Move to (B, C, T, X, Y, Z) layout — Conv3Plus1d expects this.
+        x = rearrange(x, 'b t c x y z -> b c t x y z')
+
+        # Activation checkpointing: spatial encoder at full resolution
+        # produces large intermediate activations. We trade ~30% extra
+        # forward compute (recompute during backward) for ~80 GB memory.
         if self.training:
             x = torch.utils.checkpoint.checkpoint(
-                self.spatial, x, use_reentrant=False,
+                self._encoder_forward, x, use_reentrant=False,
             )
         else:
-            x = self.spatial(x)                                   # (B*T, embed_dim, gx, gy, gz)
-        x = rearrange(
-            x, '(b t) d gx gy gz -> (b gx gy gz) d t', b=B,
-        )                                                         # (B*N_spatial, embed_dim, T)
+            x = self._encoder_forward(x)
 
-        # Step 2: temporal encoder applied per-spatial-location.
-        if self.training:
-            x = torch.utils.checkpoint.checkpoint(
-                self.temporal, x, use_reentrant=False,
-            )
-        else:
-            x = self.temporal(x)                                  # (B*N_spatial, embed_dim, T_eff)
-        x = rearrange(
-            x, '(b n) d t -> b (t n) d', b=B,
-        )                                                         # (B, T_eff*N_spatial, embed_dim)
+        # x: (B, embed_dim, T_eff, gx, gy, gz). Rearrange to tokens.
+        x = rearrange(x, 'b c t x y z -> b (t x y z) c')          # (B, T_eff*N_spatial, embed_dim)
         return x
