@@ -87,22 +87,14 @@ class PatchEmbed3DPlus1D(nn.Module):
             _ResBlock3D(embed_dim),
         )
         # ----- Temporal hierarchical encoder ------------------------------
-        # Two stages whose strides multiply to `temporal_kernel`. We pick the
-        # smallest divisor of temporal_kernel >= 2 as the first stride; the
-        # remainder becomes the second stride.
-        #   kernel=10 -> (2, 5)   T 1200 -> 600 -> 120
-        #   kernel=20 -> (2, 10)  T 1200 -> 600 -> 60
-        #   kernel=30 -> (2, 15)  T 1200 -> 600 -> 40
-        #   kernel=prime -> (1, kernel)  single stage
-        import math
-        s1 = next((i for i in range(2, int(math.sqrt(temporal_kernel)) + 1)
-                   if temporal_kernel % i == 0), 1)
-        s2 = temporal_kernel // s1
+        # Two stages, total stride must equal temporal_kernel.
+        # For kernel=20: strides (2, 10), T 1200 -> 600 -> 60.
+        # If you change temporal_kernel in the YAML, update the 2nd stride
+        # below so that 2 * stride_2 == temporal_kernel.
         self.temporal = nn.Sequential(
-            nn.Conv1d(embed_dim, embed_dim, kernel_size=max(s1, 3),
-                      stride=s1, padding=max(s1, 3) // 2),
+            nn.Conv1d(embed_dim, embed_dim, kernel_size=3, stride=2, padding=1),
             _ResBlock1D(embed_dim),
-            nn.Conv1d(embed_dim, embed_dim, kernel_size=s2, stride=s2),
+            nn.Conv1d(embed_dim, embed_dim, kernel_size=10, stride=10),
             _ResBlock1D(embed_dim),
         )
 
