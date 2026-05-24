@@ -127,14 +127,30 @@ class PatchEmbed3DPlus1D(nn.Module):
         B = x.shape[0]
 
         # Step 1: spatial encoder applied per-frame.
+        # Activation checkpointing: store only input + output of self.spatial
+        # and recompute the intermediates during backward. The stem output at
+        # full spatial resolution (16 ch x 45x54x45 per frame, x 24k frames
+        # with batch=2 + 2 globals + 8 locals) is ~84 GB in fp16 — too big to
+        # store. Recomputing during backward costs ~30% extra forward FLOPs
+        # but is the only way to keep the architecture intact + 8 local crops.
         x = rearrange(x, 'b t c x y z -> (b t) c x y z')
-        x = self.spatial(x)                                       # (B*T, embed_dim, gx, gy, gz)
+        if self.training:
+            x = torch.utils.checkpoint.checkpoint(
+                self.spatial, x, use_reentrant=False,
+            )
+        else:
+            x = self.spatial(x)                                   # (B*T, embed_dim, gx, gy, gz)
         x = rearrange(
             x, '(b t) d gx gy gz -> (b gx gy gz) d t', b=B,
         )                                                         # (B*N_spatial, embed_dim, T)
 
         # Step 2: temporal encoder applied per-spatial-location.
-        x = self.temporal(x)                                      # (B*N_spatial, embed_dim, T_eff)
+        if self.training:
+            x = torch.utils.checkpoint.checkpoint(
+                self.temporal, x, use_reentrant=False,
+            )
+        else:
+            x = self.temporal(x)                                  # (B*N_spatial, embed_dim, T_eff)
         x = rearrange(
             x, '(b n) d t -> b (t n) d', b=B,
         )                                                         # (B, T_eff*N_spatial, embed_dim)
