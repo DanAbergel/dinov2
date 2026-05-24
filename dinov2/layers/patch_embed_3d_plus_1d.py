@@ -84,18 +84,22 @@ class PatchEmbed3DPlus1D(nn.Module):
             # Three stages, channels 1 -> 32 -> 96 -> embed_dim.
             # Strides: 1 (stem, no downsample) -> 3 -> 3. Total stride: 9.
             # For img (45, 54, 45):
-            #   stem      -> (45, 54, 45) @ 32 ch
-            #   down 1    -> (15, 18, 15) @ 96 ch
+            #   stem      -> (45, 54, 45) @ 16 ch
+            #   down 1    -> (15, 18, 15) @ 64 ch
             #   down 2    -> (5, 6, 5)    @ embed_dim
+            # Stem channels were reduced from (32, 96) -> (16, 64) so that the
+            # full-resolution stem activation fits on a single H200 (we OOM'd
+            # at 32 ch because 24k frames x 32 ch x 45x54x45 = 42 GB in fp16).
+            # With 16 ch we land at ~21 GB, comfortably within budget.
             self.spatial = nn.Sequential(
                 # Stem
-                nn.Conv3d(in_chans, 32, kernel_size=3, padding=1),
-                _ResBlock3D(32),
+                nn.Conv3d(in_chans, 16, kernel_size=3, padding=1),
+                _ResBlock3D(16),
                 # Downsample 1 (stride 3)
-                nn.Conv3d(32, 96, kernel_size=3, stride=3),
-                _ResBlock3D(96),
+                nn.Conv3d(16, 64, kernel_size=3, stride=3),
+                _ResBlock3D(64),
                 # Downsample 2 (stride 3, to target embed_dim)
-                nn.Conv3d(96, embed_dim, kernel_size=3, stride=3),
+                nn.Conv3d(64, embed_dim, kernel_size=3, stride=3),
                 _ResBlock3D(embed_dim),
             )
             # ----- Temporal hierarchical encoder --------------------------
