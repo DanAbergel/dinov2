@@ -42,7 +42,7 @@ student:
   fmri_img_size: [45, 54, 45]         # HCP downsampled volume; patch=9 -> 5*6*5 = 150 spatial tokens
   fmri_temporal_size: 1200            # full HCP REST1_LR scan; tune for ADNI (140) etc.
   fmri_temporal_kernel: 10            # non-overlapping temporal Conv1d -> T_eff = 120
-  patchify_hierarchical: true         # multi-stage MovieGen-TAE style patchify; false = shallow 1-Conv3d + 1-Conv1d
+  patchify_hierarchical: false        # disabled (was OOM on H200); set true to re-enable MovieGen-style hierarchical encoder
   # Token grid: T_eff * N_spatial = 120 * 150 = 18 000 tokens.
   # Factorised pos params: (120 + 150 + 1) * 384 = 104 064 (vs flat 18001 * 384 = 6.9 M).
   # Attention is still O(N^2) in compute, so tune fmri_temporal_size or
@@ -58,7 +58,7 @@ teacher:
   channel_adaptive: false
 
 optim:
-  grad_accum_steps: 8                 # accumulate 8 micro-batches -> effective batch = 2*8 = 16. LR auto-scales via sqrt_wrt_1024.
+  grad_accum_steps: 1                 # no grad accumulation (effective batch = batch_size_per_gpu = 2)
   epochs: 20
   weight_decay: 0.04
   weight_decay_end: 0.4
@@ -75,7 +75,7 @@ optim:
 
 crops:
   global_crops_scale: [0.32, 1.0]
-  local_crops_number: 4               # 8 -> 4: halves the locals to fit the hierarchical patchify activations on H200. Also makes each step ~40% faster.
+  local_crops_number: 8               # original DINOv2 default
   local_crops_scale: [0.05, 0.32]
   global_crops_size: 224              # unused in fmri_mode (img_size comes from fmri_img_size) but must be present for the schema
   local_crops_size: 96                # same — accepted for API parity with DataAugmentationDINO
