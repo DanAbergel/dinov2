@@ -109,26 +109,34 @@ class PatchEmbed3DPlus1D(nn.Module):
 
         # ----- 3 hierarchical levels with Conv3Plus1d throughout ----------
         # Strides per level transition (spatial, temporal):
-        #   conv_in -> level_0: (1, 1)       full resolution
-        #   level_0 -> level_1: (3, 2)       9x reduction so far: 3 spatial, 2 temporal
-        #   level_1 -> level_2: (3, 10)      9x spatial, 20x temporal (= temporal_kernel)
-        # Channels: 1 -> 16 -> 64 -> embed_dim.
+        #   conv_in -> level_0: (3, 1)       first spatial downsample baked in
+        #   level_0 -> level_1: (3, 2)       9x spatial so far, 2x temporal
+        #   level_1 -> level_2: (1, 10)      9x spatial, 20x temporal (= temporal_kernel)
+        # Channels: 1 -> 32 -> 64 -> embed_dim.
+        #
+        # Why downsample at conv_in: with 19200 frames (8 locals x batch 2 x T=1200)
+        # going through a full-resolution spatial conv at 16 ch, the intermediate
+        # activation reaches 67 GB just before the rearrange, which then needs to
+        # COPY the whole tensor to a new layout (another 67 GB) -> OOM. Moving
+        # the first spatial downsample into conv_in cuts the intermediate by ~9x.
+        # MovieGen TAE can afford to start at full resolution because they have
+        # very few frames per video (T=8); we have 1200 frames.
 
-        # Initial projection (full resolution, no downsample).
-        self.conv_in = Conv3Plus1d(in_chans, 16, K_s=3, S_s=1, P_s=1, K_t=3, S_t=1, P_t=1)
+        # Initial projection AND first spatial downsample.
+        self.conv_in = Conv3Plus1d(in_chans, 32, K_s=3, S_s=3, P_s=0, K_t=3, S_t=1, P_t=1)
 
-        # Level 0 (full resolution, 16 ch).
-        self.block_0 = _ResBlock3Plus1d(16)
-        # Downsample to /3 spatial, /2 temporal, channels 16 -> 64.
-        self.down_0 = Conv3Plus1d(16, 64,
+        # Level 0 (at /3 spatial, full temporal; 32 ch).
+        self.block_0 = _ResBlock3Plus1d(32)
+        # Downsample to /9 spatial total, /2 temporal; 32 -> 64 ch.
+        self.down_0 = Conv3Plus1d(32, 64,
                                   K_s=3, S_s=3, P_s=0,
                                   K_t=3, S_t=2, P_t=1)
 
-        # Level 1 (at /3 spatial, /2 temporal; 64 ch).
+        # Level 1 (at /9 spatial, /2 temporal; 64 ch).
         self.block_1 = _ResBlock3Plus1d(64)
-        # Downsample to /9 spatial total, /20 temporal total; 64 -> embed_dim.
+        # Spatial-stride-1 (already at target) + temporal stride 10; 64 -> embed_dim.
         self.down_1 = Conv3Plus1d(64, embed_dim,
-                                  K_s=3, S_s=3, P_s=0,
+                                  K_s=3, S_s=1, P_s=1,
                                   K_t=10, S_t=10, P_t=0)
 
         # Level 2 (target resolution = token grid: (T_eff, gx, gy, gz)).
