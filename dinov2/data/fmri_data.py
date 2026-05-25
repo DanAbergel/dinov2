@@ -132,6 +132,7 @@ class ADNIFullScanDataset(Dataset):
         self,
         root: Optional[str] = None,
         *,
+        target_shape: Optional[Tuple[int, int, int]] = (45, 54, 45),
         transform: Optional[Callable] = None,
         target_transform: Optional[Callable] = None,
     ):
@@ -147,10 +148,13 @@ class ADNIFullScanDataset(Dataset):
             )
         non_batch = list(self.data.shape[1:])
         self.t_axis = 1 + int(np.argmax(non_batch))
+        # ADNI native spatial = (46, 55, 46), HCP / model target = (45, 54, 45).
+        # Resample to target_shape via trilinear, matching what probe_adni.py does.
+        self.target_shape = target_shape
         self.transform = transform
         self.target_transform = target_transform
         logger.info(
-            f"ADNIFullScanDataset: {self.data.shape[0]} scans, shape={tuple(self.data.shape)}, t_axis={self.t_axis}"
+            f"ADNIFullScanDataset: {self.data.shape[0]} scans, shape={tuple(self.data.shape)}, t_axis={self.t_axis}, target_shape={target_shape}"
         )
 
     def __len__(self) -> int:
@@ -166,7 +170,12 @@ class ADNIFullScanDataset(Dataset):
                 i for i in range(self.data[idx].ndim) if i != self.t_axis - 1
             ]
             scan = self.data[idx].permute(*perm)
-        scan = scan.contiguous().float().unsqueeze(1)
+        scan = scan.contiguous().float().unsqueeze(1)         # (T, 1, X, Y, Z)
+        if self.target_shape is not None and tuple(scan.shape[-3:]) != tuple(self.target_shape):
+            scan = F.interpolate(
+                scan, size=tuple(self.target_shape),
+                mode="trilinear", align_corners=False,
+            )
         return _zscore_per_frame(scan)
 
     def __getitem__(self, idx: int) -> Tuple[Any, Any]:
