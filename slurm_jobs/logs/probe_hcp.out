@@ -1,0 +1,73 @@
+============================================================
+  HCP linear probe on DINOv2-fmri checkpoint
+============================================================
+  Job ID: 44810467    Node: salmon-01    Date: Wed May 20 10:00:30 IDT 2026
+============================================================
+  Checkpoint: outputs/dinov2_fmri_20260519_211051/model_0002999.rank_0.pth
+  Output:     /sci/labs/arieljaffe/dan.abergel1/repos/FAIR_official/outputs/probes/probe_hcp_iter0002999.json
+Could not import `tifffile`, TIFFImageDataDecoder will be disabled
+Device: cuda
+  Loading checkpoint outputs/dinov2_fmri_20260519_211051/model_0002999.rank_0.pth
+  Loaded teacher backbone @ iter 2999, embed_dim=384
+  Found 967 HCP subjects
+  Feature dim: 1920 (n_blocks=4, avgpool=True)
+    25/967  (129s, 5174 ms/scan)
+    50/967  (260s, 5205 ms/scan)
+    75/967  (390s, 5206 ms/scan)
+    100/967  (533s, 5335 ms/scan)
+    125/967  (692s, 5532 ms/scan)
+    150/967  (856s, 5709 ms/scan)
+    175/967  (1014s, 5793 ms/scan)
+    200/967  (1164s, 5822 ms/scan)
+    225/967  (1305s, 5801 ms/scan)
+    250/967  (1441s, 5764 ms/scan)
+    275/967  (1572s, 5715 ms/scan)
+    300/967  (1725s, 5750 ms/scan)
+    325/967  (1865s, 5739 ms/scan)
+    350/967  (2032s, 5806 ms/scan)
+    375/967  (2187s, 5832 ms/scan)
+    400/967  (2336s, 5840 ms/scan)
+    425/967  (2485s, 5846 ms/scan)
+    450/967  (2634s, 5854 ms/scan)
+    475/967  (2794s, 5881 ms/scan)
+    500/967  (2949s, 5899 ms/scan)
+    525/967  (3095s, 5896 ms/scan)
+    550/967  (3249s, 5907 ms/scan)
+    575/967  (3398s, 5910 ms/scan)
+    600/967  (3555s, 5925 ms/scan)
+    625/967  (3703s, 5925 ms/scan)
+    650/967  (3853s, 5928 ms/scan)
+    675/967  (4019s, 5954 ms/scan)
+    700/967  (4168s, 5954 ms/scan)
+    725/967  (4315s, 5951 ms/scan)
+    750/967  (4473s, 5963 ms/scan)
+    775/967  (4622s, 5964 ms/scan)
+    800/967  (4769s, 5962 ms/scan)
+    825/967  (4902s, 5942 ms/scan)
+    850/967  (5058s, 5950 ms/scan)
+    875/967  (5209s, 5953 ms/scan)
+    900/967  (5356s, 5951 ms/scan)
+    925/967  (5519s, 5966 ms/scan)
+    950/967  (5685s, 5984 ms/scan)
+    967/967  (5801s, 5999 ms/scan)
+Saved features: /sci/labs/arieljaffe/dan.abergel1/repos/FAIR_official/outputs/probes/features_hcp_iter0002999.npz
+
+============================================================
+OFFICIAL DINOv2 linear probe (HCP, multi-block + SGD cosine LR)
+  Checkpoint iter: 2999
+  Feature dim:     1920 (n_blocks=4, avgpool=True)
+  k-fold:          5
+============================================================
+  Sex              AUC 0.929+/-0.014  Acc 0.860  F1 0.847  (n=967)
+  Age              MAE 4.723+/-0.132  (n=967)
+  BrainVol         MAE 184878.147+/-8764.078  (n=967)
+  GrayMatterVol    MAE 50564.634+/-1014.500  (n=967)
+  FluidIntel       MAE 7.163+/-0.249  (n=960)
+  ProcSpeed        MAE 30.494+/-1.341  (n=967)
+  WorkingMem       MAE 20.844+/-0.787  (n=967)
+
+Saved: /sci/labs/arieljaffe/dan.abergel1/repos/FAIR_official/outputs/probes/probe_hcp_iter0002999.json
+
+============================================================
+  Done: Wed May 20 11:40:45 IDT 2026    JSON: /sci/labs/arieljaffe/dan.abergel1/repos/FAIR_official/outputs/probes/probe_hcp_iter0002999.json
+============================================================

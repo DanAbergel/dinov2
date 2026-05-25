@@ -1,0 +1,86 @@
++ PS4='+ ${BASH_SOURCE##*/}:${LINENO}: '
++ slurm_script:71: mkdir -p /sci/labs/arieljaffe/dan.abergel1/tmp /sci/labs/arieljaffe/dan.abergel1/cache/pip /sci/labs/arieljaffe/dan.abergel1/cache/torch /sci/labs/arieljaffe/dan.abergel1/repos/FAIR_official/outputs/dinov2_fmri_20260524_144327 /sci/labs/arieljaffe/dan.abergel1/checkpoints
++ slurm_script:72: mkdir -p /sci/labs/arieljaffe/dan.abergel1/repos/FAIR_official/slurm_jobs/logs
++ slurm_script:74: echo ============================================================
++ slurm_script:75: echo '  DINOv2 OFFICIAL SSL on fMRI (HCP, ViT-S, H200 x 1)'
++ slurm_script:76: echo ============================================================
++ slurm_script:77: echo '  Job ID:    44874968'
+++ slurm_script:78: hostname
++ slurm_script:78: echo '  Node:      goldfish-01'
+++ slurm_script:79: date
++ slurm_script:79: echo '  Date:      Sun May 24 14:43:28 IDT 2026'
++ slurm_script:80: echo '  Repo:      /sci/labs/arieljaffe/dan.abergel1/repos/FAIR_official'
++ slurm_script:81: echo '  Config:    dinov2/configs/train/fmri_vits.yaml'
++ slurm_script:82: echo '  Output:    /sci/labs/arieljaffe/dan.abergel1/repos/FAIR_official/outputs/dinov2_fmri_20260524_144327'
++ slurm_script:83: echo '  Init wts:  /sci/labs/arieljaffe/dan.abergel1/checkpoints/dinov2_vits14_reg4_fmri_init.pth'
++ slurm_script:84: echo ============================================================
++ slurm_script:86: source /sci/labs/arieljaffe/dan.abergel1/torch_env/bin/activate
+++ activate:39: deactivate nondestructive
+++ activate:6: '[' -n '' ']'
+++ activate:11: '[' -n '' ']'
+++ activate:20: '[' -n /bin/bash -o -n '' ']'
+++ activate:21: hash -r
+++ activate:24: '[' -n '' ']'
+++ activate:30: unset VIRTUAL_ENV
+++ activate:31: unset VIRTUAL_ENV_PROMPT
+++ activate:32: '[' '!' nondestructive = nondestructive ']'
+++ activate:41: VIRTUAL_ENV=/sci/labs/arieljaffe/dan.abergel1/torch_env
+++ activate:42: export VIRTUAL_ENV
+++ activate:44: _OLD_VIRTUAL_PATH=/sci/home/dan.abergel1/.local/bin:/vol/slurm/moriah/bindir/bin:/usr/local/bin:/usr/bin:/usr/games
+++ activate:45: PATH=/sci/labs/arieljaffe/dan.abergel1/torch_env/bin:/sci/home/dan.abergel1/.local/bin:/vol/slurm/moriah/bindir/bin:/usr/local/bin:/usr/bin:/usr/games
+++ activate:46: export PATH
+++ activate:51: '[' -n '' ']'
+++ activate:56: '[' -z '' ']'
+++ activate:57: _OLD_VIRTUAL_PS1=
+++ activate:58: PS1='(torch_env) '
+++ activate:59: export PS1
+++ activate:60: VIRTUAL_ENV_PROMPT='(torch_env) '
+++ activate:61: export VIRTUAL_ENV_PROMPT
+++ activate:67: '[' -n /bin/bash -o -n '' ']'
+++ activate:68: hash -r
++ slurm_script:87: cd /sci/labs/arieljaffe/dan.abergel1/repos/FAIR_official
++ slurm_script:96: REQUIRED_PKGS=(['xformers']='xformers' ['fvcore']='fvcore' ['iopath']='iopath' ['omegaconf']='omegaconf' ['einops']='einops')
++ slurm_script:96: declare -A REQUIRED_PKGS
++ slurm_script:103: for mod in "${!REQUIRED_PKGS[@]}"
++ slurm_script:104: python -c 'import xformers'
++ slurm_script:103: for mod in "${!REQUIRED_PKGS[@]}"
++ slurm_script:104: python -c 'import omegaconf'
++ slurm_script:103: for mod in "${!REQUIRED_PKGS[@]}"
++ slurm_script:104: python -c 'import iopath'
++ slurm_script:103: for mod in "${!REQUIRED_PKGS[@]}"
++ slurm_script:104: python -c 'import fvcore'
++ slurm_script:103: for mod in "${!REQUIRED_PKGS[@]}"
++ slurm_script:104: python -c 'import einops'
++ slurm_script:110: python -c '
+import xformers, fvcore, iopath, omegaconf, einops
+print(f'\''  xformers  {xformers.__version__}'\'')
+print(f'\''  fvcore    {fvcore.__version__ if hasattr(fvcore, "__version__") else "OK"}'\'')
+print(f'\''  iopath    OK'\'')
+print(f'\''  omegaconf {omegaconf.__version__}'\'')
+print(f'\''  einops    {einops.__version__}'\'')
+'
++ slurm_script:120: '[' '!' -f /sci/labs/arieljaffe/dan.abergel1/checkpoints/dinov2_vits14_reg4_fmri_init.pth ']'
++ slurm_script:143: ls -lh /sci/labs/arieljaffe/dan.abergel1/checkpoints/dinov2_vits14_reg4_fmri_init.pth
++ slurm_script:146: echo ''
++ slurm_script:147: echo '  Config snapshot (fMRI overrides):'
++ slurm_script:149: sed 's/^/    /'
++ slurm_script:148: grep -E '^(  dataset_path|  batch_size_per_gpu|  fmri_|  arch|  patch_size|  num_register_tokens|  in_chans|  epochs|  base_lr|  centering|  pretrained_weights|  OFFICIAL_EPOCH_LENGTH)' dinov2/configs/train/fmri_vits.yaml
++ slurm_script:150: echo ''
++ slurm_script:155: echo ''
++ slurm_script:156: echo '  Pre-flight: build_model_from_cfg on CPU'
++ slurm_script:157: python -
++ slurm_script:181: RANK_LOG_DIR=/sci/labs/arieljaffe/dan.abergel1/repos/FAIR_official/slurm_jobs/logs/torchrun_44874968
++ slurm_script:182: mkdir -p /sci/labs/arieljaffe/dan.abergel1/repos/FAIR_official/slurm_jobs/logs/torchrun_44874968
++ slurm_script:189: env -u SLURM_JOB_ID -u SLURM_JOB_NUM_NODES -u SLURM_JOB_NODELIST torchrun --nproc_per_node=1 --master_port=29513 --redirects 3 --tee 3 --log-dir /sci/labs/arieljaffe/dan.abergel1/repos/FAIR_official/slurm_jobs/logs/torchrun_44874968 -m dinov2.train.train --config-file dinov2/configs/train/fmri_vits.yaml --output-dir /sci/labs/arieljaffe/dan.abergel1/repos/FAIR_official/outputs/dinov2_fmri_20260524_144327
+[W524 14:43:44.328574887 socket.cpp:764] [c10d] The client socket cannot be initialized to connect to [::ffff:127.0.0.1]:29513 (errno: 97 - Address family not supported by protocol).
+[default0]:/sci/labs/arieljaffe/dan.abergel1/repos/FAIR_official/dinov2/layers/swiglu_ffn.py:43: UserWarning: xFormers is available (SwiGLU)
+[default0]:  warnings.warn("xFormers is available (SwiGLU)")
+[default0]:/sci/labs/arieljaffe/dan.abergel1/repos/FAIR_official/dinov2/layers/attention.py:27: UserWarning: xFormers is available (Attention)
+[default0]:  warnings.warn("xFormers is available (Attention)")
+[default0]:/sci/labs/arieljaffe/dan.abergel1/repos/FAIR_official/dinov2/layers/block.py:33: UserWarning: xFormers is available (Block)
+[default0]:  warnings.warn("xFormers is available (Block)")
+[default0]:<frozen runpy>:128: RuntimeWarning: 'dinov2.train.train' found in sys.modules after import of package 'dinov2.train', but prior to execution of 'dinov2.train.train'; this may result in unpredictable behaviour
+[default0]:[W524 14:43:47.442882155 socket.cpp:764] [c10d] The client socket cannot be initialized to connect to [::ffff:127.0.0.1]:29513 (errno: 97 - Address family not supported by protocol).
+[default0]:/sci/labs/arieljaffe/dan.abergel1/torch_env/lib/python3.11/site-packages/torch/distributed/c10d_logger.py:83: UserWarning: barrier(): using the device under current context. You can specify `device_id` in `init_process_group` to mute this warning.
+[default0]:  return func(*args, **kwargs)
+[default0]:[rank0]:[W524 14:43:47.458235251 ProcessGroupNCCL.cpp:5138] Guessing device ID based on global rank. This can cause a hang if rank to GPU mapping is heterogeneous. You can specify device_id in init_process_group()

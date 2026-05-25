@@ -1,0 +1,48 @@
+============================================================
+  HCP linear probe on DINOv2-fmri checkpoint
+============================================================
+  Job ID: 44878556    Node: salmon-07    Date: Mon May 25 09:07:23 IDT 2026
+============================================================
+  Checkpoint: outputs/dinov2_fmri_20260524_144327/model_0005999.rank_0.pth
+  Output:     /sci/labs/arieljaffe/dan.abergel1/repos/FAIR_official/outputs/probes/probe_hcp_iter0005999.json
+Could not import `tifffile`, TIFFImageDataDecoder will be disabled
+  Loaded teacher backbone @ iter 5999
+  HCP: 967 subjects
+    50/967  (143s)
+    100/967  (300s)
+    150/967  (476s)
+    200/967  (638s)
+    250/967  (799s)
+    300/967  (986s)
+    350/967  (1173s)
+    400/967  (1358s)
+    450/967  (1578s)
+    500/967  (1773s)
+    550/967  (1982s)
+    600/967  (2146s)
+    650/967  (2358s)
+    700/967  (2560s)
+    750/967  (2764s)
+    800/967  (2946s)
+    850/967  (3176s)
+    900/967  (3389s)
+    950/967  (3641s)
+    967/967  (3709s)
+  Features: shape (967, 384)
+
+============================================================
+Linear probe (CLS only, k-fold=5) @ iter 5999
+============================================================
+  Sex              AUC 0.751+/-0.028  Acc 0.669  (n=967)
+  Age              MAE 3.044+/-0.099  (n=967)
+  BrainVol         MAE 116179.378+/-10481.562  (n=967)
+  GrayMatterVol    MAE 34762.168+/-2187.653  (n=967)
+  FluidIntel       MAE 4.047+/-0.096  (n=960)
+  ProcSpeed        MAE 16.343+/-1.075  (n=967)
+  WorkingMem       MAE 10.442+/-0.501  (n=967)
+
+Saved: /sci/labs/arieljaffe/dan.abergel1/repos/FAIR_official/outputs/probes/probe_hcp_iter0005999.json
+
+============================================================
+  Done: Mon May 25 10:12:01 IDT 2026    JSON: /sci/labs/arieljaffe/dan.abergel1/repos/FAIR_official/outputs/probes/probe_hcp_iter0005999.json
+============================================================

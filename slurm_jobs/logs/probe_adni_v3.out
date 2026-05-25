@@ -1,0 +1,54 @@
+============================================================
+  ADNI linear probe on DINOv2-fmri checkpoint
+============================================================
+  Job ID:    44878557
+  Node:      salmon-07
+  Date:      Mon May 25 09:07:43 IDT 2026
+============================================================
+  scikit-learn missing -> pip install scikit-learn
+Requirement already satisfied: scikit-learn in /sci/labs/arieljaffe/dan.abergel1/torch_env/lib/python3.11/site-packages (1.8.0)
+Requirement already satisfied: numpy>=1.24.1 in /sci/labs/arieljaffe/dan.abergel1/torch_env/lib/python3.11/site-packages (from scikit-learn) (2.4.2)
+Requirement already satisfied: scipy>=1.10.0 in /sci/labs/arieljaffe/dan.abergel1/torch_env/lib/python3.11/site-packages (from scikit-learn) (1.17.0)
+Requirement already satisfied: joblib>=1.3.0 in /sci/labs/arieljaffe/dan.abergel1/torch_env/lib/python3.11/site-packages (from scikit-learn) (1.5.3)
+Requirement already satisfied: threadpoolctl>=3.2.0 in /sci/labs/arieljaffe/dan.abergel1/torch_env/lib/python3.11/site-packages (from scikit-learn) (3.6.0)
+  torchmetrics 1.9.0  sklearn 1.8.0
+  Checkpoint: outputs/dinov2_fmri_20260524_144327/model_0008999.rank_0.pth
+  Output:     /sci/labs/arieljaffe/dan.abergel1/repos/FAIR_official/outputs/probes/probe_iter0008999.json
+  Loaded teacher backbone @ iter 8999
+  ADNI: N=812, T=140, spatial=(45,54,45)  -> target (45, 54, 45)
+    50/812  (15s)
+    100/812  (25s)
+    150/812  (36s)
+    200/812  (46s)
+    250/812  (57s)
+    300/812  (69s)
+    350/812  (80s)
+    400/812  (91s)
+    450/812  (101s)
+    500/812  (112s)
+    550/812  (123s)
+    600/812  (133s)
+    650/812  (143s)
+    700/812  (153s)
+    750/812  (164s)
+    800/812  (175s)
+    812/812  (178s)
+  Features: shape (812, 384)
+
+============================================================
+Linear probe (CLS only, k-fold=5) @ iter 8999
+============================================================
+  Sex              AUC 0.653+/-0.061  Acc 0.626  F1 0.565  (n=812)
+  Age              MAE 5.113+/-0.710  (n=812)
+  MMSE             MAE 2.478+/-0.396  (n=473)
+  CDR              AUC 0.542+/-0.046  Acc 0.610  F1 0.006  (n=812)
+  Degradation1Y    AUC 0.581+/-0.098  Acc 0.817  F1 0.000  (n=797)
+  Degradation2Y    AUC 0.533+/-0.042  Acc 0.703  F1 0.008  (n=797)
+  Degradation3Y    AUC 0.528+/-0.053  Acc 0.686  F1 0.000  (n=797)
+
+Saved: /sci/labs/arieljaffe/dan.abergel1/repos/FAIR_official/outputs/probes/probe_iter0008999.json
+
+============================================================
+  Done: Mon May 25 09:12:57 IDT 2026
+  JSON: /sci/labs/arieljaffe/dan.abergel1/repos/FAIR_official/outputs/probes/probe_iter0008999.json
+============================================================

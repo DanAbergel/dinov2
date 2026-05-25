@@ -1,0 +1,72 @@
+/sci/labs/arieljaffe/dan.abergel1/repos/FAIR_official/dinov2/layers/swiglu_ffn.py:43: UserWarning: xFormers is available (SwiGLU)
+  warnings.warn("xFormers is available (SwiGLU)")
+/sci/labs/arieljaffe/dan.abergel1/repos/FAIR_official/dinov2/layers/attention.py:27: UserWarning: xFormers is available (Attention)
+  warnings.warn("xFormers is available (Attention)")
+/sci/labs/arieljaffe/dan.abergel1/repos/FAIR_official/dinov2/layers/block.py:33: UserWarning: xFormers is available (Block)
+  warnings.warn("xFormers is available (Block)")
+<frozen runpy>:128: RuntimeWarning: 'dinov2.train.train' found in sys.modules after import of package 'dinov2.train', but prior to execution of 'dinov2.train.train'; this may result in unpredictable behaviour
+[W519 20:12:39.864907395 socket.cpp:764] [c10d] The client socket cannot be initialized to connect to [::ffff:127.0.0.1]:29513 (errno: 97 - Address family not supported by protocol).
+/sci/labs/arieljaffe/dan.abergel1/torch_env/lib/python3.11/site-packages/torch/distributed/c10d_logger.py:83: UserWarning: barrier(): using the device under current context. You can specify `device_id` in `init_process_group` to mute this warning.
+  return func(*args, **kwargs)
+[rank0]:[W519 20:12:40.325480483 ProcessGroupNCCL.cpp:5138] Guessing device ID based on global rank. This can cause a hang if rank to GPU mapping is heterogeneous. You can specify device_id in init_process_group()
+Traceback (most recent call last):
+  File "/usr/lib/python3.11/multiprocessing/util.py", line 300, in _run_finalizers
+    finalizer()
+  File "/usr/lib/python3.11/multiprocessing/util.py", line 224, in __call__
+    res = self._callback(*self._args, **self._kwargs)
+          ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "/usr/lib/python3.11/multiprocessing/util.py", line 133, in _remove_temp_dir
+    rmtree(tempdir)
+  File "/usr/lib/python3.11/shutil.py", line 732, in rmtree
+    _rmtree_safe_fd(fd, path, onerror)
+  File "/usr/lib/python3.11/shutil.py", line 683, in _rmtree_safe_fd
+    onerror(os.unlink, fullname, sys.exc_info())
+  File "/usr/lib/python3.11/shutil.py", line 681, in _rmtree_safe_fd
+    os.unlink(entry.name, dir_fd=topfd)
+OSError: [Errno 16] Device or resource busy: '.nfs00000004cfeeeca90000187c'
+Traceback (most recent call last):
+  File "/usr/lib/python3.11/multiprocessing/util.py", line 300, in _run_finalizers
+    finalizer()
+  File "/usr/lib/python3.11/multiprocessing/util.py", line 224, in __call__
+    res = self._callback(*self._args, **self._kwargs)
+          ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "/usr/lib/python3.11/multiprocessing/util.py", line 133, in _remove_temp_dir
+    rmtree(tempdir)
+  File "/usr/lib/python3.11/shutil.py", line 732, in rmtree
+    _rmtree_safe_fd(fd, path, onerror)
+  File "/usr/lib/python3.11/shutil.py", line 683, in _rmtree_safe_fd
+    onerror(os.unlink, fullname, sys.exc_info())
+  File "/usr/lib/python3.11/shutil.py", line 681, in _rmtree_safe_fd
+    os.unlink(entry.name, dir_fd=topfd)
+OSError: [Errno 16] Device or resource busy: '.nfs00000004d573d4fd0000187d'
+[rank0]: Traceback (most recent call last):
+[rank0]:   File "/sci/labs/arieljaffe/dan.abergel1/torch_env/lib/python3.11/site-packages/torch/distributed/fsdp/fully_sharded_data_parallel.py", line 533, in __getattr__
+[rank0]:     return super().__getattr__(name)  # defer to nn.Module's logic
+[rank0]:            ^^^^^^^^^^^^^^^^^^^^^^^^^
+[rank0]:   File "/sci/labs/arieljaffe/dan.abergel1/torch_env/lib/python3.11/site-packages/torch/nn/modules/module.py", line 1965, in __getattr__
+[rank0]:     raise AttributeError(
+[rank0]: AttributeError: 'FullyShardedDataParallel' object has no attribute '_streams'
+
+[rank0]: During handling of the above exception, another exception occurred:
+
+[rank0]: Traceback (most recent call last):
+[rank0]:   File "<frozen runpy>", line 198, in _run_module_as_main
+[rank0]:   File "<frozen runpy>", line 88, in _run_code
+[rank0]:   File "/sci/labs/arieljaffe/dan.abergel1/repos/FAIR_official/dinov2/train/train.py", line 359, in <module>
+[rank0]:     main(args)
+[rank0]:   File "/sci/labs/arieljaffe/dan.abergel1/repos/FAIR_official/dinov2/train/train.py", line 354, in main
+[rank0]:     do_train(cfg, model, resume=not args.no_resume)
+[rank0]:   File "/sci/labs/arieljaffe/dan.abergel1/repos/FAIR_official/dinov2/train/train.py", line 286, in do_train
+[rank0]:     loss_dict = model.forward_backward(data, teacher_temp=teacher_temp)
+[rank0]:                 ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+[rank0]:   File "/sci/labs/arieljaffe/dan.abergel1/repos/FAIR_official/dinov2/train/ssl_meta_arch.py", line 344, in forward_backward
+[rank0]:     self.fsdp_synchronize_streams()
+[rank0]:   File "/sci/labs/arieljaffe/dan.abergel1/repos/FAIR_official/dinov2/train/ssl_meta_arch.py", line 353, in fsdp_synchronize_streams
+[rank0]:     ) = self.student.backbone._streams = self.teacher.backbone._streams
+[rank0]:                                          ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+[rank0]:   File "/sci/labs/arieljaffe/dan.abergel1/torch_env/lib/python3.11/site-packages/torch/distributed/fsdp/fully_sharded_data_parallel.py", line 535, in __getattr__
+[rank0]:     return getattr(self._fsdp_wrapped_module, name)
+[rank0]:            ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+[rank0]:   File "/sci/labs/arieljaffe/dan.abergel1/torch_env/lib/python3.11/site-packages/torch/nn/modules/module.py", line 1965, in __getattr__
+[rank0]:     raise AttributeError(
+[rank0]: AttributeError: 'DinoVisionTransformer' object has no attribute '_streams'

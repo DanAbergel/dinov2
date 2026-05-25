@@ -1,0 +1,16 @@
+/sci/labs/arieljaffe/dan.abergel1/repos/FAIR_official/dinov2/layers/swiglu_ffn.py:43: UserWarning: xFormers is available (SwiGLU)
+  warnings.warn("xFormers is available (SwiGLU)")
+/sci/labs/arieljaffe/dan.abergel1/repos/FAIR_official/dinov2/layers/attention.py:27: UserWarning: xFormers is available (Attention)
+  warnings.warn("xFormers is available (Attention)")
+/sci/labs/arieljaffe/dan.abergel1/repos/FAIR_official/dinov2/layers/block.py:33: UserWarning: xFormers is available (Block)
+  warnings.warn("xFormers is available (Block)")
+/sci/labs/arieljaffe/dan.abergel1/torch_env/lib/python3.11/site-packages/sklearn/linear_model/_ridge.py:265: LinAlgWarning: An ill-conditioned matrix detected: slice 0 has rcond = 1.1658873688702442e-07.
+  dual_coef = linalg.solve(K, y, assume_a="pos", overwrite_a=False)
+/sci/labs/arieljaffe/dan.abergel1/torch_env/lib/python3.11/site-packages/sklearn/linear_model/_ridge.py:265: LinAlgWarning: An ill-conditioned matrix detected: slice 0 has rcond = 1.1658873688702442e-07.
+  dual_coef = linalg.solve(K, y, assume_a="pos", overwrite_a=False)
+/sci/labs/arieljaffe/dan.abergel1/torch_env/lib/python3.11/site-packages/sklearn/linear_model/_ridge.py:265: LinAlgWarning: An ill-conditioned matrix detected: slice 0 has rcond = 1.1658873688702442e-07.
+  dual_coef = linalg.solve(K, y, assume_a="pos", overwrite_a=False)
+/sci/labs/arieljaffe/dan.abergel1/torch_env/lib/python3.11/site-packages/sklearn/linear_model/_ridge.py:265: LinAlgWarning: An ill-conditioned matrix detected: slice 0 has rcond = 1.1658873688702442e-07.
+  dual_coef = linalg.solve(K, y, assume_a="pos", overwrite_a=False)
+/sci/labs/arieljaffe/dan.abergel1/torch_env/lib/python3.11/site-packages/sklearn/linear_model/_ridge.py:265: LinAlgWarning: An ill-conditioned matrix detected: slice 0 has rcond = 1.1658873688702442e-07.
+  dual_coef = linalg.solve(K, y, assume_a="pos", overwrite_a=False)

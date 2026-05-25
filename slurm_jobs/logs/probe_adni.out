@@ -1,0 +1,80 @@
+============================================================
+  ADNI linear probe on DINOv2-fmri checkpoint
+============================================================
+  Job ID:    44810426
+  Node:      salmon-01
+  Date:      Wed May 20 09:31:56 IDT 2026
+============================================================
+  scikit-learn missing -> pip install scikit-learn
+Requirement already satisfied: scikit-learn in /sci/labs/arieljaffe/dan.abergel1/torch_env/lib/python3.11/site-packages (1.8.0)
+Requirement already satisfied: numpy>=1.24.1 in /sci/labs/arieljaffe/dan.abergel1/torch_env/lib/python3.11/site-packages (from scikit-learn) (2.4.2)
+Requirement already satisfied: scipy>=1.10.0 in /sci/labs/arieljaffe/dan.abergel1/torch_env/lib/python3.11/site-packages (from scikit-learn) (1.17.0)
+Requirement already satisfied: joblib>=1.3.0 in /sci/labs/arieljaffe/dan.abergel1/torch_env/lib/python3.11/site-packages (from scikit-learn) (1.5.3)
+Requirement already satisfied: threadpoolctl>=3.2.0 in /sci/labs/arieljaffe/dan.abergel1/torch_env/lib/python3.11/site-packages (from scikit-learn) (3.6.0)
+  torchmetrics 1.9.0  sklearn 1.8.0
+  Checkpoint: outputs/dinov2_fmri_20260519_211051/model_0002999.rank_0.pth
+  Output:     /sci/labs/arieljaffe/dan.abergel1/repos/FAIR_official/outputs/probes/probe_iter0002999.json
+Could not import `tifffile`, TIFFImageDataDecoder will be disabled
+Device: cuda
+  Loading checkpoint outputs/dinov2_fmri_20260519_211051/model_0002999.rank_0.pth
+  Loaded teacher backbone @ iter 2999, embed_dim=384
+  Loading /sci/nosnap/arieljaffe/sagi.nathan/shared_fmri_data/all_4d_downsampled.pt (mmap)
+  ADNI shape=(812, 45, 54, 45, 140) dtype=torch.float32
+  Layout NXYZT: N=812, T=140, spatial=(45,54,45)
+  Resizing pos_temporal 120 -> 14 (linear interp)
+  Feature dim: 1920  (N_LAST_BLOCKS=4, USE_AVGPOOL=True)
+    25/812  (7s, 282 ms/scan)
+    50/812  (13s, 266 ms/scan)
+    75/812  (19s, 259 ms/scan)
+    100/812  (26s, 260 ms/scan)
+    125/812  (32s, 259 ms/scan)
+    150/812  (39s, 258 ms/scan)
+    175/812  (45s, 255 ms/scan)
+    200/812  (51s, 253 ms/scan)
+    225/812  (57s, 253 ms/scan)
+    250/812  (63s, 251 ms/scan)
+    275/812  (69s, 249 ms/scan)
+    300/812  (75s, 248 ms/scan)
+    325/812  (81s, 248 ms/scan)
+    350/812  (86s, 247 ms/scan)
+    375/812  (92s, 246 ms/scan)
+    400/812  (98s, 245 ms/scan)
+    425/812  (104s, 246 ms/scan)
+    450/812  (111s, 246 ms/scan)
+    475/812  (117s, 246 ms/scan)
+    500/812  (123s, 246 ms/scan)
+    525/812  (129s, 247 ms/scan)
+    550/812  (135s, 246 ms/scan)
+    575/812  (141s, 246 ms/scan)
+    600/812  (147s, 245 ms/scan)
+    625/812  (153s, 244 ms/scan)
+    650/812  (158s, 244 ms/scan)
+    675/812  (164s, 243 ms/scan)
+    700/812  (170s, 243 ms/scan)
+    725/812  (177s, 244 ms/scan)
+    750/812  (183s, 244 ms/scan)
+    775/812  (190s, 245 ms/scan)
+    800/812  (196s, 245 ms/scan)
+    812/812  (199s, 245 ms/scan)
+Saved features: /sci/labs/arieljaffe/dan.abergel1/repos/FAIR_official/outputs/probes/features_iter0002999.npz
+
+============================================================
+OFFICIAL DINOv2 linear probe (multi-block + SGD cosine LR)
+  Checkpoint iter: 2999
+  Feature dim:     1920 (n_blocks=4, avgpool=True)
+  k-fold:          5
+============================================================
+  Sex              AUC 0.766+/-0.111  Acc 0.686  F1 0.659  (n=812, pos=388)
+  Age              MAE 7.470+/-0.445  (n=812)
+  MMSE             MAE 4.820+/-0.304  (n=473)
+  CDR              AUC 0.515+/-0.035  Acc 0.554  F1 0.359  (n=812, pos=313)
+  Degradation1Y    AUC 0.515+/-0.107  Acc 0.745  F1 0.192  (n=797, pos=146)
+  Degradation2Y    AUC 0.479+/-0.059  Acc 0.615  F1 0.281  (n=797, pos=235)
+  Degradation3Y    AUC 0.487+/-0.055  Acc 0.612  F1 0.292  (n=797, pos=249)
+
+Saved: /sci/labs/arieljaffe/dan.abergel1/repos/FAIR_official/outputs/probes/probe_iter0002999.json
+
+============================================================
+  Done: Wed May 20 09:38:40 IDT 2026
+  JSON: /sci/labs/arieljaffe/dan.abergel1/repos/FAIR_official/outputs/probes/probe_iter0002999.json
+============================================================

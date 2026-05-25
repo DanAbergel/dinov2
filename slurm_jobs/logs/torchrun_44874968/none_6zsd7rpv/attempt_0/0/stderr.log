@@ -1,0 +1,11 @@
+/sci/labs/arieljaffe/dan.abergel1/repos/FAIR_official/dinov2/layers/swiglu_ffn.py:43: UserWarning: xFormers is available (SwiGLU)
+  warnings.warn("xFormers is available (SwiGLU)")
+/sci/labs/arieljaffe/dan.abergel1/repos/FAIR_official/dinov2/layers/attention.py:27: UserWarning: xFormers is available (Attention)
+  warnings.warn("xFormers is available (Attention)")
+/sci/labs/arieljaffe/dan.abergel1/repos/FAIR_official/dinov2/layers/block.py:33: UserWarning: xFormers is available (Block)
+  warnings.warn("xFormers is available (Block)")
+<frozen runpy>:128: RuntimeWarning: 'dinov2.train.train' found in sys.modules after import of package 'dinov2.train', but prior to execution of 'dinov2.train.train'; this may result in unpredictable behaviour
+[W524 14:43:47.442882155 socket.cpp:764] [c10d] The client socket cannot be initialized to connect to [::ffff:127.0.0.1]:29513 (errno: 97 - Address family not supported by protocol).
+/sci/labs/arieljaffe/dan.abergel1/torch_env/lib/python3.11/site-packages/torch/distributed/c10d_logger.py:83: UserWarning: barrier(): using the device under current context. You can specify `device_id` in `init_process_group` to mute this warning.
+  return func(*args, **kwargs)
+[rank0]:[W524 14:43:47.458235251 ProcessGroupNCCL.cpp:5138] Guessing device ID based on global rank. This can cause a hang if rank to GPU mapping is heterogeneous. You can specify device_id in init_process_group()

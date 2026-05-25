@@ -1,0 +1,112 @@
+/sci/labs/arieljaffe/dan.abergel1/repos/FAIR_official/dinov2/layers/swiglu_ffn.py:43: UserWarning: xFormers is available (SwiGLU)
+  warnings.warn("xFormers is available (SwiGLU)")
+/sci/labs/arieljaffe/dan.abergel1/repos/FAIR_official/dinov2/layers/attention.py:27: UserWarning: xFormers is available (Attention)
+  warnings.warn("xFormers is available (Attention)")
+/sci/labs/arieljaffe/dan.abergel1/repos/FAIR_official/dinov2/layers/block.py:33: UserWarning: xFormers is available (Block)
+  warnings.warn("xFormers is available (Block)")
+<frozen runpy>:128: RuntimeWarning: 'dinov2.train.train' found in sys.modules after import of package 'dinov2.train', but prior to execution of 'dinov2.train.train'; this may result in unpredictable behaviour
+[W524 14:25:21.259913209 socket.cpp:764] [c10d] The client socket cannot be initialized to connect to [::ffff:127.0.0.1]:29513 (errno: 97 - Address family not supported by protocol).
+/sci/labs/arieljaffe/dan.abergel1/torch_env/lib/python3.11/site-packages/torch/distributed/c10d_logger.py:83: UserWarning: barrier(): using the device under current context. You can specify `device_id` in `init_process_group` to mute this warning.
+  return func(*args, **kwargs)
+[rank0]:[W524 14:25:21.713403069 ProcessGroupNCCL.cpp:5138] Guessing device ID based on global rank. This can cause a hang if rank to GPU mapping is heterogeneous. You can specify device_id in init_process_group()
+Traceback (most recent call last):
+  File "/usr/lib/python3.11/multiprocessing/util.py", line 300, in _run_finalizers
+    finalizer()
+  File "/usr/lib/python3.11/multiprocessing/util.py", line 224, in __call__
+    res = self._callback(*self._args, **self._kwargs)
+          ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "/usr/lib/python3.11/multiprocessing/util.py", line 133, in _remove_temp_dir
+    rmtree(tempdir)
+  File "/usr/lib/python3.11/shutil.py", line 732, in rmtree
+    _rmtree_safe_fd(fd, path, onerror)
+  File "/usr/lib/python3.11/shutil.py", line 683, in _rmtree_safe_fd
+    onerror(os.unlink, fullname, sys.exc_info())
+  File "/usr/lib/python3.11/shutil.py", line 681, in _rmtree_safe_fd
+    os.unlink(entry.name, dir_fd=topfd)
+OSError: [Errno 16] Device or resource busy: '.nfs00000004d7404f7000000361'
+[rank0]: Traceback (most recent call last):
+[rank0]:   File "<frozen runpy>", line 198, in _run_module_as_main
+[rank0]:   File "<frozen runpy>", line 88, in _run_code
+[rank0]:   File "/sci/labs/arieljaffe/dan.abergel1/repos/FAIR_official/dinov2/train/train.py", line 374, in <module>
+[rank0]:     main(args)
+[rank0]:   File "/sci/labs/arieljaffe/dan.abergel1/repos/FAIR_official/dinov2/train/train.py", line 369, in main
+[rank0]:     do_train(cfg, model, resume=not args.no_resume)
+[rank0]:   File "/sci/labs/arieljaffe/dan.abergel1/repos/FAIR_official/dinov2/train/train.py", line 298, in do_train
+[rank0]:     loss_dict = model.forward_backward(
+[rank0]:                 ^^^^^^^^^^^^^^^^^^^^^^^
+[rank0]:   File "/sci/labs/arieljaffe/dan.abergel1/repos/FAIR_official/dinov2/train/ssl_meta_arch.py", line 240, in forward_backward
+[rank0]:     student_global_backbone_output_dict, student_local_backbone_output_dict = self.student.backbone(
+[rank0]:                                                                               ^^^^^^^^^^^^^^^^^^^^^^
+[rank0]:   File "/sci/labs/arieljaffe/dan.abergel1/torch_env/lib/python3.11/site-packages/torch/nn/modules/module.py", line 1776, in _wrapped_call_impl
+[rank0]:     return self._call_impl(*args, **kwargs)
+[rank0]:            ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+[rank0]:   File "/sci/labs/arieljaffe/dan.abergel1/torch_env/lib/python3.11/site-packages/torch/nn/modules/module.py", line 1787, in _call_impl
+[rank0]:     return forward_call(*args, **kwargs)
+[rank0]:            ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+[rank0]:   File "/sci/labs/arieljaffe/dan.abergel1/torch_env/lib/python3.11/site-packages/torch/distributed/fsdp/fully_sharded_data_parallel.py", line 858, in forward
+[rank0]:     output = self._fsdp_wrapped_module(*args, **kwargs)
+[rank0]:              ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+[rank0]:   File "/sci/labs/arieljaffe/dan.abergel1/torch_env/lib/python3.11/site-packages/torch/nn/modules/module.py", line 1776, in _wrapped_call_impl
+[rank0]:     return self._call_impl(*args, **kwargs)
+[rank0]:            ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+[rank0]:   File "/sci/labs/arieljaffe/dan.abergel1/torch_env/lib/python3.11/site-packages/torch/nn/modules/module.py", line 1787, in _call_impl
+[rank0]:     return forward_call(*args, **kwargs)
+[rank0]:            ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+[rank0]:   File "/sci/labs/arieljaffe/dan.abergel1/repos/FAIR_official/dinov2/models/vision_transformer.py", line 383, in forward
+[rank0]:     ret = self.forward_features(*args, **kwargs)
+[rank0]:           ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+[rank0]:   File "/sci/labs/arieljaffe/dan.abergel1/repos/FAIR_official/dinov2/models/vision_transformer.py", line 293, in forward_features
+[rank0]:     return self.forward_features_list(x, masks)
+[rank0]:            ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+[rank0]:   File "/sci/labs/arieljaffe/dan.abergel1/repos/FAIR_official/dinov2/models/vision_transformer.py", line 272, in forward_features_list
+[rank0]:     x = [self.prepare_tokens_with_masks(x, masks) for x, masks in zip(x_list, masks_list)]
+[rank0]:         ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+[rank0]:   File "/sci/labs/arieljaffe/dan.abergel1/repos/FAIR_official/dinov2/models/vision_transformer.py", line 272, in <listcomp>
+[rank0]:     x = [self.prepare_tokens_with_masks(x, masks) for x, masks in zip(x_list, masks_list)]
+[rank0]:          ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+[rank0]:   File "/sci/labs/arieljaffe/dan.abergel1/repos/FAIR_official/dinov2/models/vision_transformer.py", line 230, in prepare_tokens_with_masks
+[rank0]:     x = self.patch_embed(x)                                  # (B, T_eff*N_spatial, D)
+[rank0]:         ^^^^^^^^^^^^^^^^^^^
+[rank0]:   File "/sci/labs/arieljaffe/dan.abergel1/torch_env/lib/python3.11/site-packages/torch/nn/modules/module.py", line 1776, in _wrapped_call_impl
+[rank0]:     return self._call_impl(*args, **kwargs)
+[rank0]:            ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+[rank0]:   File "/sci/labs/arieljaffe/dan.abergel1/torch_env/lib/python3.11/site-packages/torch/nn/modules/module.py", line 1787, in _call_impl
+[rank0]:     return forward_call(*args, **kwargs)
+[rank0]:            ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+[rank0]:   File "/sci/labs/arieljaffe/dan.abergel1/repos/FAIR_official/dinov2/layers/patch_embed_3d_plus_1d.py", line 183, in forward
+[rank0]:     x = torch.utils.checkpoint.checkpoint(
+[rank0]:         ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+[rank0]:   File "/sci/labs/arieljaffe/dan.abergel1/torch_env/lib/python3.11/site-packages/torch/_compile.py", line 54, in inner
+[rank0]:     return disable_fn(*args, **kwargs)
+[rank0]:            ^^^^^^^^^^^^^^^^^^^^^^^^^^^
+[rank0]:   File "/sci/labs/arieljaffe/dan.abergel1/torch_env/lib/python3.11/site-packages/torch/_dynamo/eval_frame.py", line 1181, in _fn
+[rank0]:     return fn(*args, **kwargs)
+[rank0]:            ^^^^^^^^^^^^^^^^^^^
+[rank0]:   File "/sci/labs/arieljaffe/dan.abergel1/torch_env/lib/python3.11/site-packages/torch/utils/checkpoint.py", line 512, in checkpoint
+[rank0]:     ret = function(*args, **kwargs)
+[rank0]:           ^^^^^^^^^^^^^^^^^^^^^^^^^
+[rank0]:   File "/sci/labs/arieljaffe/dan.abergel1/repos/FAIR_official/dinov2/layers/patch_embed_3d_plus_1d.py", line 161, in _encoder_forward
+[rank0]:     x = self.conv_in(x)
+[rank0]:         ^^^^^^^^^^^^^^^
+[rank0]:   File "/sci/labs/arieljaffe/dan.abergel1/torch_env/lib/python3.11/site-packages/torch/nn/modules/module.py", line 1776, in _wrapped_call_impl
+[rank0]:     return self._call_impl(*args, **kwargs)
+[rank0]:            ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+[rank0]:   File "/sci/labs/arieljaffe/dan.abergel1/torch_env/lib/python3.11/site-packages/torch/nn/modules/module.py", line 1787, in _call_impl
+[rank0]:     return forward_call(*args, **kwargs)
+[rank0]:            ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+[rank0]:   File "/sci/labs/arieljaffe/dan.abergel1/repos/FAIR_official/dinov2/layers/patch_embed_3d_plus_1d.py", line 60, in forward
+[rank0]:     x = rearrange(x, '(b t) c x y z -> (b x y z) c t', b=B, t=T)
+[rank0]:         ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+[rank0]:   File "/sci/labs/arieljaffe/dan.abergel1/torch_env/lib/python3.11/site-packages/einops/einops.py", line 616, in rearrange
+[rank0]:     return reduce(tensor, pattern, reduction="rearrange", **axes_lengths)
+[rank0]:            ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+[rank0]:   File "/sci/labs/arieljaffe/dan.abergel1/torch_env/lib/python3.11/site-packages/einops/einops.py", line 540, in reduce
+[rank0]:     return _apply_recipe(
+[rank0]:            ^^^^^^^^^^^^^^
+[rank0]:   File "/sci/labs/arieljaffe/dan.abergel1/torch_env/lib/python3.11/site-packages/einops/einops.py", line 251, in _apply_recipe
+[rank0]:     tensor = backend.reshape(tensor, final_shapes)
+[rank0]:              ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+[rank0]:   File "/sci/labs/arieljaffe/dan.abergel1/torch_env/lib/python3.11/site-packages/einops/_backends.py", line 96, in reshape
+[rank0]:     return x.reshape(shape)
+[rank0]:            ^^^^^^^^^^^^^^^^
+[rank0]: torch.OutOfMemoryError: CUDA out of memory. Tried to allocate 66.59 GiB. GPU 0 has a total capacity of 139.80 GiB of which 66.06 GiB is free. Including non-PyTorch memory, this process has 73.66 GiB memory in use. Of the allocated memory 72.33 GiB is allocated by PyTorch, and 119.13 MiB is reserved by PyTorch but unallocated. If reserved but unallocated memory is large try setting PYTORCH_ALLOC_CONF=expandable_segments:True to avoid fragmentation.  See documentation for Memory Management  (https://pytorch.org/docs/stable/notes/cuda.html#environment-variables)
