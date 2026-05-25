@@ -7,7 +7,7 @@
 
 train:
   dataset_path: Mixed                 # HCP (random T=140 window) + ADNI (native T=140), 1779 scans total
-  batch_size_per_gpu: 4               # 4 scans/GPU (was 2); H200 has plenty of headroom. KoLeo needs >=2 CLS per chunk.
+  batch_size_per_gpu: 8               # 8 scans/GPU (was 2 then 4); H200 has plenty of headroom (~40 GB expected use, 80 GB available).
   num_workers: 4                      # data loading bottleneck; cap at 4 to fit cgroup RAM
   cache_dataset: false
   OFFICIAL_EPOCH_LENGTH: 1000         # ~ N_subjects with batch 1; tune to your subject count
@@ -55,7 +55,7 @@ teacher:
   channel_adaptive: false
 
 optim:
-  grad_accum_steps: 4                 # batch=4 * accum=4 -> effective batch = 16 (was 2*8). Same effective batch as before, ~2x faster wall-clock per iter (fewer accum loops).
+  grad_accum_steps: 2                 # batch=8 * accum=2 -> effective batch = 16 (unchanged). Half the accum loops vs batch=4/accum=4, additional wall-clock speedup.
   epochs: 10                          # halved (was 20). Aggressive LR + shorter warmup means we know fast if it works.
   weight_decay: 0.04
   weight_decay_end: 0.4
