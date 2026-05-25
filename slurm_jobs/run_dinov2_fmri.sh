@@ -24,11 +24,7 @@
 # =====================================================================
 
 #SBATCH --job-name=dinov2-fmri
-# L40s instead of H200: at T=140 (Mixed HCP+ADNI), tokens=1500 instead of 9000,
-# so attention memory drops 36x and L40s 48GB is plenty. Crucial reason: L40s
-# nodes (salmon) have /sci/nosnap mounted (where ADNI lives) — H200 nodes
-# (goldfish) do NOT, hence the FileNotFoundError on the previous launch.
-#SBATCH --gres=gpu:l40s:1
+#SBATCH --gres=gpu:h200:1
 #SBATCH --cpus-per-task=8
 #SBATCH --mem=256G
 #SBATCH --time=72:00:00
@@ -37,7 +33,7 @@
 #SBATCH --chdir=/sci/labs/arieljaffe/dan.abergel1/repos/FAIR_official
 
 # To use 2 GPUs:
-#   1) swap the #SBATCH line above for  #SBATCH --gres=gpu:l40s:2
+#   1) swap the #SBATCH line above for  #SBATCH --gres=gpu:h200:2
 #   2) set N_GPUS=2 below (or export it before sbatch).
 
 set -euo pipefail
@@ -76,7 +72,7 @@ mkdir -p "$TMPDIR" "$PIP_CACHE_DIR" "$TORCH_HOME" "$OUTPUT_DIR" "$CKPT_DIR"
 mkdir -p "$OFFICIAL_DIR/slurm_jobs/logs"
 
 echo "============================================================"
-echo "  DINOv2 OFFICIAL SSL on fMRI (Mixed HCP+ADNI T=140, ViT-S, L40s x $N_GPUS)"
+echo "  DINOv2 OFFICIAL SSL on fMRI (HCP, ViT-S, H200 x $N_GPUS)"
 echo "============================================================"
 echo "  Job ID:    ${SLURM_JOB_ID:-(local)}"
 echo "  Node:      $(hostname)"
