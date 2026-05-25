@@ -60,6 +60,7 @@ class HCPFullScanDataset(Dataset):
         window_size: int = 10,
         window_stride: int = 5,
         temporal_crop: Optional[int] = None,
+        target_shape: Optional[Tuple[int, int, int]] = (45, 54, 45),
         transform: Optional[Callable] = None,
         target_transform: Optional[Callable] = None,
     ):
@@ -79,6 +80,11 @@ class HCPFullScanDataset(Dataset):
         # training where ADNI is at T=140 — we want HCP scans to also be
         # T=temporal_crop so all datasets share the same temporal length.
         self.temporal_crop = temporal_crop
+        # HCP native spatial = (46, 55, 46), ADNI native = (45, 54, 45).
+        # Resample HCP -> (45, 54, 45) so Mixed dataset can torch.stack uniformly.
+        # The model was already happy with both (conv K=3 S=3 P=0 floors to the
+        # same output) but the collate is not.
+        self.target_shape = target_shape
         self.transform = transform
         self.target_transform = target_transform
 
@@ -108,6 +114,11 @@ class HCPFullScanDataset(Dataset):
             # Random temporal window of length `temporal_crop`.
             start = int(np.random.randint(0, scan.shape[0] - self.temporal_crop + 1))
             scan = scan[start:start + self.temporal_crop]
+        if self.target_shape is not None and tuple(scan.shape[-3:]) != tuple(self.target_shape):
+            scan = F.interpolate(
+                scan, size=tuple(self.target_shape),
+                mode="trilinear", align_corners=False,
+            )
         return scan
 
     def __getitem__(self, idx: int) -> Tuple[Any, Any]:
