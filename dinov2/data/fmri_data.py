@@ -135,17 +135,9 @@ class ADNIFullScanDataset(Dataset):
         transform: Optional[Callable] = None,
         target_transform: Optional[Callable] = None,
     ):
-        # Default ADNI path: try /sci/labs first (mounted on ALL compute nodes
-        # including H200/goldfish), fall back to /sci/nosnap which is the
-        # original location but is NOT visible from goldfish nodes.
-        if root is not None:
-            self.adni_path = root
-        else:
-            candidates = [
-                "/sci/labs/arieljaffe/dan.abergel1/data/all_4d_downsampled.pt",
-                "/sci/nosnap/arieljaffe/sagi.nathan/shared_fmri_data/all_4d_downsampled.pt",
-            ]
-            self.adni_path = next((p for p in candidates if Path(p).exists()), candidates[0])
+        self.adni_path = root or (
+            "/sci/nosnap/arieljaffe/sagi.nathan/shared_fmri_data/all_4d_downsampled.pt"
+        )
         self.data = torch.load(
             self.adni_path, weights_only=True, map_location="cpu", mmap=True,
         )
