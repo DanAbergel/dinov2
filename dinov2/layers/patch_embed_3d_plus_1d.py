@@ -10,10 +10,11 @@
 #   - Each hierarchical level uses Conv3Plus1d-based blocks; we never have
 #     a "pure spatial then pure temporal" phase.
 #
-# Strides for fMRI (HCP):
-#   Level 0 -> Level 1: spatial stride 3, temporal stride 2  (1200 -> 600, 45 -> 15)
-#   Level 1 -> Level 2: spatial stride 3, temporal stride 10 (600 -> 60, 15 -> 5)
-# Total: 9x spatial (matches patch_size=9), 20x temporal (= temporal_kernel).
+# Strides for fMRI (Mixed HCP+ADNI at T=140):
+#   conv_in: spatial stride 3 (45 -> 15)
+#   Level 0 -> Level 1: spatial stride 3, temporal stride 2  (140 -> 70, 15 -> 5)
+#   Level 1 -> Level 2: spatial stride 1, temporal stride 7  (70 -> 10)
+# Total: 9x spatial (matches patch_size=9), 14x temporal (= temporal_kernel).
 #
 # Carries the factorised positional embedding (pos_temporal + pos_spatial
 # + pos_cls) added by the ViT's 6D branch in `prepare_tokens_with_masks`.
@@ -97,7 +98,7 @@ class PatchEmbed3DPlus1D(nn.Module):
         patch_size: int = 9,
         in_chans: int = 1,
         embed_dim: int = 384,
-        temporal_kernel: int = 20,
+        temporal_kernel: int = 14,
     ) -> None:
         super().__init__()
         self.img_size = tuple(img_size)
@@ -111,16 +112,12 @@ class PatchEmbed3DPlus1D(nn.Module):
         # Strides per level transition (spatial, temporal):
         #   conv_in -> level_0: (3, 1)       first spatial downsample baked in
         #   level_0 -> level_1: (3, 2)       9x spatial so far, 2x temporal
-        #   level_1 -> level_2: (1, 10)      9x spatial, 20x temporal (= temporal_kernel)
+        #   level_1 -> level_2: (1, 7)       9x spatial, 14x temporal (= temporal_kernel)
         # Channels: 1 -> 32 -> 64 -> embed_dim.
         #
-        # Why downsample at conv_in: with 19200 frames (8 locals x batch 2 x T=1200)
-        # going through a full-resolution spatial conv at 16 ch, the intermediate
-        # activation reaches 67 GB just before the rearrange, which then needs to
-        # COPY the whole tensor to a new layout (another 67 GB) -> OOM. Moving
-        # the first spatial downsample into conv_in cuts the intermediate by ~9x.
-        # MovieGen TAE can afford to start at full resolution because they have
-        # very few frames per video (T=8); we have 1200 frames.
+        # For mixed-dataset training at T=140 (HCP random window + ADNI native):
+        #   T=140 -> down_0 -> 70 -> down_1 -> 10 (= T_eff)
+        # Token grid: 10 x 150 = 1500 per crop. Much smaller than T=1200 -> 9000.
 
         # Initial projection AND first spatial downsample.
         self.conv_in = Conv3Plus1d(in_chans, 32, K_s=3, S_s=3, P_s=0, K_t=3, S_t=1, P_t=1)
@@ -134,10 +131,10 @@ class PatchEmbed3DPlus1D(nn.Module):
 
         # Level 1 (at /9 spatial, /2 temporal; 64 ch).
         self.block_1 = _ResBlock3Plus1d(64)
-        # Spatial-stride-1 (already at target) + temporal stride 10; 64 -> embed_dim.
+        # Spatial-stride-1 (already at target) + temporal stride 7; 64 -> embed_dim.
         self.down_1 = Conv3Plus1d(64, embed_dim,
                                   K_s=3, S_s=1, P_s=1,
-                                  K_t=10, S_t=10, P_t=0)
+                                  K_t=7, S_t=7, P_t=0)
 
         # Level 2 (target resolution = token grid: (T_eff, gx, gy, gz)).
         self.block_2 = _ResBlock3Plus1d(embed_dim)

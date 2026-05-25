@@ -59,6 +59,7 @@ class HCPFullScanDataset(Dataset):
         *,
         window_size: int = 10,
         window_stride: int = 5,
+        temporal_crop: Optional[int] = None,
         transform: Optional[Callable] = None,
         target_transform: Optional[Callable] = None,
     ):
@@ -73,6 +74,11 @@ class HCPFullScanDataset(Dataset):
         self.window_size = window_size
         self.window_stride = window_stride
         self.short_step = window_size // window_stride
+        # If `temporal_crop` is set, __getitem__ returns a random T=temporal_crop
+        # window from the full T=1200 scan. This is used for mixed-dataset
+        # training where ADNI is at T=140 — we want HCP scans to also be
+        # T=temporal_crop so all datasets share the same temporal length.
+        self.temporal_crop = temporal_crop
         self.transform = transform
         self.target_transform = target_transform
 
@@ -85,7 +91,10 @@ class HCPFullScanDataset(Dataset):
             raise FileNotFoundError(
                 f"No windows.pt found under {self.hcp_root}."
             )
-        logger.info(f"HCPFullScanDataset: {len(self.paths)} subjects under {self.hcp_root}")
+        logger.info(
+            f"HCPFullScanDataset: {len(self.paths)} subjects under {self.hcp_root}"
+            + (f" (temporal_crop={temporal_crop})" if temporal_crop else "")
+        )
 
     def __len__(self) -> int:
         return len(self.paths)
@@ -94,7 +103,12 @@ class HCPFullScanDataset(Dataset):
         tensor = torch.load(self.paths[idx], map_location="cpu", mmap=True)
         non_overlapping = tensor[:: self.short_step].float()    # (N', T_short, 1, X, Y, Z)
         scan = non_overlapping.reshape(-1, *non_overlapping.shape[2:])  # (T_full, 1, X, Y, Z)
-        return _zscore_per_frame(scan)
+        scan = _zscore_per_frame(scan)
+        if self.temporal_crop is not None and scan.shape[0] > self.temporal_crop:
+            # Random temporal window of length `temporal_crop`.
+            start = int(np.random.randint(0, scan.shape[0] - self.temporal_crop + 1))
+            scan = scan[start:start + self.temporal_crop]
+        return scan
 
     def __getitem__(self, idx: int) -> Tuple[Any, Any]:
         image = self._load(idx)
@@ -157,6 +171,68 @@ class ADNIFullScanDataset(Dataset):
 
     def __getitem__(self, idx: int) -> Tuple[Any, Any]:
         image = self._load(idx)
+        target: Any = 0
+        if self.transform is not None:
+            image = self.transform(image)
+        if self.target_transform is not None:
+            target = self.target_transform(target)
+        return image, target
+
+
+class MixedFMRIDataset(Dataset):
+    """Concatenation of HCP (random T=140 crops) + ADNI (native T=140).
+
+    For mixed-dataset SSL pretraining: we need every scan to have the same
+    temporal length so the model's `pos_temporal` table is fixed. HCP is
+    naturally T=1200 -> we crop a random T=temporal_crop window per scan.
+    ADNI is naturally T=140 -> we use it as-is.
+
+    Both share the same spatial resolution (45 x 54 x 45 voxels) so no
+    spatial resampling is needed.
+
+    Length = len(HCP) + len(ADNI) = 967 + 812 = 1779 scans typically.
+    Easy to extend later with more datasets (ABIDE, ADHD-200, ...).
+    """
+
+    def __init__(
+        self,
+        root: Optional[str] = None,           # ignored, accepted for API parity
+        *,
+        temporal_crop: int = 140,
+        transform: Optional[Callable] = None,
+        target_transform: Optional[Callable] = None,
+    ):
+        # Use sensible defaults for the two underlying datasets.
+        # transforms applied later by us, not by the children.
+        self.hcp = HCPFullScanDataset(root=None, temporal_crop=temporal_crop)
+        self.adni = ADNIFullScanDataset(root=None)
+        self.temporal_crop = temporal_crop
+        self.transform = transform
+        self.target_transform = target_transform
+        logger.info(
+            f"MixedFMRIDataset: {len(self.hcp)} HCP + {len(self.adni)} ADNI = "
+            f"{len(self)} scans at T={temporal_crop}"
+        )
+
+    def __len__(self) -> int:
+        return len(self.hcp) + len(self.adni)
+
+    def __getitem__(self, idx: int) -> Tuple[Any, Any]:
+        if idx < len(self.hcp):
+            # HCP path: random T=temporal_crop window already handled by HCPFullScanDataset.
+            image = self.hcp._load(idx)
+        else:
+            # ADNI path: native T=140.
+            image = self.adni._load(idx - len(self.hcp))
+        # If the loaded scan is somehow not exactly `temporal_crop` (e.g., ADNI
+        # subject with T<140), pad with zeros or trim. ADNI is usually 140.
+        T = image.shape[0]
+        if T > self.temporal_crop:
+            image = image[: self.temporal_crop]
+        elif T < self.temporal_crop:
+            pad = self.temporal_crop - T
+            image = torch.cat([image, torch.zeros((pad,) + image.shape[1:])], dim=0)
+
         target: Any = 0
         if self.transform is not None:
             image = self.transform(image)

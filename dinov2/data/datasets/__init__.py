@@ -14,4 +14,4 @@ from .cell_dino.chammi_wtc import CHAMMI_WTC
 # (loaders.py) can resolve "HCP" / "ADNI" dataset strings the same way it
 # resolves "ImageNet". WHY: avoid touching loaders.py beyond a couple of
 # elif branches; the heavy lifting lives in dinov2/data/fmri_data.py.
-from ..fmri_data import HCPFullScanDataset, ADNIFullScanDataset
+from ..fmri_data import HCPFullScanDataset, ADNIFullScanDataset, MixedFMRIDataset

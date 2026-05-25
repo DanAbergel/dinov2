@@ -15,7 +15,7 @@ from torch.utils.data import Sampler
 # don't need to know about fMRI specifically.
 from .datasets import (
     ImageNet, ImageNet22k, HPAone, HPAFoV, CHAMMI_CP, CHAMMI_HPA, CHAMMI_WTC,
-    HCPFullScanDataset, ADNIFullScanDataset,
+    HCPFullScanDataset, ADNIFullScanDataset, MixedFMRIDataset,
 )
 from .samplers import EpochSampler, InfiniteSampler, ShardedInfiniteSampler
 
@@ -81,6 +81,8 @@ def _parse_dataset_str(dataset_str: str):
         class_ = HCPFullScanDataset
     elif name == "ADNI":
         class_ = ADNIFullScanDataset
+    elif name == "Mixed":
+        class_ = MixedFMRIDataset
     else:
         raise ValueError(f'Unsupported dataset "{name}"')
 

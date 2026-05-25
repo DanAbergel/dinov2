@@ -6,7 +6,7 @@
 # values that genuinely need to change for fMRI.
 
 train:
-  dataset_path: HCP                   # resolves to HCPFullScanDataset in _parse_dataset_str
+  dataset_path: Mixed                 # HCP (random T=140 window) + ADNI (native T=140), 1779 scans total
   batch_size_per_gpu: 2               # 2 full scans/GPU: KoLeo needs >=2 CLS per chunk to compute NN distance
   num_workers: 4                      # data loading bottleneck; cap at 4 to fit cgroup RAM
   cache_dataset: false
@@ -40,12 +40,10 @@ student:
   # ----- fMRI-specific fields (consumed by build_model_from_cfg) -----
   fmri_mode: true
   fmri_img_size: [45, 54, 45]         # HCP downsampled volume; patch=9 -> 5*6*5 = 150 spatial tokens
-  fmri_temporal_size: 1200            # full HCP REST1_LR scan; tune for ADNI (140) etc.
-  fmri_temporal_kernel: 20            # non-overlapping temporal Conv1d -> T_eff = 60 (was 10 -> T_eff=120 but 18k tokens caused attention OOM on H200)
-  # Token grid: T_eff * N_spatial = 120 * 150 = 18 000 tokens.
-  # Factorised pos params: (120 + 150 + 1) * 384 = 104 064 (vs flat 18001 * 384 = 6.9 M).
-  # Attention is still O(N^2) in compute, so tune fmri_temporal_size or
-  # raise fmri_temporal_kernel / patch_size if you OOM at run time.
+  fmri_temporal_size: 140             # common T across HCP (random crop) + ADNI (native)
+  fmri_temporal_kernel: 14            # T_eff = 140 / 14 = 10 temporal tokens per crop
+  # Token grid: T_eff * N_spatial = 10 * 150 = 1500 tokens (much smaller than HCP-only at T=1200).
+  # Factorised pos params: (10 + 150 + 1) * 384 = 61 824. Plus de marge GPU pour batch plus grand.
 
 teacher:
   momentum_teacher: 0.992
