@@ -7,7 +7,7 @@
 
 train:
   dataset_path: Mixed                 # HCP (random T=140 window) + ADNI (native T=140), 1779 scans total
-  batch_size_per_gpu: 8               # 8 scans/GPU (was 2 then 4); H200 has plenty of headroom (~40 GB expected use, 80 GB available).
+  batch_size_per_gpu: 2               # Back to 2: data-bound regime, bigger batches make worker->main queue transfer the bottleneck (10 crops/sample x large batch = multi-GB per .next() call). 2 was the sweet spot.
   num_workers: 4                      # data loading bottleneck; cap at 4 to fit cgroup RAM
   cache_dataset: false
   OFFICIAL_EPOCH_LENGTH: 1000         # ~ N_subjects with batch 1; tune to your subject count
@@ -55,12 +55,12 @@ teacher:
   channel_adaptive: false
 
 optim:
-  grad_accum_steps: 2                 # batch=8 * accum=2 -> effective batch = 16 (unchanged). Half the accum loops vs batch=4/accum=4, additional wall-clock speedup.
+  grad_accum_steps: 8                 # batch=2 * accum=8 -> effective batch = 16 (unchanged).
   epochs: 10                          # halved (was 20). Aggressive LR + shorter warmup means we know fast if it works.
   weight_decay: 0.04
   weight_decay_end: 0.4
-  base_lr: 3.0e-3                     # 10x previous (was 3e-4). Effective = 3e-3 * sqrt(16/1024) = 3.75e-4. ~2x DINOv2 official (2e-4) — aggressive but defensible; if loss diverges within 500 iters post-warmup, drop to 1e-3.
-  warmup_epochs: 0.3                  # 300 iters of warmup (was 1000). Shorter so we see the new LR effect by iter 500-800.
+  base_lr: 3.0e-4                     # Option C: back to baseline HCP-only LR (was 3e-3 in previous Mixed run). Effective = 3e-4 * sqrt(16/1024) = 3.75e-5. Isolates the LR variable: if Mixed-with-baseline-LR matches HCP-only baseline downstream, the LR x10 was the culprit.
+  warmup_epochs: 0.3                  # kept from previous Mixed run for fast feedback. With LR back to baseline, no explosion risk from short warmup.
   min_lr: 1.0e-06
   clip_grad: 3.0
   freeze_last_layer_epochs: 1
