@@ -6,8 +6,10 @@ fit a single linear model per label with k-fold CV. Nothing else.
 Same simplicity as probe_adni.py: one CLS vector per sample, one linear
 model (LogisticRegression for classification, RidgeCV for regression).
 
-HCP has T=1200 and spatial (45, 54, 45), matching the training data
-exactly, so no pos_temporal resize is needed.
+HCP has T=1200. If the model was trained at a different T (e.g. Mixed
+HCP+ADNI at T=140 -> T_eff=10), the pos_temporal table is resized via
+1D linear interpolation to match HCP's T_eff at inference time. Same
+logic as probe_adni.py.
 
 Usage:
     python scripts/probe_hcp.py --checkpoint outputs/.../model_*.rank_0.pth
@@ -68,15 +70,38 @@ def load_teacher_backbone(checkpoint_path, cfg, device):
     return teacher, data.get("iteration", -1)
 
 
+# ---------- pos_temporal resize ----------
+
+def resize_pos_temporal(backbone, new_T_eff):
+    """HCP T=1200 -> T_eff=85 (with kernel=14); trained model has T_eff=10.
+    Resize pos_temporal via 1D linear interpolation. Same as probe_adni.py."""
+    pe = backbone.patch_embed
+    if pe.pos_temporal.shape[1] == new_T_eff:
+        return
+    new = F.interpolate(
+        pe.pos_temporal.data.permute(0, 2, 1), size=new_T_eff,
+        mode="linear", align_corners=False,
+    ).permute(0, 2, 1)
+    pe.pos_temporal = torch.nn.Parameter(new, requires_grad=False)
+    pe.num_temporal_patches = new_T_eff
+    pe.num_patches = new_T_eff * pe.num_spatial_patches
+    print(f"  pos_temporal resized to T_eff={new_T_eff}")
+
+
 # ---------- Feature extraction (CLS only) ----------
 
 @torch.no_grad()
-def extract_cls(backbone, device):
+def extract_cls(backbone, device, temporal_kernel):
     """All HCP scans -> (N, 384) numpy array of teacher CLS tokens."""
     ds = HCPFullScanDataset(root=str(HCP_ROOT))
     N = len(ds)
     subject_ids = [_SUBJECT_RE.search(str(p)).group(1) for p in ds.paths]
-    print(f"  HCP: {N} subjects")
+    # Peek at the temporal length so we can size pos_temporal once.
+    probe_scan = ds._load(0)
+    T = probe_scan.shape[0]
+    new_T_eff = T // temporal_kernel
+    resize_pos_temporal(backbone, new_T_eff)
+    print(f"  HCP: {N} subjects, T={T} -> T_eff={new_T_eff}")
 
     embed_dim = backbone.embed_dim
     embeddings = np.empty((N, embed_dim), dtype=np.float32)
@@ -148,7 +173,8 @@ def main():
     backbone, it = load_teacher_backbone(args.checkpoint, cfg, device)
     print(f"  Loaded teacher backbone @ iter {it}")
 
-    subject_ids, X = extract_cls(backbone, device)
+    subject_ids, X = extract_cls(backbone, device,
+                                  temporal_kernel=cfg.student.fmri_temporal_kernel)
     print(f"  Features: shape {X.shape}")
 
     if args.features_out:
