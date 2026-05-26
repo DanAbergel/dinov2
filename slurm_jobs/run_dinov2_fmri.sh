@@ -28,8 +28,12 @@
 #SBATCH --cpus-per-task=8
 #SBATCH --mem=256G
 #SBATCH --time=72:00:00
-#SBATCH --output=slurm_jobs/logs/dinov2_fmri.out
-#SBATCH --error=slurm_jobs/logs/dinov2_fmri.err
+# SLURM's own output is discarded; we redirect to a per-run timestamped log
+# file in-script below so each launch keeps its own log (matching its
+# outputs/<RUN_NAME> directory). A "latest" symlink points at the most
+# recent run for `tail -f` convenience.
+#SBATCH --output=/dev/null
+#SBATCH --error=/dev/null
 #SBATCH --chdir=/sci/labs/arieljaffe/dan.abergel1/repos/FAIR_official
 
 # To use 2 GPUs:
@@ -49,6 +53,16 @@ export DINOV2_INIT="$CKPT_DIR/dinov2_vits14_reg4_fmri_init.pth"
 export CONFIG_FILE="dinov2/configs/train/fmri_vits.yaml"
 export RUN_NAME="dinov2_fmri_$(date +%Y%m%d_%H%M%S)"
 export OUTPUT_DIR="$OFFICIAL_DIR/outputs/$RUN_NAME"
+
+# ----- Per-run timestamped log (preserves history of all runs) -----
+# Log filename matches the output directory's RUN_NAME so it's trivial to
+# match a log to its checkpoints. `latest` symlink for `tail -f`.
+mkdir -p "$OFFICIAL_DIR/slurm_jobs/logs"
+LOG_OUT="$OFFICIAL_DIR/slurm_jobs/logs/${RUN_NAME}.out"
+LOG_ERR="$OFFICIAL_DIR/slurm_jobs/logs/${RUN_NAME}.err"
+ln -sf "${RUN_NAME}.out" "$OFFICIAL_DIR/slurm_jobs/logs/dinov2_fmri_latest.out"
+ln -sf "${RUN_NAME}.err" "$OFFICIAL_DIR/slurm_jobs/logs/dinov2_fmri_latest.err"
+exec >"$LOG_OUT" 2>"$LOG_ERR"
 
 export TMPDIR="$LAB_DIR/tmp"
 export PIP_CACHE_DIR="$LAB_DIR/cache/pip"
