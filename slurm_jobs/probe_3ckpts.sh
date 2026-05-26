@@ -97,11 +97,37 @@ backup_stale() {
     echo "    stale -> moved to $OLD_BACKUP/$(basename "$f")"
 }
 
+# ----- Helper: extract iter # from a checkpoint path -----
+# Handles both model_<iter>.rank_0.pth (numeric) and model_final.rank_0.pth
+# (read iter from inside the .pth via a tiny python call).
+ckpt_iter() {
+    local ckpt="$1"
+    local raw
+    raw=$(basename "$ckpt" | sed -E 's/^model_0*([0-9]+)\.rank_0\.pth$/\1/')
+    if [[ "$raw" =~ ^[0-9]+$ ]]; then
+        echo "$raw"
+        return
+    fi
+    # model_final.rank_0.pth or similar: read iter from the .pth payload.
+    python3 - <<PY 2>/dev/null
+import torch, sys
+try:
+    d = torch.load("$ckpt", map_location="cpu", weights_only=False)
+    print(int(d.get("iteration", -1)))
+except Exception:
+    print(-1)
+PY
+}
+
 # ----- 5. Submit only what's missing or stale -----
 SUBMITTED=0
 SKIPPED=0
 for CKPT in "${SELECTED[@]}"; do
-    ITER=$(basename "$CKPT" | sed -E 's/^model_0*([0-9]+)\.rank_0\.pth$/\1/')
+    ITER=$(ckpt_iter "$CKPT")
+    if ! [[ "$ITER" =~ ^[0-9]+$ ]] || [ "$ITER" -lt 0 ]; then
+        echo "[skip] could not determine iter for $CKPT (got '$ITER')"
+        continue
+    fi
     ITER_PADDED=$(printf "%07d" "$ITER")
 
     for KIND in adni hcp; do
@@ -122,16 +148,21 @@ for CKPT in "${SELECTED[@]}"; do
             echo "    FORCE=1 -> resubmitting unconditionally."
             if [ -f "$JSON" ]; then backup_stale "$JSON"; fi
         else
-            if freshness "$JSON"; then
-                echo "    FRESH (mtime > run mtime) -> skip."
-                SKIPPED=$((SKIPPED + 1))
-                continue
-            fi
-            case $? in
+            # Capture freshness() exit code without losing it through `if ... fi`.
+            # `set -e` requires `|| status=$?` so non-zero returns don't kill the script.
+            status=0
+            freshness "$JSON" || status=$?
+            case "$status" in
+                0) echo "    FRESH (mtime > run mtime) -> skip."
+                   SKIPPED=$((SKIPPED + 1))
+                   continue
+                   ;;
                 1) echo "    STALE (older than run) -> move + resubmit."
                    backup_stale "$JSON"
                    ;;
                 2) echo "    MISSING -> submit."
+                   ;;
+                *) echo "    UNKNOWN freshness status ($status) -> submit."
                    ;;
             esac
         fi

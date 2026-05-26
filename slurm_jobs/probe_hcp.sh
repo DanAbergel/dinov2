@@ -85,7 +85,22 @@ if [ -z "${CHECKPOINT:-}" ]; then
 fi
 echo "  Checkpoint: $CHECKPOINT"
 
-ITER_TAG=$(basename "$CHECKPOINT" | sed -E 's/^model_([0-9]+)\.rank_0\.pth$/\1/')
+# Derive iteration tag. model_<N>.rank_0.pth: use filename. model_final.rank_0.pth:
+# read 'iteration' from the .pth payload.
+ITER_RAW=$(basename "$CHECKPOINT" | sed -E 's/^model_0*([0-9]+)\.rank_0\.pth$/\1/')
+if [[ "$ITER_RAW" =~ ^[0-9]+$ ]]; then
+    ITER_TAG=$(printf "%07d" "$ITER_RAW")
+else
+    ITER_TAG=$(python - <<PY
+import torch
+try:
+    d = torch.load("$CHECKPOINT", map_location="cpu", weights_only=False)
+    print(f"{int(d.get('iteration', -1)):07d}")
+except Exception:
+    print("unknown")
+PY
+)
+fi
 OUTPUT_JSON="$OFFICIAL_DIR/outputs/probes/probe_hcp_iter${ITER_TAG}.json"
 FEATURES_CACHE="$OFFICIAL_DIR/outputs/probes/features_hcp_iter${ITER_TAG}.npz"
 echo "  Output:     $OUTPUT_JSON"
