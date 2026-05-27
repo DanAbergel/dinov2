@@ -31,7 +31,16 @@
 set -euo pipefail
 
 OFFICIAL_DIR="/sci/labs/arieljaffe/dan.abergel1/repos/FAIR_official"
+VENV_DIR="/sci/labs/arieljaffe/dan.abergel1/torch_env"
 cd "$OFFICIAL_DIR"
+
+# Activate venv so ckpt_iter() can import torch and read 'iteration' from
+# .pth payloads (needed for model_final.rank_0.pth which has no numeric
+# iter in its filename). Without this, python3 falls back to system python
+# which lacks torch -> ckpt_iter silently returns empty -> the loop skips
+# the final checkpoint.
+# shellcheck disable=SC1091
+source "$VENV_DIR/bin/activate"
 
 PROBES_DIR="$OFFICIAL_DIR/outputs/probes"
 mkdir -p "$PROBES_DIR"
@@ -100,32 +109,47 @@ backup_stale() {
 # ----- Helper: extract iter # from a checkpoint path -----
 # Handles both model_<iter>.rank_0.pth (numeric) and model_final.rank_0.pth
 # (read iter from inside the .pth via a tiny python call).
+# Always emits a numeric line (or -1) on stdout so the caller never gets
+# an empty string. Stderr goes to /dev/null so partial-import noise doesn't
+# pollute the launcher log.
 ckpt_iter() {
     local ckpt="$1"
     local raw
     raw=$(basename "$ckpt" | sed -E 's/^model_0*([0-9]+)\.rank_0\.pth$/\1/')
     if [[ "$raw" =~ ^[0-9]+$ ]]; then
         echo "$raw"
-        return
+        return 0
     fi
     # model_final.rank_0.pth or similar: read iter from the .pth payload.
-    python3 - <<PY 2>/dev/null
-import torch, sys
+    local out
+    out=$(python3 - <<PY 2>/dev/null || true
+import torch
 try:
     d = torch.load("$ckpt", map_location="cpu", weights_only=False)
     print(int(d.get("iteration", -1)))
 except Exception:
     print(-1)
 PY
+)
+    # Fallback: if python failed entirely (no torch, no python3), emit -1.
+    if [[ -z "$out" ]]; then
+        echo "-1"
+    else
+        echo "$out"
+    fi
 }
 
 # ----- 5. Submit only what's missing or stale -----
 SUBMITTED=0
 SKIPPED=0
 for CKPT in "${SELECTED[@]}"; do
+    echo ""
+    echo "------------------------------------------------------------"
+    echo "Processing checkpoint: $CKPT"
     ITER=$(ckpt_iter "$CKPT")
+    echo "  detected iter: '$ITER'"
     if ! [[ "$ITER" =~ ^[0-9]+$ ]] || [ "$ITER" -lt 0 ]; then
-        echo "[skip] could not determine iter for $CKPT (got '$ITER')"
+        echo "  [SKIP] could not determine iter (got '$ITER'). Check venv activation."
         continue
     fi
     ITER_PADDED=$(printf "%07d" "$ITER")
