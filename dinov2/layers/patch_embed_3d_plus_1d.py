@@ -131,10 +131,20 @@ class PatchEmbed3DPlus1D(nn.Module):
 
         # Level 1 (at /9 spatial, /2 temporal; 64 ch).
         self.block_1 = _ResBlock3Plus1d(64)
-        # Spatial-stride-1 (already at target) + temporal stride 7; 64 -> embed_dim.
+        # Spatial-stride-1 (already at target) + temporal stride down_1_kt.
+        # Total temporal stride = conv_in(1) * down_0(2) * down_1(down_1_kt)
+        # = 2 * down_1_kt, which must equal temporal_kernel. So:
+        #   down_1_kt = temporal_kernel // 2.
+        # Deriving this from temporal_kernel (instead of hardcoding) makes the
+        # whole architecture a function of the config, so a checkpoint trained
+        # with temporal_kernel=20 (down_1 K_t=10) and one with 14 (K_t=7) are
+        # both rebuildable from their saved config.yaml. WHY THIS MATTERS:
+        # previously down_1 K_t was hardcoded, so probing an old checkpoint
+        # with a different kernel raised a state_dict size mismatch.
+        down_1_kt = temporal_kernel // 2
         self.down_1 = Conv3Plus1d(64, embed_dim,
                                   K_s=3, S_s=1, P_s=1,
-                                  K_t=7, S_t=7, P_t=0)
+                                  K_t=down_1_kt, S_t=down_1_kt, P_t=0)
 
         # Level 2 (target resolution = token grid: (T_eff, gx, gy, gz)).
         self.block_2 = _ResBlock3Plus1d(embed_dim)

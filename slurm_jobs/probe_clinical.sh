@@ -72,12 +72,24 @@ except Exception:
 PY
 )
 fi
-RUN_NAME=$(basename "$(dirname "$CHECKPOINT")")
+RUN_DIR=$(dirname "$CHECKPOINT")
+RUN_NAME=$(basename "$RUN_DIR")
+
+# Build the model from the RUN'S OWN saved config, not the live
+# fmri_vits.yaml (which is mutable and may now describe a different run's
+# architecture: T, temporal_kernel, etc). Each run dir saves config.yaml.
+# Falls back to the live config only if the run's copy is missing.
+CONFIG_FILE="$RUN_DIR/config.yaml"
+if [ ! -f "$CONFIG_FILE" ]; then
+    echo "  WARN: $CONFIG_FILE not found, falling back to live fmri_vits.yaml"
+    CONFIG_FILE="dinov2/configs/train/fmri_vits.yaml"
+fi
+echo "  Config: $CONFIG_FILE"
 OUTPUT="$OFFICIAL_DIR/outputs/probes/clinical_${RUN_NAME}_iter${TAG}.json"
 
 python scripts/probe_adni_clinical.py \
     --checkpoint "$CHECKPOINT" \
-    --config-file dinov2/configs/train/fmri_vits.yaml \
+    --config-file "$CONFIG_FILE" \
     --output "$OUTPUT" \
     --n_repeats 4
 

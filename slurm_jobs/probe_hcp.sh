@@ -105,9 +105,15 @@ OUTPUT_JSON="$OFFICIAL_DIR/outputs/probes/probe_hcp_iter${ITER_TAG}.json"
 FEATURES_CACHE="$OFFICIAL_DIR/outputs/probes/features_hcp_iter${ITER_TAG}.npz"
 echo "  Output:     $OUTPUT_JSON"
 
+# Build the model from the RUN'S OWN saved config (T, temporal_kernel, ...),
+# not the live fmri_vits.yaml which is mutable and may describe a different run.
+CONFIG_FILE="$(dirname "$CHECKPOINT")/config.yaml"
+[ -f "$CONFIG_FILE" ] || CONFIG_FILE="dinov2/configs/train/fmri_vits.yaml"
+echo "  Config:     $CONFIG_FILE"
+
 python scripts/probe_hcp.py \
     --checkpoint "$CHECKPOINT" \
-    --config-file dinov2/configs/train/fmri_vits.yaml \
+    --config-file "$CONFIG_FILE" \
     --output "$OUTPUT_JSON" \
     --features-out "$FEATURES_CACHE"
 
