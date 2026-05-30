@@ -344,16 +344,12 @@ class SSLMetaArch(nn.Module):
             # accumulate loss
             loss_accumulator += self.ibot_loss_weight * ibot_patch_loss
 
-        # FMRI CHANGE: divide loss by loss_scale before backward. With
-        # gradient accumulation over N micro-steps we want each micro-step's
-        # backward to contribute 1/N of the per-step gradient; the sum over
-        # N micro-steps then matches a single forward_backward on the full
-        # effective batch. The returned `loss_dict` is left unscaled so the
-        # printed losses match what a single-step run would show.
-        if loss_scale != 1.0:
-            self.backprop_loss(loss_accumulator / loss_scale)
-        else:
-            self.backprop_loss(loss_accumulator)
+        # FMRI CHANGE: divide loss by loss_scale before backward. With grad
+        # accumulation over N micro-steps, each backward contributes 1/N of the
+        # per-step gradient; summed over N steps this matches one full-batch
+        # step. loss_scale=1.0 (default) is a no-op. loss_dict stays unscaled
+        # so printed losses match a single-step run.
+        self.backprop_loss(loss_accumulator / loss_scale)
 
         self.fsdp_synchronize_streams()
 

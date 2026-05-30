@@ -82,6 +82,38 @@ class _ResBlock3Plus1d(nn.Module):
         return x + h
 
 
+class PositionEmbedding3D(nn.Module):
+    """Factorised positional embedding for the fMRI token grid.
+
+    Instead of one flat table of size (T_eff * N_spatial) like a 2D ViT, we
+    keep two small tables that are broadcast and summed:
+        pos = pos_temporal (broadcast over space) + pos_spatial (broadcast over time)
+    plus a separate pos_cls for the CLS token. This is O(T_eff + N_spatial)
+    parameters instead of O(T_eff * N_spatial).
+
+    Kept as its own nn.Module so positional encoding is a separate concern
+    from the patchify conv stack (PatchEmbed3DPlus1D holds one of these).
+    """
+
+    def __init__(self, num_temporal_patches: int, num_spatial_patches: int, embed_dim: int):
+        super().__init__()
+        self.num_temporal_patches = num_temporal_patches
+        self.num_spatial_patches = num_spatial_patches
+        self.pos_temporal = nn.Parameter(torch.zeros(1, num_temporal_patches, embed_dim))
+        self.pos_spatial  = nn.Parameter(torch.zeros(1, num_spatial_patches, embed_dim))
+        self.pos_cls      = nn.Parameter(torch.zeros(1, 1, embed_dim))
+        trunc_normal_(self.pos_temporal, std=0.02)
+        trunc_normal_(self.pos_spatial,  std=0.02)
+        trunc_normal_(self.pos_cls,      std=0.02)
+
+    def combined_patch_pos(self) -> torch.Tensor:
+        """(1, T_eff * N_spatial, embed_dim) — broadcast sum of the two
+        factorised embeddings. Order: (t outer, n inner)."""
+        pos_t = repeat(self.pos_temporal, '1 t d -> 1 (t n) d', n=self.num_spatial_patches)
+        pos_s = repeat(self.pos_spatial,  '1 n d -> 1 (t n) d', t=self.num_temporal_patches)
+        return pos_t + pos_s
+
+
 class PatchEmbed3DPlus1D(nn.Module):
     """Hierarchical spatio-temporal encoder for fMRI, MovieGen-TAE style.
 
@@ -149,26 +181,17 @@ class PatchEmbed3DPlus1D(nn.Module):
         # Level 2 (target resolution = token grid: (T_eff, gx, gy, gz)).
         self.block_2 = _ResBlock3Plus1d(embed_dim)
 
-        # Token-grid sizes.
+        # Token-grid sizes. num_patches is read by the ViT __init__ to size
+        # its (unused-in-fMRI) flat pos_embed, so we expose it here.
         gx, gy, gz = (s // patch_size for s in self.img_size)
         self.num_spatial_patches = gx * gy * gz
         self.num_temporal_patches = temporal_size // temporal_kernel
         self.num_patches = self.num_temporal_patches * self.num_spatial_patches
 
-        # Factorised positional embeddings.
-        self.pos_temporal = nn.Parameter(torch.zeros(1, self.num_temporal_patches, embed_dim))
-        self.pos_spatial  = nn.Parameter(torch.zeros(1, self.num_spatial_patches, embed_dim))
-        self.pos_cls      = nn.Parameter(torch.zeros(1, 1, embed_dim))
-        trunc_normal_(self.pos_temporal, std=0.02)
-        trunc_normal_(self.pos_spatial,  std=0.02)
-        trunc_normal_(self.pos_cls,      std=0.02)
-
-    def combined_patch_pos(self) -> torch.Tensor:
-        """(1, T_eff * N_spatial, embed_dim) — broadcast sum of the two
-        factorised embeddings. Order: (t outer, n inner)."""
-        pos_t = repeat(self.pos_temporal, '1 t d -> 1 (t n) d', n=self.num_spatial_patches)
-        pos_s = repeat(self.pos_spatial,  '1 n d -> 1 (t n) d', t=self.num_temporal_patches)
-        return pos_t + pos_s
+        # Factorised positional embedding (separate nn.Module).
+        self.pos = PositionEmbedding3D(
+            self.num_temporal_patches, self.num_spatial_patches, embed_dim,
+        )
 
     def _encoder_forward(self, x: torch.Tensor) -> torch.Tensor:
         """Single pass through the hierarchical encoder. Wrapped by checkpoint

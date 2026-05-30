@@ -127,6 +127,30 @@ def apply_optim_scheduler(optimizer, lr, wd, last_layer_lr):
         param_group["lr"] = (last_layer_lr if is_last_layer else lr) * lr_multiplier
 
 
+def optimizer_step_and_ema(model, optimizer, fp16_scaler, clip_grad, mom):
+    """The official single optimizer step body, extracted into one named
+    function: (unscale fp16 grads,) clip, step, update scaler, EMA teacher.
+
+    FMRI CHANGE: this used to be inline in do_train. Pulling it out keeps the
+    gradient-accumulation guard in do_train a clean two-liner (zero at the
+    start of an N-cycle, this step at the end). The logic itself is unchanged
+    from upstream.
+    """
+    if fp16_scaler is not None:
+        if clip_grad:
+            fp16_scaler.unscale_(optimizer)
+            for v in model.student.values():
+                v.clip_grad_norm_(clip_grad)
+        fp16_scaler.step(optimizer)
+        fp16_scaler.update()
+    else:
+        if clip_grad:
+            for v in model.student.values():
+                v.clip_grad_norm_(clip_grad)
+        optimizer.step()
+    model.update_teacher(mom)
+
+
 def do_test(cfg, model, iteration):
     new_state_dict = model.teacher.state_dict()
 
@@ -274,16 +298,12 @@ def do_train(cfg, model, resume=False):
         if iteration > max_iter:
             return
 
-        # FMRI CHANGE: gradient accumulation. Read N from cfg.optim
-        # (default 1 = single-step behaviour). The optimizer is stepped
-        # only every N micro-iterations; before each cycle we zero_grad,
-        # and after each cycle we clip + step + EMA. The loss inside
-        # `forward_backward` is divided by N so the accumulated gradient
-        # over N calls matches a single forward_backward on the full
-        # effective batch.
+        # FMRI CHANGE: gradient accumulation over N=grad_accum_steps micro-steps
+        # (default 1 = official single-step). Zero grads at the start of each
+        # N-cycle, accumulate N backward passes (loss divided by N inside
+        # forward_backward), then step+EMA once at the end. The step body lives
+        # in optimizer_step_and_ema() so this loop stays readable.
         grad_accum_steps = int(cfg.optim.get("grad_accum_steps", 1))
-        is_accum_start = (iteration % grad_accum_steps) == 0
-        is_accum_end = ((iteration + 1) % grad_accum_steps) == 0
 
         # apply schedules
 
@@ -296,31 +316,15 @@ def do_train(cfg, model, resume=False):
 
         # compute losses
 
-        if is_accum_start:
+        if iteration % grad_accum_steps == 0:
             optimizer.zero_grad(set_to_none=True)
         loss_dict = model.forward_backward(
             data, teacher_temp=teacher_temp, loss_scale=float(grad_accum_steps),
         )
-
-        # clip gradients + optimizer step + EMA — only at end of an accum cycle
-
-        if is_accum_end:
-            if fp16_scaler is not None:
-                if cfg.optim.clip_grad:
-                    fp16_scaler.unscale_(optimizer)
-                    for v in model.student.values():
-                        v.clip_grad_norm_(cfg.optim.clip_grad)
-                fp16_scaler.step(optimizer)
-                fp16_scaler.update()
-            else:
-                if cfg.optim.clip_grad:
-                    for v in model.student.values():
-                        v.clip_grad_norm_(cfg.optim.clip_grad)
-                optimizer.step()
-
-            # perform teacher EMA update
-
-            model.update_teacher(mom)
+        if (iteration + 1) % grad_accum_steps == 0:
+            optimizer_step_and_ema(
+                model, optimizer, fp16_scaler, cfg.optim.clip_grad, mom,
+            )
 
         # logging
 

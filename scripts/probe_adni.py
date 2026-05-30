@@ -68,6 +68,15 @@ def load_teacher_backbone(checkpoint_path, cfg, device):
     sd = {k[len(prefix):].replace("_fsdp_wrapped_module.", ""): v
           for k, v in full_state.items() if k.startswith(prefix)}
 
+    # Backward-compat: older checkpoints stored the factorised pos embedding
+    # flat (patch_embed.pos_temporal); current code nests it under
+    # patch_embed.pos.* (PositionEmbedding3D submodule). Remap so old
+    # checkpoints still load.
+    for k in ("pos_temporal", "pos_spatial", "pos_cls"):
+        flat = f"patch_embed.{k}"
+        if flat in sd:
+            sd[f"patch_embed.pos.{k}"] = sd.pop(flat)
+
     _, teacher, _ = build_model_from_cfg(cfg)
     teacher.load_state_dict(sd, strict=False)
     teacher.to(device).eval()
@@ -75,9 +84,9 @@ def load_teacher_backbone(checkpoint_path, cfg, device):
 
 
 def resize_pos_temporal(backbone, new_T_eff):
-    """ADNI has T=140 != HCP training T=1200, so resize pos_temporal from
-    (1, 120, D) to (1, T_eff_new, D) via 1D linear interpolation."""
-    pe = backbone.patch_embed
+    """The model's T_eff (from training T) may differ from the probe data's
+    T_eff. Resize pos_temporal to new_T_eff via 1D linear interpolation."""
+    pe = backbone.patch_embed.pos               # PositionEmbedding3D
     if pe.pos_temporal.shape[1] == new_T_eff:
         return
     new = F.interpolate(
@@ -86,7 +95,8 @@ def resize_pos_temporal(backbone, new_T_eff):
     ).permute(0, 2, 1)
     pe.pos_temporal = torch.nn.Parameter(new, requires_grad=False)
     pe.num_temporal_patches = new_T_eff
-    pe.num_patches = new_T_eff * pe.num_spatial_patches
+    backbone.patch_embed.num_temporal_patches = new_T_eff
+    backbone.patch_embed.num_patches = new_T_eff * pe.num_spatial_patches
 
 
 # ---------- Feature extraction (CLS only) ----------

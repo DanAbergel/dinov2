@@ -7,7 +7,6 @@ from collections import defaultdict, deque
 import datetime
 import json
 import logging
-import sys
 import time
 
 import torch
@@ -100,46 +99,32 @@ class MetricLogger(object):
                 eta_seconds = iter_time.global_avg * (n_iterations - i)
                 eta_string = str(datetime.timedelta(seconds=int(eta_seconds)))
                 if torch.cuda.is_available():
-                    msg = log_msg.format(
-                        i,
-                        n_iterations,
-                        eta=eta_string,
-                        meters=str(self),
-                        time=str(iter_time),
-                        data=str(data_time),
-                        memory=torch.cuda.max_memory_allocated() / MB,
+                    logger.info(
+                        log_msg.format(
+                            i,
+                            n_iterations,
+                            eta=eta_string,
+                            meters=str(self),
+                            time=str(iter_time),
+                            data=str(data_time),
+                            memory=torch.cuda.max_memory_allocated() / MB,
+                        )
                     )
                 else:
-                    msg = log_msg.format(
-                        i,
-                        n_iterations,
-                        eta=eta_string,
-                        meters=str(self),
-                        time=str(iter_time),
-                        data=str(data_time),
+                    logger.info(
+                        log_msg.format(
+                            i,
+                            n_iterations,
+                            eta=eta_string,
+                            meters=str(self),
+                            time=str(iter_time),
+                            data=str(data_time),
+                        )
                     )
-                # FMRI CHANGE: emit the periodic update as a single line
-                # that overwrites itself via '\r' instead of accumulating
-                # one line per print_freq iterations. The OFFICIAL line
-                # was `logger.info(msg)` which prints with '\n' and goes
-                # through the dinov2 stdout + file handlers. WHY: tail -f
-                # on the SLURM .out file then shows one updating progress
-                # line instead of a wall of text. The full metrics
-                # history is still saved as JSONL by dump_in_output_file
-                # (training_metrics.json), so nothing is lost; only the
-                # human-readable log.txt loses these iter lines.
-                if distributed.is_main_process():
-                    sys.stdout.write("\r" + msg)
-                    sys.stdout.flush()
             i += 1
             end = time.time()
             if i >= n_iterations:
                 break
-        # FMRI CHANGE: final '\n' so the "Total time" line below isn't
-        # mashed onto the same row as the last '\r'-updated iter line.
-        if distributed.is_main_process():
-            sys.stdout.write("\n")
-            sys.stdout.flush()
         total_time = time.time() - start_time
         total_time_str = str(datetime.timedelta(seconds=int(total_time)))
         logger.info("{} Total time: {} ({:.6f} s / it)".format(header, total_time_str, total_time / n_iterations))
