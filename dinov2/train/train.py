@@ -127,6 +127,57 @@ def apply_optim_scheduler(optimizer, lr, wd, last_layer_lr):
         param_group["lr"] = (last_layer_lr if is_last_layer else lr) * lr_multiplier
 
 
+def apply_freeze_policy(model, freeze_mode):
+    """Freeze parts of the student backbone before training.
+
+    FMRI CHANGE: ablation requested by Ariel/Yoni. Lets us train only the
+    fMRI-specific parts (patch_embed.* = Conv3Plus1d stack + PositionEmbedding3D),
+    or also the last 3 transformer blocks + final norm. Default (None / 'none')
+    keeps the official behavior: everything is trained.
+
+    Modes:
+      None / 'none'         -> no freeze (= official behavior)
+      'fmri_only'           -> only patch_embed.* is trainable in the backbone
+                               (the rest of the backbone — blocks, cls_token,
+                               register_tokens, pos_embed, norm — is frozen).
+                               Heads (DINOHead/iBOTHead) stay trainable (random init).
+      'fmri_plus_last_3'    -> patch_embed.* + blocks.9-11 + norm. trainable.
+                               blocks.0-8 + cls_token + register_tokens + pos_embed frozen.
+
+    Only the BACKBONE is frozen here. The DINO/iBOT heads are random init and
+    MUST stay trainable, otherwise the SSL loss is meaningless.
+    """
+    if freeze_mode in (None, "none", ""):
+        return
+    backbone = model.student.backbone
+    n_frozen = n_train = 0
+    for name, p in backbone.named_parameters():
+        # FSDP-wrapped names contain '_fsdp_wrapped_module.' segments; strip them
+        # so our prefix matching is on the LOGICAL module path.
+        logical = name.replace("_fsdp_wrapped_module.", "")
+        if freeze_mode == "fmri_only":
+            trainable = logical.startswith("patch_embed.")
+        elif freeze_mode == "fmri_plus_last_3":
+            trainable = (
+                logical.startswith("patch_embed.")
+                or logical.startswith("blocks.9.")
+                or logical.startswith("blocks.10.")
+                or logical.startswith("blocks.11.")
+                or logical.startswith("norm.")
+            )
+        else:
+            raise ValueError(f"Unknown freeze_pretrained mode: {freeze_mode!r}")
+        p.requires_grad_(trainable)
+        if trainable:
+            n_train += p.numel()
+        else:
+            n_frozen += p.numel()
+    logger.info(
+        f"FMRI freeze_pretrained={freeze_mode!r}: backbone "
+        f"trainable={n_train:,} params, frozen={n_frozen:,} params"
+    )
+
+
 def optimizer_step_and_ema(model, optimizer, fp16_scaler, clip_grad, mom):
     """The official single optimizer step body, extracted into one named
     function: (unscale fp16 grads,) clip, step, update scaler, EMA teacher.
@@ -165,6 +216,9 @@ def do_test(cfg, model, iteration):
 
 def do_train(cfg, model, resume=False):
     model.train()
+    # FMRI CHANGE: optional partial-freeze before the optimizer is built. Default
+    # (no flag in YAML) = no freeze = official behavior. See apply_freeze_policy.
+    apply_freeze_policy(model, getattr(cfg.optim, "freeze_pretrained", None))
     inputs_dtype = torch.half
     fp16_scaler = model.fp16_scaler  # for mixed precision training
 

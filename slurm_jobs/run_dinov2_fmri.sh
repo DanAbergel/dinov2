@@ -50,7 +50,10 @@ export VENV_DIR="$LAB_DIR/torch_env"
 export CKPT_DIR="$LAB_DIR/checkpoints"
 export DINOV2_INIT="$CKPT_DIR/dinov2_vits14_reg4_fmri_init.pth"
 
-export CONFIG_FILE="dinov2/configs/train/fmri_vits.yaml"
+# Use CONFIG_FILE from env if set (e.g. for freeze ablations), else default
+# to the canonical Mixed-T=140 config. Override with:
+#   CONFIG_FILE=dinov2/configs/train/fmri_vits_hcp_freeze_fmri.yaml sbatch ...
+export CONFIG_FILE="${CONFIG_FILE:-dinov2/configs/train/fmri_vits.yaml}"
 export RUN_NAME="dinov2_fmri_$(date +%Y%m%d_%H%M%S)"
 export OUTPUT_DIR="$OFFICIAL_DIR/outputs/$RUN_NAME"
 
