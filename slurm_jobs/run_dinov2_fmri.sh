@@ -55,25 +55,16 @@ export DINOV2_INIT="$CKPT_DIR/dinov2_vits14_reg4_fmri_init.pth"
 #   CONFIG_FILE=dinov2/configs/train/fmri_vits_hcp_freeze_fmri.yaml sbatch ...
 export CONFIG_FILE="${CONFIG_FILE:-dinov2/configs/train/fmri_vits.yaml}"
 
-# RUN_NAME = the config file name (= a real, indicative description), not a
-# timestamp. Examples:
+# RUN_NAME = the config file name (= a real, indicative description). Same
+# config => same RUN_NAME => same log file => relaunch overwrites the previous
+# attempt of THIS config. Different config => different RUN_NAME => never
+# collides with another config's logs/outputs.
 #   fmri_vits.yaml                       -> RUN_NAME "dinov2_fmri_default"
 #   fmri_vits_hcp_freeze_fmri.yaml       -> RUN_NAME "dinov2_fmri_hcp_freeze_fmri"
 #   fmri_vits_hcp_freeze_last3.yaml      -> RUN_NAME "dinov2_fmri_hcp_freeze_last3"
-# Auto-versioning if a previous run with the same config exists: appends
-# _v2, _v3, ... so reruns of the SAME config never overwrite the previous
-# attempt. To truly overwrite, `rm -rf` the old outputs/ dir first.
 CONFIG_TAG=$(basename "$CONFIG_FILE" .yaml | sed 's/^fmri_vits_*//')
 [ -z "$CONFIG_TAG" ] && CONFIG_TAG="default"
-BASE_NAME="dinov2_fmri_${CONFIG_TAG}"
-RUN_NAME="$BASE_NAME"
-V=1
-while [ -d "$OFFICIAL_DIR/outputs/$RUN_NAME" ] \
-   || [ -e "$OFFICIAL_DIR/slurm_jobs/logs/${RUN_NAME}.out" ]; do
-    V=$((V + 1))
-    RUN_NAME="${BASE_NAME}_v${V}"
-done
-export RUN_NAME
+export RUN_NAME="dinov2_fmri_${CONFIG_TAG}"
 export OUTPUT_DIR="$OFFICIAL_DIR/outputs/$RUN_NAME"
 
 # ----- Per-run timestamped log (preserves history of all runs) -----
