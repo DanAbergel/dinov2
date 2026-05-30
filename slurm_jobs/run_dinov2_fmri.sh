@@ -54,7 +54,18 @@ export DINOV2_INIT="$CKPT_DIR/dinov2_vits14_reg4_fmri_init.pth"
 # to the canonical Mixed-T=140 config. Override with:
 #   CONFIG_FILE=dinov2/configs/train/fmri_vits_hcp_freeze_fmri.yaml sbatch ...
 export CONFIG_FILE="${CONFIG_FILE:-dinov2/configs/train/fmri_vits.yaml}"
-export RUN_NAME="dinov2_fmri_$(date +%Y%m%d_%H%M%S)"
+
+# Derive a short config tag from the YAML filename so the RUN_NAME and log
+# files are self-identifying (you see which run produced which log at a
+# glance, no need to open the file). Examples:
+#   fmri_vits.yaml                       -> tag "default"
+#   fmri_vits_hcp_freeze_fmri.yaml       -> tag "hcp_freeze_fmri"
+#   fmri_vits_hcp_freeze_last3.yaml      -> tag "hcp_freeze_last3"
+# SLURM_JOB_ID is also appended so two jobs starting in the same second
+# (rare but possible) get distinct RUN_NAMEs.
+CONFIG_TAG=$(basename "$CONFIG_FILE" .yaml | sed 's/^fmri_vits_*//')
+[ -z "$CONFIG_TAG" ] && CONFIG_TAG="default"
+export RUN_NAME="dinov2_fmri_$(date +%Y%m%d_%H%M%S)_${CONFIG_TAG}_${SLURM_JOB_ID:-local}"
 export OUTPUT_DIR="$OFFICIAL_DIR/outputs/$RUN_NAME"
 
 # ----- Per-run timestamped log (preserves history of all runs) -----
