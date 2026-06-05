@@ -84,7 +84,11 @@ export TORCH_HOME="$LAB_DIR/cache/torch"
 export PYTORCH_CUDA_ALLOC_CONF=expandable_segments:True
 # distributed.enable() expects a rendezvous endpoint even for 1 GPU.
 export MASTER_ADDR="127.0.0.1"
-export MASTER_PORT=29513
+# Derive a unique MASTER_PORT per job (modulo SLURM_JOB_ID) so two
+# trainings landing on the same node (parallel ablations) don't both
+# try port 29513 and collide with EADDRINUSE. The %1000 keeps the port
+# in [29000, 30000). MASTER_PORT can still be overridden via env.
+export MASTER_PORT="${MASTER_PORT:-$((29000 + ${SLURM_JOB_ID:-$RANDOM} % 1000))}"
 # Verbose diagnostics — printed to the .out / .err files so we can see
 # the real traceback when torchrun loses it.
 export NCCL_DEBUG=INFO
