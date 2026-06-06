@@ -33,9 +33,14 @@ def load_all(probes_dir, run_filter=None):
     """-> {dataset: {label: {(run, iter): (key, mean, std, higher_better)}}}"""
     data = defaultdict(lambda: defaultdict(dict))
     runs_seen = set()
+    # Canonical linear probes only. probe_clinical_* and probe_nonlinear_* have
+    # different output structures (AUPRC + linear-vs-MLP split) and are handled
+    # by their own scripts; lump them here would crash primary_metric().
     for f in sorted(glob.glob(os.path.join(probes_dir, "*.json"))):
         base = os.path.basename(f)
         if not base.startswith("probe_"):
+            continue
+        if base.startswith("probe_clinical_") or base.startswith("probe_nonlinear_"):
             continue
         try:
             d = json.load(open(f))

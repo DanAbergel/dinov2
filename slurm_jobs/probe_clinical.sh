@@ -35,34 +35,16 @@ export PYTHONUNBUFFERED=1
 
 mkdir -p "$OFFICIAL_DIR/slurm_jobs/logs" "$OFFICIAL_DIR/outputs/probes"
 
-# Versioned logs so reruns don't clobber.
-LOG_BASE="$OFFICIAL_DIR/slurm_jobs/logs/probe_clinical"
-V=1
-while [ -e "${LOG_BASE}_v${V}.out" ]; do V=$((V + 1)); done
-LOG_OUT="${LOG_BASE}_v${V}.out"
-ln -sf "$(basename "$LOG_OUT")" "${LOG_BASE}_latest.out"
-exec >"$LOG_OUT" 2>&1
-
-echo "============================================================"
-echo "  ADNI CLINICAL probe"
-echo "  Job:  ${SLURM_JOB_ID:-(local)}   Node: $(hostname)   $(date)"
-echo "  Ckpt: ${CHECKPOINT:?Set CHECKPOINT=outputs/.../model_*.rank_0.pth}"
-echo "============================================================"
-
 source "$VENV_DIR/bin/activate"
 cd "$OFFICIAL_DIR"
 
-# torchmetrics / sklearn needed by the eval import chain.
-for pkg in torchmetrics scikit-learn; do
-    mod=$(echo "$pkg" | tr - _)
-    python -c "import $mod" 2>/dev/null || pip install --no-input "$pkg"
-done
-
+# ----- Determine CHECKPOINT-derived names BEFORE redirecting to a log -----
+: "${CHECKPOINT:?Set CHECKPOINT=outputs/.../model_*.rank_0.pth}"
 ITER_RAW=$(basename "$CHECKPOINT" | sed -E 's/^model_0*([0-9]+)\.rank_0\.pth$/\1/')
 if [[ "$ITER_RAW" =~ ^[0-9]+$ ]]; then
     TAG=$(printf "%07d" "$ITER_RAW")
 else
-    TAG=$(python - <<PY
+    TAG=$(python - <<PY 2>/dev/null
 import torch
 try:
     d = torch.load("$CHECKPOINT", map_location="cpu", weights_only=False)
@@ -74,18 +56,35 @@ PY
 fi
 RUN_DIR=$(dirname "$CHECKPOINT")
 RUN_NAME=$(basename "$RUN_DIR")
-
-# Build the model from the RUN'S OWN saved config, not the live
-# fmri_vits.yaml (which is mutable and may now describe a different run's
-# architecture: T, temporal_kernel, etc). Each run dir saves config.yaml.
-# Falls back to the live config only if the run's copy is missing.
 CONFIG_FILE="$RUN_DIR/config.yaml"
-if [ ! -f "$CONFIG_FILE" ]; then
-    echo "  WARN: $CONFIG_FILE not found, falling back to live fmri_vits.yaml"
-    CONFIG_FILE="dinov2/configs/train/fmri_vits.yaml"
-fi
-echo "  Config: $CONFIG_FILE"
-OUTPUT="$OFFICIAL_DIR/outputs/probes/clinical_${RUN_NAME}_iter${TAG}.json"
+[ -f "$CONFIG_FILE" ] || CONFIG_FILE="dinov2/configs/train/fmri_vits.yaml"
+OUTPUT="$OFFICIAL_DIR/outputs/probes/probe_clinical_${RUN_NAME}_iter${TAG}.json"
+
+# ----- Self-identifying log file, no v1/v2/v3 versioning -----
+LOG_OUT="$OFFICIAL_DIR/slurm_jobs/logs/probe_clinical_${RUN_NAME}_iter${TAG}.out"
+LOG_ERR="$OFFICIAL_DIR/slurm_jobs/logs/probe_clinical_${RUN_NAME}_iter${TAG}.err"
+ln -sf "$(basename "$LOG_OUT")" "$OFFICIAL_DIR/slurm_jobs/logs/probe_clinical_latest.out"
+ln -sf "$(basename "$LOG_ERR")" "$OFFICIAL_DIR/slurm_jobs/logs/probe_clinical_latest.err"
+exec >"$LOG_OUT" 2>"$LOG_ERR"
+
+echo "============================================================"
+echo "  ADNI CLINICAL probe"
+echo "============================================================"
+echo "  Job ID:     ${SLURM_JOB_ID:-(local)}"
+echo "  Node:       $(hostname)"
+echo "  Date:       $(date)"
+echo "  RUN_NAME:   $RUN_NAME"
+echo "  Iteration:  $TAG"
+echo "  Checkpoint: $CHECKPOINT"
+echo "  Config:     $CONFIG_FILE"
+echo "  Output:     $OUTPUT"
+echo "============================================================"
+
+# torchmetrics / sklearn needed by the eval import chain.
+for pkg in torchmetrics scikit-learn; do
+    mod=$(echo "$pkg" | tr - _)
+    python -c "import $mod" 2>/dev/null || pip install --no-input "$pkg"
+done
 
 python scripts/probe_adni_clinical.py \
     --checkpoint "$CHECKPOINT" \

@@ -32,31 +32,16 @@ export PYTHONUNBUFFERED=1
 
 mkdir -p "$OFFICIAL_DIR/slurm_jobs/logs" "$OFFICIAL_DIR/outputs/probes"
 
-LOG_BASE="$OFFICIAL_DIR/slurm_jobs/logs/probe_nonlinear"
-V=1
-while [ -e "${LOG_BASE}_v${V}.out" ]; do V=$((V + 1)); done
-LOG_OUT="${LOG_BASE}_v${V}.out"
-ln -sf "$(basename "$LOG_OUT")" "${LOG_BASE}_latest.out"
-exec >"$LOG_OUT" 2>&1
-
-echo "============================================================"
-echo "  ADNI non-linear probe (linear vs MLP)"
-echo "  Job:  ${SLURM_JOB_ID:-(local)}   Node: $(hostname)   $(date)"
-echo "  Ckpt: ${CHECKPOINT:?Set CHECKPOINT=outputs/.../model_*.rank_0.pth}"
-echo "============================================================"
-
 source "$VENV_DIR/bin/activate"
 cd "$OFFICIAL_DIR"
-for pkg in scikit-learn; do
-    mod=$(echo "$pkg" | tr - _)
-    python -c "import $mod" 2>/dev/null || pip install --no-input "$pkg"
-done
 
+# ----- Determine names BEFORE redirecting -----
+: "${CHECKPOINT:?Set CHECKPOINT=outputs/.../model_*.rank_0.pth}"
 ITER_RAW=$(basename "$CHECKPOINT" | sed -E 's/^model_0*([0-9]+)\.rank_0\.pth$/\1/')
 if [[ "$ITER_RAW" =~ ^[0-9]+$ ]]; then
     TAG=$(printf "%07d" "$ITER_RAW")
 else
-    TAG=$(python - <<PY
+    TAG=$(python - <<PY 2>/dev/null
 import torch
 try:
     d = torch.load("$CHECKPOINT", map_location="cpu", weights_only=False)
@@ -68,14 +53,35 @@ PY
 fi
 RUN_DIR=$(dirname "$CHECKPOINT")
 RUN_NAME=$(basename "$RUN_DIR")
-
-# Build from the run's OWN config (architecture must match the checkpoint).
 CONFIG_FILE="$RUN_DIR/config.yaml"
 [ -f "$CONFIG_FILE" ] || CONFIG_FILE="dinov2/configs/train/fmri_vits.yaml"
-echo "  Config: $CONFIG_FILE"
+FEATURES="$OFFICIAL_DIR/outputs/probes/features_nonlinear_${RUN_NAME}_iter${TAG}.npz"
+OUTPUT="$OFFICIAL_DIR/outputs/probes/probe_nonlinear_${RUN_NAME}_iter${TAG}.json"
 
-FEATURES="$OFFICIAL_DIR/outputs/probes/features_nl_${RUN_NAME}_iter${TAG}.npz"
-OUTPUT="$OFFICIAL_DIR/outputs/probes/nonlinear_${RUN_NAME}_iter${TAG}.json"
+# ----- Self-identifying log file -----
+LOG_OUT="$OFFICIAL_DIR/slurm_jobs/logs/probe_nonlinear_${RUN_NAME}_iter${TAG}.out"
+LOG_ERR="$OFFICIAL_DIR/slurm_jobs/logs/probe_nonlinear_${RUN_NAME}_iter${TAG}.err"
+ln -sf "$(basename "$LOG_OUT")" "$OFFICIAL_DIR/slurm_jobs/logs/probe_nonlinear_latest.out"
+ln -sf "$(basename "$LOG_ERR")" "$OFFICIAL_DIR/slurm_jobs/logs/probe_nonlinear_latest.err"
+exec >"$LOG_OUT" 2>"$LOG_ERR"
+
+echo "============================================================"
+echo "  ADNI non-linear probe (linear vs MLP)"
+echo "============================================================"
+echo "  Job ID:     ${SLURM_JOB_ID:-(local)}"
+echo "  Node:       $(hostname)"
+echo "  Date:       $(date)"
+echo "  RUN_NAME:   $RUN_NAME"
+echo "  Iteration:  $TAG"
+echo "  Checkpoint: $CHECKPOINT"
+echo "  Config:     $CONFIG_FILE"
+echo "  Output:     $OUTPUT"
+echo "============================================================"
+
+for pkg in scikit-learn; do
+    mod=$(echo "$pkg" | tr - _)
+    python -c "import $mod" 2>/dev/null || pip install --no-input "$pkg"
+done
 
 python scripts/probe_adni_nonlinear.py \
     --checkpoint "$CHECKPOINT" \

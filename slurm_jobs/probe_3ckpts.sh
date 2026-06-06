@@ -154,13 +154,16 @@ for CKPT in "${SELECTED[@]}"; do
     fi
     ITER_PADDED=$(printf "%07d" "$ITER")
 
+    # The JSON filenames now include the run name (so they never collide across
+    # runs): probe_<kind>_<RUN_NAME>_iter<ITER>.json. RUN_NAME = the run dir's
+    # basename.
     for KIND in adni hcp; do
         if [ "$KIND" = "adni" ]; then
-            JSON="$PROBES_DIR/probe_iter${ITER_PADDED}.json"
+            JSON="$PROBES_DIR/probe_adni_${RUN_NAME}_iter${ITER_PADDED}.json"
             SBATCH_SH="slurm_jobs/probe_adni.sh"
             JOB_NAME="probe-adni-i${ITER}"
         else
-            JSON="$PROBES_DIR/probe_hcp_iter${ITER_PADDED}.json"
+            JSON="$PROBES_DIR/probe_hcp_${RUN_NAME}_iter${ITER_PADDED}.json"
             SBATCH_SH="slurm_jobs/probe_hcp.sh"
             JOB_NAME="probe-hcp-i${ITER}"
         fi
