@@ -18,44 +18,44 @@ Everything else (the SSL training loop, EMA teacher, DINO + iBOT + KoLeo losses,
 
 ## Strategies and trainable parameter counts
 
-Trainable parameter counts come from the actual training logs (`backbone trainable=...` line printed by `apply_freeze_policy`). Head counts are reported by `scripts/count_trainable_params.py`. Heads (DINOHead) are random-init and **always trainable**, regardless of the freeze policy.
+Backbone counts come from the actual training logs (`backbone trainable=...` line printed by `apply_freeze_policy`). The DINO head is a 3-layer MLP with 4096 prototypes and 256 bottleneck (~6.57 M params, computed analytically); it is random-init and **always trainable**. iBOT shares the DINO head (`ibot.separate_head: false`), no extra head.
 
-| Strategy | Backbone trained | Backbone trainable | Backbone frozen | Heads | **TOTAL trainable** |
+| Strategy | Backbone trained | Backbone trainable | Backbone frozen | DINO head | **TOTAL trainable** |
 |---|---|---:|---:|---:|---:|
-| **A -- Full fine-tune** | all blocks + patch_embed + norm | 36.21 M | 0 | ~6.55 M | **~42.8 M** |
-| **B -- Freeze last 3** | patch_embed + blocks.9-11 + norm | 16.78 M | 19.44 M | ~6.55 M | **~23.3 M** |
-| **C -- Freeze except input** | patch_embed only | 11.45 M | 24.76 M | ~6.55 M | **~18.0 M** |
+| **A -- Full fine-tune** | all blocks + patch_embed + norm | 36,212,256 | 0 | 6,566,144 | **42,778,400** |
+| **B -- Freeze last 3** | patch_embed + blocks.9-11 + norm | 16,776,480 | 19,435,776 | 6,566,144 | **23,342,624** |
+| **C -- Freeze except input** | patch_embed only | 11,450,016 | 24,762,240 | 6,566,144 | **18,016,160** |
 
-The backbone contains `PatchEmbed3DPlus1D` (~11.45 M -- much bigger than a 2D ViT patch embed because of the temporal Conv1Plus3d blocks), 12 transformer blocks (~21.2 M total), and the dead-weight 2D `pos_embed` allocated by the ViT parent class (~3.46 M, unused in fMRI mode). The DINO head is a 3-layer MLP with 4096 prototypes (~6.55 M).
+The backbone contains the `PatchEmbed3DPlus1D` we added (~11.45 M -- much bigger than a 2D ViT patch embed because of the temporal `Conv3Plus1d` ResBlocks), 12 transformer blocks (~21.2 M total), and a dead-weight 2D `pos_embed` allocated by the ViT parent class (~3.46 M, unused in fMRI mode but still allocated).
 
-Best checkpoint per strategy (selected among available iters: `5999/8999` for A, `11999/17999` for B and C).
+Best checkpoint per strategy (selected among available iters: `5999/8999` for A, `11999/17999` for B and C). Note on A: the original run (`dinov2_fmri_20260524_144327`) stopped at iter 10,410 instead of completing the 20 epochs (19,999 iters), so its results aren't strictly at the same training depth as B and C. A is being re-run to completion (`fmri_vits_hcp_baseline.yaml`).
 
 ## HCP probes
 
-| Label | Metric | Chance baseline | A (full FT) | B (freeze last3) | C (freeze fmri) |
-|---|---|---|---|---|---|
-| Sex | AUC | 0.500 | 0.751 | 0.696 | **0.844** |
-| BrainVol | MAE | run script | 116,179 | 117,744 | **99,455** |
-| GrayMatterVol | MAE | run script | 34,762 | 34,815 | **29,274** |
-| Age | MAE | run script | 3.044 | 3.056 | **2.931** |
-| FluidIntel | MAE | run script | 4.047 | 4.035 | **4.003** |
-| ProcSpeed | MAE | run script | 16.343 | 16.401 | **16.207** |
-| WorkingMem | MAE | run script | 10.442 | **10.410** | 10.411 |
+| Label | Metric | MLP baseline (step5) | A (full FT) | B (freeze last3) | C (freeze fmri) |
+|---|---|---:|---:|---:|---:|
+| Sex | AUC | 0.935 | 0.751 | 0.696 | **0.844** |
+| BrainVol | MAE | - | 116,179 | 117,744 | **99,455** |
+| GrayMatterVol | MAE | - | 34,762 | 34,815 | **29,274** |
+| Age | MAE | 4.228 | 3.044 | 3.056 | **2.931** |
+| FluidIntel | MAE | - | 4.047 | 4.035 | **4.003** |
+| ProcSpeed | MAE | - | 16.343 | 16.401 | **16.207** |
+| WorkingMem | MAE | - | 10.442 | **10.410** | 10.411 |
+
+(The HCP step5 MLP baseline run only covered Sex and Age; dashes mean it wasn't re-run for the remaining labels.)
 
 ## ADNI probes
 
-| Label | Metric | Chance baseline | A (full FT) | B (freeze last3) | C (freeze fmri) |
-|---|---|---|---|---|---|
-| Sex | AUC | 0.500 | 0.653 | 0.696 | **0.813** |
-| CDR | AUC | 0.500 | **0.542** | 0.522 | 0.532 |
-| Degradation1Y | AUC | 0.500 | **0.581** | 0.543 | 0.559 |
-| Degradation2Y | AUC | 0.500 | **0.533** | 0.456 | **0.533** |
-| Degradation3Y | AUC | 0.500 | 0.528 | 0.468 | **0.544** |
-| MMSE | MAE | run script | 2.478 | **2.426** | 2.750 |
-| Age | MAE | run script | 5.113 | **4.993** | 5.703 |
+| Label | Metric | MLP baseline (step5) | A (full FT) | B (freeze last3) | C (freeze fmri) |
+|---|---|---:|---:|---:|---:|
+| Sex | AUC | 0.806 | 0.653 | 0.696 | **0.813** |
+| CDR | AUC | **0.559** | 0.542 | 0.522 | 0.532 |
+| Degradation1Y | AUC | 0.496 | **0.581** | 0.543 | 0.559 |
+| Degradation2Y | AUC | 0.523 | **0.533** | 0.456 | **0.533** |
+| Degradation3Y | AUC | 0.465 | 0.528 | 0.468 | **0.544** |
+| MMSE | MAE | 4.492 | 2.478 | **2.426** | 2.750 |
+| Age | MAE | 7.78 | 5.113 | **4.993** | 5.703 |
 
-**Bold** = best value in row. AUC: higher is better. MAE: lower is better. The "chance baseline" column shows a `DummyClassifier(strategy='stratified')` AUC (= 0.5 for any balanced binary task) or a `DummyRegressor(strategy='mean')` MAE -- fill in from `scripts/compute_label_baselines.py` for the MAE rows.
+**Bold** = best value in the row. AUC: higher is better. MAE: lower is better. The MLP baseline column is the 3-layer MLP on raw flattened time-series (step5 in the FAIR repo, 5-fold CV; subject-aware `StratifiedGroupKFold` / `GroupKFold` for ADNI).
 
-\footnotesize *Source data: `outputs/probes/probe_{adni,hcp}_<run_name>_iter<iter>.json` -- generated by `slurm_jobs/probe_{adni,hcp}.sh`, aggregated by `python3 scripts/summarize_probes.py`. Trainable-param counts: `python3 scripts/count_trainable_params.py`. Chance baselines: `python3 scripts/compute_label_baselines.py`.*
-
-\footnotesize *Note on A: the original run (`dinov2_fmri_20260524_144327`) stopped at iter 10410 instead of completing the 20 epochs (19999 iters), so its results aren't strictly at the same training depth as B and C. Re-running A to completion (`fmri_vits_hcp_baseline.yaml`) for a fair comparison.*
+\footnotesize *Source data: `outputs/probes/probe_{adni,hcp}_<run_name>_iter<iter>.json` -- generated by `slurm_jobs/probe_{adni,hcp}.sh`, aggregated by `python3 scripts/summarize_probes.py`. Baselines from `FAIR/logs/step5_{hcp,adni}.out`.*
