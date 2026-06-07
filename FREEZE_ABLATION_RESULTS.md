@@ -24,15 +24,15 @@ Pour chaque stratégie, on garde le **meilleur checkpoint** parmi `iter 11999, 1
 
 | Label | Métrique | A (full FT) | B (freeze last3) | C (freeze fmri) | **Vainqueur** | Gain C vs A |
 |---|---|---|---|---|---|---|
-| Sex | AUC ↑ | 0.751 | 0.696 | **0.844** | **C** | **+0.093** |
-| BrainVol | MAE ↓ | 116 179 | 117 744 | **99 455** | **C** | **−14 %** |
-| GrayMatterVol | MAE ↓ | 34 762 | 34 815 | **29 274** | **C** | **−16 %** |
-| Age | MAE ↓ | 3.044 | 3.056 | **2.931** | **C** | **−3.7 %** |
-| FluidIntel | MAE ↓ | 4.047 | 4.035 | **4.003** | **C** | −1.1 % |
-| ProcSpeed | MAE ↓ | 16.343 | 16.401 | **16.207** | **C** | −0.8 % |
-| WorkingMem | MAE ↓ | 10.442 | **10.410** | 10.411 | B (≈ C) | ≈ −0.3 % |
+| Sex | AUC (higher better) | 0.751 | 0.696 | **0.844** | **C** | **+0.093** |
+| BrainVol | MAE (lower better) | 116 179 | 117 744 | **99 455** | **C** | **−14 %** |
+| GrayMatterVol | MAE (lower better) | 34 762 | 34 815 | **29 274** | **C** | **−16 %** |
+| Age | MAE (lower better) | 3.044 | 3.056 | **2.931** | **C** | **−3.7 %** |
+| FluidIntel | MAE (lower better) | 4.047 | 4.035 | **4.003** | **C** | −1.1 % |
+| ProcSpeed | MAE (lower better) | 16.343 | 16.401 | **16.207** | **C** | −0.8 % |
+| WorkingMem | MAE (lower better) | 10.442 | **10.410** | 10.411 | B (≈ C) | ≈ −0.3 % |
 
-**→ Stratégie C (freeze sauf input) bat les 2 autres sur 6 labels HCP sur 7.**
+**=> Stratégie C (freeze sauf input) bat les 2 autres sur 6 labels HCP sur 7.**
 
 ---
 
@@ -42,13 +42,13 @@ Le baseline (A) sur ADNI vient du probe canonique sur le checkpoint `144327` (HC
 
 | Label | Métrique | A (full FT) | B (freeze last3) | C (freeze fmri) | **Vainqueur** | Gain C vs A |
 |---|---|---|---|---|---|---|
-| Sex | AUC ↑ | 0.653 | 0.696 | **0.813** | **C** | **+0.160** |
-| Degradation3Y | AUC ↑ | 0.528 | 0.468 | **0.544** | **C** | +0.016 |
-| **Degradation1Y** | AUC ↑ | **0.581** | 0.543 | 0.559 | **A** | (−0.022) |
-| Degradation2Y | AUC ↑ | 0.533 | 0.456 | 0.533 | A ≈ C | ≈ 0 |
-| CDR | AUC ↑ | **0.542** | 0.522 | 0.532 | **A** | (−0.010) |
-| MMSE | MAE ↓ | 2.478 | **2.426** | 2.750 | **B** | (+11 %) |
-| Age | MAE ↓ | 5.113 | **4.993** | 5.703 | **B** | (+12 %) |
+| Sex | AUC (higher better) | 0.653 | 0.696 | **0.813** | **C** | **+0.160** |
+| Degradation3Y | AUC (higher better) | 0.528 | 0.468 | **0.544** | **C** | +0.016 |
+| **Degradation1Y** | AUC (higher better) | **0.581** | 0.543 | 0.559 | **A** | (−0.022) |
+| Degradation2Y | AUC (higher better) | 0.533 | 0.456 | 0.533 | A ≈ C | ≈ 0 |
+| CDR | AUC (higher better) | **0.542** | 0.522 | 0.532 | **A** | (−0.010) |
+| MMSE | MAE (lower better) | 2.478 | **2.426** | 2.750 | **B** | (+11 %) |
+| Age | MAE (lower better) | 5.113 | **4.993** | 5.703 | **B** | (+12 %) |
 
 **Pattern plus nuancé sur ADNI :**
 - **Anatomique** (Sex) : la stratégie C domine très largement (+0.16 AUC).
@@ -68,7 +68,7 @@ Le baseline (A) sur ADNI vient du probe canonique sur le checkpoint `144327` (HC
 Le partial fine-tuning de seulement les 3 derniers blocs crée une **discontinuité interne** : les blocs 0-8 ImageNet restent figés tandis que 9-11 s'adaptent au fMRI. Le mismatch entre features bas-niveau (ImageNet) et haut-niveau (fMRI) dégrade la qualité globale.
 
 ### 4.3 Sur le transfert ADNI : signal anatomique très solide, signal clinique sous bruit
-Pour Sex (anatomique, n=812 équilibré), la stratégie C bat A de +0.16 AUC — **net et robuste**. Pour les labels cliniques (Degradation, CDR), tous les runs sont autour de 0.52-0.58 AUC avec ±0.05-0.10 d'écart-type sur 5 folds : différences **dans le bruit**. Cohérent avec la limite déjà identifiée : **~145 cas positifs Degradation1Y → data-limited.**
+Pour Sex (anatomique, n=812 équilibré), la stratégie C bat A de +0.16 AUC — **net et robuste**. Pour les labels cliniques (Degradation, CDR), tous les runs sont autour de 0.52-0.58 AUC avec ±0.05-0.10 d'écart-type sur 5 folds : différences **dans le bruit**. Cohérent avec la limite déjà identifiée : **~145 cas positifs Degradation1Y => data-limited.**
 
 ---
 
@@ -89,7 +89,7 @@ Pour Sex (anatomique, n=812 équilibré), la stratégie C bat A de +0.16 AUC —
 - Les checkpoints intermédiaires manquants (2999, 5999, 8999 sur les 2 freeze runs) empêchent de voir la dynamique complète d'entraînement.
 - `model_final` (iter 19999) n'a pas été probé : à compléter pour la version finale du tableau.
 - Le baseline A sur ADNI vient d'une probe antérieure (avant le renaming) — la méthodologie est identique (canonical 5-fold LogReg), mais la comparaison directe en fold-wise n'est pas faite.
-- Les labels cliniques restent **data-limited** (~145 cas positifs Degradation1Y) → les différences entre stratégies sur ces labels sont dans le bruit. Le bottleneck principal n'est pas le pré-entraînement mais la rareté des étiquettes.
+- Les labels cliniques restent **data-limited** (~145 cas positifs Degradation1Y) => les différences entre stratégies sur ces labels sont dans le bruit. Le bottleneck principal n'est pas le pré-entraînement mais la rareté des étiquettes.
 
 ---
 
