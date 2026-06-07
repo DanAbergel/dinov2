@@ -9,3 +9,9 @@ dist/
 *.swp
 
 .vscode/
+outputs/**/model_*.pth
+outputs/**/model_*.rank_*.pth
+outputs/probes/features_*.npz
+outputs/**/model_*.pth
+outputs/**/model_*.rank_*.pth
+outputs/probes/features_*.npz
