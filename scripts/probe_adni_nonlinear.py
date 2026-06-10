@@ -44,13 +44,12 @@ from sklearn.neural_network import MLPClassifier
 from sklearn.pipeline import make_pipeline
 from sklearn.preprocessing import StandardScaler
 
-FAIR_REPO = Path(os.environ.get(
-    "FAIR_DIR", "/sci/labs/arieljaffe/dan.abergel1/repos/FAIR"))
-sys.path.insert(0, str(FAIR_REPO))
-from src.config import (                                                # noqa: E402
+# Self-contained labels module (was in FAIR repo; now lives here).
+sys.path.insert(0, str(Path(__file__).resolve().parent))
+from probe_labels import (                                              # noqa: E402
     ADNI_INDEX_JSON, ADNI_LABELS, ADNI_LABELS_JSON, N_SPLITS, RANDOM_STATE,
+    load_adni_labels, get_label_array,
 )
-from src.baselines.utils import load_adni_labels, get_label_array        # noqa: E402
 
 sys.path.insert(0, str(Path(__file__).resolve().parent))
 from probe_adni import load_teacher_backbone, extract_cls                # noqa: E402

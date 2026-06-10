@@ -33,12 +33,12 @@ from sklearn.metrics import (
 )
 from sklearn.model_selection import StratifiedKFold, KFold
 
-# FAIR repo: labels.
-FAIR_REPO = Path(os.environ.get(
-    "FAIR_DIR", "/sci/labs/arieljaffe/dan.abergel1/repos/FAIR"))
-sys.path.insert(0, str(FAIR_REPO))
-from src.config import HCP_LABELS, HCP_ROOT, HCP_SUBJECTS_CSV, N_SPLITS, RANDOM_STATE  # noqa: E402
-from src.baselines.utils import get_label_array                          # noqa: E402
+# Self-contained labels module (was in FAIR repo; now lives here).
+sys.path.insert(0, str(Path(__file__).resolve().parent))
+from probe_labels import (                                              # noqa: E402
+    HCP_LABELS, HCP_ROOT, HCP_SUBJECTS_CSV, N_SPLITS, RANDOM_STATE,
+    get_label_array,
+)
 
 # Official DINOv2 model builder + HCP dataset.
 sys.path.insert(0, str(Path(__file__).resolve().parents[1]))

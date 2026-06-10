@@ -22,19 +22,17 @@ from sklearn.dummy import DummyClassifier, DummyRegressor
 from sklearn.metrics import mean_absolute_error, roc_auc_score
 from sklearn.model_selection import KFold, StratifiedKFold
 
-FAIR_REPO = Path(os.environ.get(
-    "FAIR_DIR", "/sci/labs/arieljaffe/dan.abergel1/repos/FAIR"))
-sys.path.insert(0, str(FAIR_REPO))
-
-# ---- HCP labels ----
-from src.config import HCP_LABELS, HCP_ROOT, HCP_SUBJECTS_CSV, N_SPLITS, RANDOM_STATE
-from src.baselines.utils import get_label_array as get_hcp_label
+# Self-contained labels module (was in FAIR repo; now lives here).
+sys.path.insert(0, str(Path(__file__).resolve().parent))
+from probe_labels import (
+    HCP_LABELS, HCP_ROOT, HCP_SUBJECTS_CSV, N_SPLITS, RANDOM_STATE,
+    ADNI_INDEX_JSON, ADNI_LABELS, ADNI_LABELS_JSON,
+    load_adni_labels, get_label_array,
+)
+get_hcp_label = get_label_array
+get_adni_label = get_label_array
 import pandas as pd
 import re
-
-# ---- ADNI labels ----
-from src.config import ADNI_INDEX_JSON, ADNI_LABELS, ADNI_LABELS_JSON
-from src.baselines.utils import load_adni_labels, get_label_array as get_adni_label
 
 
 def dummy_clf_auc(y, n_splits=5):

@@ -25,7 +25,6 @@ set -euo pipefail
 
 export LAB_DIR="/sci/labs/arieljaffe/dan.abergel1"
 export OFFICIAL_DIR="$LAB_DIR/repos/FAIR_official"
-export FAIR_DIR="$LAB_DIR/repos/FAIR"
 export VENV_DIR="$LAB_DIR/torch_env"
 export PYTORCH_CUDA_ALLOC_CONF=expandable_segments:True
 export PYTHONUNBUFFERED=1

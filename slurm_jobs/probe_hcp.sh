@@ -28,7 +28,6 @@ set -euo pipefail
 
 export LAB_DIR="/sci/labs/arieljaffe/dan.abergel1"
 export OFFICIAL_DIR="$LAB_DIR/repos/FAIR_official"
-export FAIR_DIR="$LAB_DIR/repos/FAIR"
 export VENV_DIR="$LAB_DIR/torch_env"
 export TMPDIR="$LAB_DIR/tmp"
 export PIP_CACHE_DIR="$LAB_DIR/cache/pip"
