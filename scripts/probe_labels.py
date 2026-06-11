@@ -91,6 +91,28 @@ HCP_LABELS = {
     },
 }
 
+# ---- Helper transforms (raise -> row dropped by get_label_array) ----
+
+def _cdr_nc_vs_ad(x):
+    """NC (CDR=0) vs AD (CDR>=1); drops MCI (CDR=0.5)."""
+    x = float(x)
+    if x == 0.0:
+        return 0
+    if x >= 1.0:
+        return 1
+    raise ValueError("MCI dropped")
+
+
+def _cdr_nc_vs_mci(x):
+    """NC (CDR=0) vs MCI (CDR=0.5); drops AD (CDR>=1)."""
+    x = float(x)
+    if x == 0.0:
+        return 0
+    if abs(x - 0.5) < 1e-6:
+        return 1
+    raise ValueError("AD dropped")
+
+
 ADNI_LABELS = {
     "Sex": {
         "column": "Sex_Binary",
@@ -112,6 +134,48 @@ ADNI_LABELS = {
     },
     "CDR": {
         "column": "CDR_Binary",
+        "type": "classification",
+        "transform": int,
+        "scoring": "roc_auc",
+    },
+    # --- New clinically-richer CDR targets (added 2026-06) ---
+    "CDR_NC_vs_AD": {
+        # NC vs AD only -- drops MCI rows. Tests whether features encode
+        # "advanced neurodegeneration" signature.
+        "column": "Global CDR",
+        "type": "classification",
+        "transform": _cdr_nc_vs_ad,
+        "scoring": "roc_auc",
+    },
+    "CDR_NC_vs_MCI": {
+        # NC vs MCI only -- drops AD rows. The "official" Brain-JEPA task,
+        # in our subject-aware protocol.
+        "column": "Global CDR",
+        "type": "classification",
+        "transform": _cdr_nc_vs_mci,
+        "scoring": "roc_auc",
+    },
+    "CDR_global": {
+        # Regression on raw CDR (0 / 0.5 / 1 / 2). Reports MAE; correlate
+        # with severity instead of forcing a threshold.
+        "column": "Global CDR",
+        "type": "regression",
+        "transform": float,
+        "scoring": "neg_mean_absolute_error",
+    },
+    # --- Non-AD clinical targets, to test if the ViT learned other signals ---
+    "GDSCALE": {
+        # Geriatric Depression Scale category -- tests for a non-AD
+        # psychiatric signal in the same representation.
+        "column": "GDSCALE_Category",
+        "type": "classification",
+        "transform": int,
+        "scoring": "roc_auc",
+    },
+    "FAQ": {
+        # Functional Activities Questionnaire binarised -- daily-living
+        # decline. Often correlates with fMRI changes earlier than MMSE.
+        "column": "FAQ_Binary",
         "type": "classification",
         "transform": int,
         "scoring": "roc_auc",
