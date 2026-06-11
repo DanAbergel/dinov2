@@ -5,10 +5,12 @@
 # GDSCALE_Category, FAQ_Binary -- plus the original Sex/Age/MMSE/CDR/
 # Degradation labels).
 #
-# Output is tagged 'extended' so it never collides with the original
-# probe_adni_<run>_iter<iter>.json:
-#   outputs/probes/probe_adni_extended_<RUN_NAME>_iter<ITER>.json
-#   slurm_jobs/logs/probe_adni_extended_<RUN_NAME>_iter<ITER>.out
+# OUTPUT NAMING: identical to slurm_jobs/probe_adni.sh, so re-running
+# this OVERWRITES the previous probe_adni_<RUN>_iter<ITER>.json with
+# the extended-label results. The new JSON is a strict superset of the
+# old labels, so this is safe.
+#   outputs/probes/probe_adni_<RUN_NAME>_iter<ITER>.json
+#   slurm_jobs/logs/probe_adni_<RUN_NAME>_iter<ITER>.out
 #
 # Usage:
 #   CHECKPOINT=outputs/dinov2_fmri_hcp_baseline/model_final.rank_0.pth \
@@ -69,15 +71,15 @@ fi
 RUN_NAME=$(basename "$(dirname "$CHECKPOINT")")
 
 # ----- 3. Build output paths (EXTENDED tag) -----
-OUTPUT_JSON="$OFFICIAL_DIR/outputs/probes/probe_adni_extended_${RUN_NAME}_iter${ITER_TAG}.json"
-FEATURES_CACHE="$OFFICIAL_DIR/outputs/probes/features_adni_extended_${RUN_NAME}_iter${ITER_TAG}.npz"
+OUTPUT_JSON="$OFFICIAL_DIR/outputs/probes/probe_adni_${RUN_NAME}_iter${ITER_TAG}.json"
+FEATURES_CACHE="$OFFICIAL_DIR/outputs/probes/features_adni_${RUN_NAME}_iter${ITER_TAG}.npz"
 CONFIG_FILE="$(dirname "$CHECKPOINT")/config.yaml"
 [ -f "$CONFIG_FILE" ] || CONFIG_FILE="dinov2/configs/train/fmri_vits.yaml"
 
-LOG_OUT="$OFFICIAL_DIR/slurm_jobs/logs/probe_adni_extended_${RUN_NAME}_iter${ITER_TAG}.out"
-LOG_ERR="$OFFICIAL_DIR/slurm_jobs/logs/probe_adni_extended_${RUN_NAME}_iter${ITER_TAG}.err"
-ln -sf "$(basename "$LOG_OUT")" "$OFFICIAL_DIR/slurm_jobs/logs/probe_adni_extended_latest.out"
-ln -sf "$(basename "$LOG_ERR")" "$OFFICIAL_DIR/slurm_jobs/logs/probe_adni_extended_latest.err"
+LOG_OUT="$OFFICIAL_DIR/slurm_jobs/logs/probe_adni_${RUN_NAME}_iter${ITER_TAG}.out"
+LOG_ERR="$OFFICIAL_DIR/slurm_jobs/logs/probe_adni_${RUN_NAME}_iter${ITER_TAG}.err"
+ln -sf "$(basename "$LOG_OUT")" "$OFFICIAL_DIR/slurm_jobs/logs/probe_adni_latest.out"
+ln -sf "$(basename "$LOG_ERR")" "$OFFICIAL_DIR/slurm_jobs/logs/probe_adni_latest.err"
 exec >"$LOG_OUT" 2>"$LOG_ERR"
 
 echo "============================================================"
