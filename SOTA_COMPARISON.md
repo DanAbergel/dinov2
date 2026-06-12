@@ -18,7 +18,78 @@ Our setup (for reference, run A = full FT at iter 19999, ADNI linear probe on fr
 
 ---
 
-## 1. SOTA papers — comparison table
+## 1. Cards récapitulatives — 1 papier = 1 fiche
+
+À parcourir verbalement en réunion. Pour les chiffres exacts dans le contexte (CV protocol, caveats), voir le **tableau détaillé** en section 2.
+
+### Brain-JEPA — NeurIPS 2024 Spotlight • [arxiv 2409.19407](https://arxiv.org/abs/2409.19407)
+- **Architecture** : JEPA + ViT (Joint Embedding Predictive Architecture, style I-JEPA mais sur séries temporelles fMRI au lieu d'images)
+- **Pretraining** : **UK Biobank, ~32,130 sujets** (80% des 40,162 dispo), TR=0.735s. Représentation = **450 ROI** (Schaefer-400 cortical + Tian-50 subcortical) × 160 timesteps. **Pas du tout volumétrique.**
+- **Résultats clés** :
+  - UKB Sex : **Acc 88.17% / F1 88.58%**
+  - HCP-Aging Sex : **Acc 81.52% / F1 84.26%**
+  - **ADNI NC-vs-MCI : Acc 76.84% / F1 86.32%** (sur n=189 sujets, split 6:2:2 subject-aware, labels DX pas CDR)
+- **Vs nous** : on est **bien en dessous** (notre HCP Sex AUC 0.84 ≈ Acc 75-80%, leur HCPA Sex Acc 81.5%) — gap explicable surtout par la taille du pretraining (32k vs notre 1.2k)
+
+### BrainLM — ICLR 2024 • [biorxiv 2023.09.12.557460](https://www.biorxiv.org/content/10.1101/2023.09.12.557460v1)
+- **Architecture** : Transformer Masked-Autoencoder (style MAE), **111M params**
+- **Pretraining** : **UKB 76,296 recordings (~6,450 h) + HCP 1,002 recordings (~250 h) = 77,298 total / 6,700 h.** Représentation = **AAL-424 ROI** (atlas neuro-anatomique). Pretraining sur 80% UKB = 61,038 recordings.
+- **Résultats clés** : UKB Age **MSE z-scoré 0.503**, PTSD 0.015, Anxiety 0.073, Neuroticism 0.069. **Aucun chiffre Sex / MMSE / AD / MCI rapporté.**
+- **Vs nous** : **non comparable directement** — ils reportent MSE z-scoré qu'on ne peut pas convertir en MAE années sans la std d'âge UKB
+
+### SLIM-Brain — arXiv Déc 2025 • [arxiv 2512.21881](https://arxiv.org/abs/2512.21881)
+- **Architecture** : **4D Hiera-JEPA** (hiérarchique, sur volumes 4D — plus proche de nous architecturalement)
+- **Pretraining** : **~4,000 sessions fMRI seulement** (8-20× moins que Brain-JEPA / BrainLM). Volumes 4D bruts, pas d'atlas.
+- **Résultats clés** : revendique **SOTA sur 7 benchmarks** + "~30% de la mémoire GPU des méthodes voxel". **Chiffres précis non extraits** (papier encore sous review OpenReview).
+- **Vs nous** : architecturalement le plus proche, à creuser après le meeting
+
+### BrainGFM (Brain Graph Foundation Model) — arXiv 2025 • [arxiv 2506.02044](https://arxiv.org/abs/2506.02044)
+- **Architecture** : **Graph foundation model** — contrastive graph + masked-autoencoder + meta-learning + language prompts
+- **Pretraining** : **27 datasets neuroimagerie**, 25 pathologies, **25,000+ sujets, 60,000 scans, 400,000 samples de graphes**, 8 parcellations différentes
+- **Résultats clés** : chiffres précis non extraits dans ce pass
+- **Vs nous** : paradigme totalement différent (graphes de connectomes, pas volumes) — utile comme baseline si on passe au connectome
+
+### LCM (Large Connectome Model) — AAAI 2026 • [arxiv 2510.18910](https://arxiv.org/abs/2510.18910)
+- **Architecture** : **Transformer decoder-only** avec multi-head self-attention + multi-head cross-attention (entre features connectome et tokens "brain-environment")
+- **Pretraining** : taille de corpus **non clairement caractérisée** dans le papier (claim 10k scans réfuté à 1-2 par notre verif). Représentation = **connectome (matrice FC)**.
+- **Résultats clés** sous **subject-aware 5-fold CV** (le même protocole que nous) :
+  - HCP-Aging Sex F1 **73.94 ± 2.45** / HCP-YA Sex F1 **72.23 ± 1.92** / ABIDE Sex F1 **87.34 ± 4.48**
+  - **ADNI Alzheimer F1 85.33 ± 7.35**
+  - PPMI Parkinson F1 84.18 / ABIDE Autism F1 72.50
+- **Vs nous** : **comparable directement** — même CV protocole. Notre HCP Sex 0.84 AUC ≈ leur HCPYA F1 72 ≈ kif-kif. Mais leur ADNI AD F1 85 est au-dessus de notre 0.74 AUC.
+
+### BNT (Brain Network Transformer) — NeurIPS 2022 • [arxiv 2210.06681](https://arxiv.org/abs/2210.06681)
+- **Architecture** : Transformer sur graphes de connectome, features = profils de connexion par nœud + "Orthonormal Clustering Readout"
+- **Pretraining** : **AUCUN** — supervisé end-to-end sur la tâche downstream directement
+- **Résultats clés** :
+  - ABIDE Autism **AUROC 80.2%**
+  - ABCD Sex (n=7,901 sujets) — chiffre précis non extrait
+  - Important : selon Brain-JEPA, **BNT bat Brain-JEPA sur ADNI NC/MCI Acc** (78.90% vs 76.84%)
+- **Vs nous** : pas de comparator direct ADNI/HCP — utile surtout comme baseline supervisée historique
+
+### OViTAD — Brain Sciences 2023 • [biorxiv 2021.11.27.470184](https://www.biorxiv.org/content/10.1101/2021.11.27.470184v2.full)
+- **Architecture** : **ViT 2D** entraîné slice-par-slice, agrégation par majority vote au niveau sujet
+- **Pretraining** : **AUCUN** — supervisé end-to-end ADNI
+- **Résultats clés** sous split **subject-aware 80/10/10** (226/27/31 sujets) :
+  - **AD vs HC F1 0.99 ± 0.02**
+  - **HC vs MCI F1 0.97 ± 0.03**
+- **Vs nous** : leur F1 0.99 est intimidant mais **test = 31 sujets** → std 0.02 sur n=31 = bruit massif. À nuancer en présentation.
+
+### BrainNetCNN — NeuroImage 2017 • [PDF](https://gwern.net/doc/psychology/neuroscience/2017-kawahara.pdf)
+- **Architecture** : CNN sur matrice de connectivité avec 3 filtres custom : **Edge-to-Edge (E2E), Edge-to-Node (E2N), Node-to-Graph (N2G)**
+- **Pretraining** : **AUCUN** — supervisé end-to-end
+- **Résultats clés (papier original)** : prédiction scores Bayley-III sur **DTI bébés prématurés** (27-46 sem GA) — **non comparable à nous**. Utilisé comme baseline supervisée par BNT / BrainGFM / BrainGB sur fMRI adulte.
+- **Vs nous** : baseline historique de référence, pas de chiffres ADNI/HCP comparables dans le papier original
+
+### SwiFT — NeurIPS 2023 • [arxiv 2307.05916](https://arxiv.org/abs/2307.05916)
+- **Architecture** : **Swin Transformer 4D** — 4D window MHSA + positional embeddings absolus. **Travaille directement sur volumes 4D fMRI** (sans atlas). **C'est l'analogue architectural le plus proche de notre setup.**
+- **Pretraining** : supervisé / SSL léger
+- **Résultats clés** : évalué sur **HCP, ABCD, UKB** pour Sex / Age / cognitive intelligence — chiffres précis non extraits dans ce pass
+- **Vs nous** : architecturalement le plus pertinent à comparer, à creuser après le meeting
+
+---
+
+## 2. SOTA papers — tableau détaillé pour cross-référence
 
 | Paper / venue / year | arXiv / preprint | Architecture | Pretrain dataset (#subj, #scans, hours) | Atlas / repr. | Downstream | Reported numbers (verbatim) | CV protocol | Caveat |
 |---|---|---|---|---|---|---|---|---|
