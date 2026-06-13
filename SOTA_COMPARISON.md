@@ -30,16 +30,16 @@ Linear probe sur CLS gelé, 5-fold subject-aware CV. Best across iters.
 **arXiv** : [2409.19407](https://arxiv.org/abs/2409.19407)
 **Architecture** : JEPA (Joint Embedding Predictive) + ViT sur **ROI time-series** (450 ROI × 160 timesteps). Le predictor prédit les **embeddings** de blocks cibles, pas les pixels (paradigme LeCun).
 **Pretraining** : UK Biobank, 32 130 sujets (1 dataset)
-**Benchmarks downstream** : UKB held-out, HCP-Aging, ADNI (n=189), MACC, OASIS-3, CamCAN
-**Résultats** (Acc / F1, jamais d'AUC) :
 
-- UKB Sex : **88.17 / 88.58**
-- HCPA Sex : **81.52 / 84.26**
-- ADNI NC/MCI : **76.84 / 86.32**
-- ADNI Amyloid : 71.00 / 75.97
-- MACC NC/MCI : 65.98 / 64.67
-- OASIS-3 AD Conversion : 69.00 / 67.32
-- CamCAN Depression : 72.73 / 67.45
+| Dataset       | Tâche               | Acc       | F1        |
+|---------------|---------------------|:---------:|:---------:|
+| UK Biobank    | Sex                 | **88.17** | **88.58** |
+| HCP-Aging     | Sex                 | **81.52** | **84.26** |
+| ADNI (n=189)  | NC vs MCI           | **76.84** | **86.32** |
+| ADNI          | Amyloid β+/-        | 71.00     | 75.97     |
+| MACC          | NC vs MCI (Asia)    | 65.98     | 64.67     |
+| OASIS-3       | AD Conversion       | 69.00     | 67.32     |
+| CamCAN        | Depression          | 72.73     | 67.45     |
 
 ---
 
@@ -48,12 +48,15 @@ Linear probe sur CLS gelé, 5-fold subject-aware CV. Best across iters.
 **arXiv** : [biorxiv 2023.09.12.557460](https://www.biorxiv.org/content/10.1101/2023.09.12.557460v1)
 **Architecture** : ViT en mode **Masked Autoencoder (MAE)** sur ROI time-series. Masque 75% des patches, reconstruit les **valeurs brutes**. 111M params.
 **Pretraining** : UK Biobank (76 296 rec) + HCP (1 002 rec) = 77 298 recordings / 6 700 h (2 datasets)
-**Benchmarks downstream** : UK Biobank held-out uniquement
-**Résultats** (MSE z-scoré) :
 
-- UKB Age MSE : 0.503
-- UKB PTSD MSE : 0.015 ; Anxiety MSE : 0.073 ; Neuroticism MSE : 0.069
-- **AUCUN chiffre Sex / MCI / AD / MMSE rapporté**
+| Dataset       | Tâche                  | MSE z-scoré |
+|---------------|------------------------|:-----------:|
+| UK Biobank    | Age (régression)       | **0.503**   |
+| UK Biobank    | PTSD (PCL-5)           | 0.015       |
+| UK Biobank    | Anxiety (GAD-7)        | 0.073       |
+| UK Biobank    | Neuroticism            | 0.069       |
+
+**Aucun chiffre Sex / MCI / AD / MMSE rapporté.**
 
 ---
 
@@ -62,14 +65,18 @@ Linear probe sur CLS gelé, 5-fold subject-aware CV. Best across iters.
 **arXiv** : [2512.21881](https://arxiv.org/abs/2512.21881)
 **Architecture** : **4D Hiera-JEPA** = Hiera (ViT hiérarchique pyramidal, multi-stages) + paradigme JEPA. Input = **volumes 4D `(T, X, Y, Z)`**. Tubelets 4D, attention globale par stage.
 **Pretraining** : HCP + CHCP + AOMIC PIOP1 + AOMIC PIOP2 + ABCD = 4 129 sessions (5 datasets)
-**Benchmarks downstream** : HCP Sex, HCP Fingerprint, ADNI MCI, ADHD-200, PPMI, ABIDE Age cls + reg (7 benchmarks)
-**Résultats** (Acc / F1) :
 
-- HCP Sex : **91.1 / 91.1** (battu Brain-JEPA 87.1 / 85.4)
-- HCP Fingerprint : 98.5 / 98.1
-- ADNI MCI : **69.12 / 68.96** (battu Brain-JEPA 64.53, NeuroSTORM 66.67)
-- ADHD-200 : 63.53 ; PPMI : 70.40
-- ABIDE Age cls : 64.41 ; Age reg MSE : 0.2175
+| Dataset      | Tâche                | Acc       | F1 / autre  |
+|--------------|----------------------|:---------:|:-----------:|
+| HCP          | Sex                  | **91.1**  | F1 **91.1** |
+| HCP          | Fingerprint          | 98.5      | F1 98.1     |
+| ADNI         | MCI classification   | **69.12** | F1 68.96    |
+| ADHD-200     | TDAH                 | 63.53     | —           |
+| PPMI         | Parkinson            | 70.40     | —           |
+| ABIDE        | Age (classification) | 64.41     | —           |
+| ABIDE        | Age (régression)     | —         | MSE 0.2175  |
+
+*Bat Brain-JEPA sur HCP Sex (87.1) et ADNI MCI (64.53).*
 
 ---
 
@@ -78,16 +85,21 @@ Linear probe sur CLS gelé, 5-fold subject-aware CV. Best across iters.
 **arXiv** : [2506.02044](https://arxiv.org/abs/2506.02044)
 **Architecture** : **Graph Foundation Model** sur connectomes. Combine **Graph Contrastive Learning + Graph Masked AE** + meta-learning + graph/language prompts. Multi-atlas (8 parcellations).
 **Pretraining** : 27 datasets, 25 pathologies, 25 000+ sujets / 60 000 scans
-**Benchmarks downstream** : ADHD-200, ABIDE II, ADNI 2, HBN, SubMex_CUD, UCLA_CNP (10 pathologies)
-**Résultats** (AUC / Acc) :
 
-- TDAH (ADHD-200) : 70.6 / 72.2
-- Autisme (ABIDE II) : 71.2 / 73.5
-- **Alzheimer (ADNI 2) : 80.3 / 85.1**
-- Dépression (HBN) : 83.6 / 85.5 ; Anxiété : 85.2 / 86.3 ; OCD : 80.4 / 85.8 ; PTSD : 83.2 / 86.3
-- Cocaïne (SubMex_CUD) : 71.1 / 74.6
-- Schizophrénie (UCLA_CNP) : 84.2 / 86.7 ; Bipolaire : 73.5 / 76.3
-- **Pas de Sex / Age rapportés**
+| Dataset          | Tâche               | AUC      | Acc      |
+|------------------|---------------------|:--------:|:--------:|
+| ADHD-200         | TDAH                | 70.6     | 72.2     |
+| ABIDE II         | Autisme (ASD)       | 71.2     | 73.5     |
+| **ADNI 2**       | **Alzheimer (AD)**  | **80.3** | **85.1** |
+| HBN              | Dépression maj.     | 83.6     | 85.5     |
+| HBN              | Anxiété             | 85.2     | 86.3     |
+| HBN              | OCD                 | 80.4     | 85.8     |
+| HBN              | PTSD                | 83.2     | 86.3     |
+| SubMex_CUD       | Cocaïne             | 71.1     | 74.6     |
+| UCLA_CNP         | Schizophrénie       | 84.2     | 86.7     |
+| UCLA_CNP         | Bipolaire           | 73.5     | 76.3     |
+
+**Aucun chiffre Sex / Age / Parkinson rapporté.**
 
 ---
 
@@ -96,15 +108,17 @@ Linear probe sur CLS gelé, 5-fold subject-aware CV. Best across iters.
 **arXiv** : [2510.18910](https://arxiv.org/abs/2510.18910)
 **Architecture** : **Transformer decoder-only** (style GPT) sur connectomes (FC matrix). MHSA + MHCA entre features connectome et tokens "brain-environment-interaction" (covariables type sexe/âge/scanner).
 **Pretraining** : HCPA (713s/4 863sc) + HCPYA (248s/3 293sc) + ADNI (138) + PPMI (209) + ABIDE (1 025) + Taowu (40) + Neurocon (41) = ~10 036 scans (7 datasets)
-**Benchmarks downstream** : Sex sur 7 datasets + AD/PD/ASD/SZ classification
-**Résultats** (F1) :
 
-- HCP-Aging Sex : **73.94 ± 2.45**
-- HCP-YA Sex : **72.23 ± 1.92**
-- ABIDE Sex : 87.34 ± 4.48
-- **ADNI Alzheimer : 85.33 ± 7.35**
-- PPMI Parkinson : 84.18 ± 11.63
-- ABIDE Autisme : 72.50 ± 1.91
+| Dataset       | Tâche             | F1                |
+|---------------|-------------------|:-----------------:|
+| HCP-Aging     | Sex               | **73.94 ± 2.45**  |
+| HCP-YA        | Sex               | **72.23 ± 1.92**  |
+| ABIDE         | Sex               | 87.34 ± 4.48      |
+| **ADNI**      | **Alzheimer**     | **85.33 ± 7.35**  |
+| PPMI          | Parkinson         | 84.18 ± 11.63     |
+| ABIDE         | Autisme           | 72.50 ± 1.91      |
+
+*Subject-aware 5-fold CV (même protocole que nous).*
 
 ---
 
@@ -113,12 +127,14 @@ Linear probe sur CLS gelé, 5-fold subject-aware CV. Best across iters.
 **arXiv** : [2210.06681](https://arxiv.org/abs/2210.06681)
 **Architecture** : Transformer pur sur graphes de connectome (pas un GNN). Chaque ROI = un token, features = profil de connexion. Innovation = **Orthonormal Clustering Readout** (pool par K prototypes orthogonaux appris).
 **Pretraining** : AUCUN — supervisé end-to-end
-**Benchmarks downstream** : ABIDE (autism), ABCD (Sex, n=7 901)
-**Résultats** :
 
-- ABIDE Autisme : AUROC **80.2%**
-- ABCD Sex : n=7 901 (chiffre exact non extrait)
-- Bat Brain-JEPA sur ADNI NC/MCI Acc : **78.90 vs 76.84** (rapporté comme comparator dans Brain-JEPA)
+| Dataset    | Tâche       | Métrique  | Score        |
+|------------|-------------|-----------|:------------:|
+| ABIDE      | Autisme     | AUROC     | **80.2%**    |
+| ABCD       | Sex (n=7 901) | —       | non extrait  |
+| ADNI       | NC vs MCI   | Acc       | **78.90**    |
+
+*BNT bat Brain-JEPA sur ADNI NC/MCI (78.90 vs 76.84) — rapporté comme comparator dans Brain-JEPA.*
 
 ---
 
@@ -127,11 +143,13 @@ Linear probe sur CLS gelé, 5-fold subject-aware CV. Best across iters.
 **arXiv** : [biorxiv 2021.11.27.470184](https://www.biorxiv.org/content/10.1101/2021.11.27.470184v2.full)
 **Architecture** : **ViT-B/16 standard** sur **slices 2D** fMRI individuelles (pas de 3D, pas de temps). Inférence par **majority vote** au niveau sujet. Aucune innovation architecturale (juste tuning hyperparams).
 **Pretraining** : AUCUN — supervisé end-to-end
-**Benchmarks downstream** : ADNI rs-fMRI (284 sujets, split 80/10/10 = 226 / 27 / **31 test**)
-**Résultats** (F1) :
 
-- AD vs HC : **0.99 ± 0.02** (méfiance : test n=31, σ=0.02 = bruit massif)
-- HC vs MCI : **0.97 ± 0.03**
+| Dataset       | Tâche      | F1               |
+|---------------|------------|:----------------:|
+| ADNI (n=284)  | AD vs HC   | **0.99 ± 0.02**  |
+| ADNI (n=284)  | HC vs MCI  | **0.97 ± 0.03**  |
+
+*Test set = **31 sujets seulement** → σ=0.02 sur 31 = bruit massif. Méfiance.*
 
 ---
 
@@ -140,11 +158,12 @@ Linear probe sur CLS gelé, 5-fold subject-aware CV. Best across iters.
 **arXiv** : [PDF Kawahara 2017](https://gwern.net/doc/psychology/neuroscience/2017-kawahara.pdf)
 **Architecture** : CNN avec **3 filtres custom topo-conscients** sur matrice de connectivité — Edge-to-Edge (E2E, agrège ligne+colonne par cellule), Edge-to-Node (E2N, agrège connexions par ROI), Node-to-Graph (N2G, pool global).
 **Pretraining** : AUCUN — supervisé end-to-end
-**Benchmarks downstream (papier original)** : DTI bébés prématurés (PAS fMRI adulte)
-**Résultats** :
 
-- Score Bayley-III sur DTI préterm — **non comparable à nos labels ADNI/HCP**
-- Archi réutilisée comme baseline par BNT / BrainGFM / BrainGB sur fMRI adulte
+| Dataset                  | Tâche             | Score              |
+|--------------------------|-------------------|:------------------:|
+| DTI préterm (papier orig)| Bayley-III scores | **non comparable** |
+
+*Pas de fMRI adulte dans le papier original. Archi réutilisée comme baseline supervisée par BNT / BrainGFM / BrainGB.*
 
 ---
 
@@ -153,14 +172,17 @@ Linear probe sur CLS gelé, 5-fold subject-aware CV. Best across iters.
 **arXiv** : [2307.05916](https://arxiv.org/abs/2307.05916)
 **Architecture** : **Swin Transformer 4D** sur volumes fMRI directs (sans atlas). Fenêtres 4D `(X, Y, Z, T)` + windowed self-attention + shifted windows entre layers + hiérarchique (4 stages). **L'archi la plus proche de la nôtre.**
 **Pretraining** : SSL contrastif léger (composition non précisée)
-**Benchmarks downstream** : HCP-YA, ABCD, UK Biobank — Sex, Age, Intelligence
-**Résultats** (en tant que comparator dans Brain-JEPA et SLIM-Brain) :
 
-- OASIS-3 AD Conversion : 65.00 / 66.80
-- ADNI MCI : 64.45
-- ABIDE Age : 62.22 / MSE 0.4137
-- ADHD-200 : 60.81 ; PPMI : 58.10
-- Chiffres natifs HCP/ABCD/UKB Sex/Age non extraits
+| Dataset      | Tâche             | Acc       | Autre        |
+|--------------|-------------------|:---------:|:------------:|
+| OASIS-3      | AD Conversion     | 65.00     | F1 66.80     |
+| ADNI         | MCI               | 64.45     | —            |
+| ABIDE        | Age (cls)         | 62.22     | MSE 0.4137   |
+| ADHD-200     | TDAH              | 60.81     | —            |
+| PPMI         | Parkinson         | 58.10     | —            |
+| HCP / ABCD / UKB | Sex, Age      | —         | non extraits |
+
+*Chiffres rapportés comme comparator dans Brain-JEPA Table 9 et SLIM-Brain Table 1, pas extraits du papier SwiFT original.*
 
 ---
 
