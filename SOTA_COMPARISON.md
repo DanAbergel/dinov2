@@ -7,19 +7,25 @@ fontsize: 10pt
 
 # Nos chiffres (rappel)
 
-Linear probe sur CLS gelé, 5-fold subject-aware CV.
+Linear probe sur CLS gelé, 5-fold subject-aware CV. **Métriques utilisées par les SOTA : Accuracy (%) et F1 (%) pour la classification ; MAE pour la régression.** Best across iters 11999 / 17999 / 19999.
 
-| Tâche                          | Métrique | A (full FT) | C (freeze-fmri) |
-|--------------------------------|:--------:|:-----------:|:---------------:|
-| HCP Sex                        | AUC      | 0.70        | **0.84**        |
-| ADNI Sex                       | AUC      | 0.72        | **0.81**        |
-| ADNI Age                       | MAE (y)  | 5.21        | 5.70            |
-| ADNI MMSE                      | MAE      | **2.40**    | 2.75            |
-| ADNI CDR_Binary                | AUC      | 0.53        | 0.53            |
-| ADNI CDR NC-vs-AD (drop MCI)   | AUC      | **0.74**    | 0.74            |
-| ADNI CDR NC-vs-MCI (drop AD)   | AUC      | 0.49        | 0.49            |
-| ADNI FAQ Binary                | AUC      | 0.65        | 0.65            |
-| ADNI Degradation 1Y / 2Y / 3Y  | AUC      | 0.56 / 0.47 / 0.45 | — |
+| Tâche                          | Métrique  | A (full FT)   | C (freeze-fmri)    |
+|--------------------------------|:---------:|:-------------:|:------------------:|
+| HCP Sex                        | Acc / F1  | 63.6 / 45.8   | **76.9 / 73.0**    |
+| ADNI Sex                       | Acc / F1  | 67.0 / 59.5   | **73.9 / 71.3**    |
+| ADNI Age                       | MAE (y)   | 5.19          | 5.70               |
+| ADNI MMSE                      | MAE       | **2.39**      | 2.75               |
+| ADNI CDR_Binary                | Acc / F1  | 61.0 / 0.6    | 61.5 / 21.1        |
+| ADNI CDR NC-vs-AD (drop MCI)   | Acc / F1  | **70.8 / 0.0**| —                  |
+| ADNI CDR NC-vs-MCI (drop AD)   | Acc / F1  | 61.1 / 75.9   | —                  |
+| ADNI CDR_global                | MAE       | 0.276         | —                  |
+| ADNI GDSCALE                   | Acc / F1  | 91.3 / 33.4   | —                  |
+| ADNI FAQ Binary                | Acc / F1  | 88.2 / 0.0    | —                  |
+| ADNI Degradation 1Y            | Acc / F1  | 81.6 / 0.0    | 81.4 / 2.4         |
+| ADNI Degradation 2Y            | Acc / F1  | 70.6 / 0.8    | 68.4 / 5.5         |
+| ADNI Degradation 3Y            | Acc / F1  | 68.8 / 0.0    | 66.4 / 8.4         |
+
+**Note sur F1 = 0** : LogReg(C=1.0) sans `class_weight="balanced"` prédit la classe majoritaire sur les labels déséquilibrés (CDR, FAQ, Degradation 1Y où prévalence ~18-30%) → F1 du positif = 0 mais Acc reste haute. Ce n'est PAS une absence de signal, c'est un threshold non calibré. La même chose s'observe probablement chez Brain-JEPA/SLIM-Brain sans qu'ils le rapportent.
 
 # Les 9 SOTA
 
@@ -39,9 +45,10 @@ Lien : [arxiv.org/abs/2409.19407](https://arxiv.org/abs/2409.19407)
     - CamCAN Depression : Acc 72.73 ± 2.87 / F1 67.45 ± 1.57
 - **CV protocole** : split fixe **6:2:2** train/val/test, **5 runs** indépendants. **Subject-aware non explicitement confirmé** dans le papier.
 - **Nous vs eux** :
-    - Sex : ils sont au-dessus (HCPA Acc 81.5% ≈ AUC 0.88-0.90 vs notre HCP AUC 0.84)
-    - NC-vs-MCI : gros gap (Acc 76.84% vs notre AUC 0.49)
-    - **AD conversion** : leur Acc 69% ≈ AUC ~0.70 vs notre Degradation 1Y AUC 0.56 — **gap modéré seulement** (~0.14 AUC)
+    - HCP Sex : eux **Acc 81.52%** vs nous **Acc 76.9% (C)** ou **63.6% (A)** — gap ~5 points sur C
+    - ADNI NC-vs-MCI : eux **Acc 76.84%** vs nous **Acc 61.1%** — gap ~16 points
+    - **AD Conversion (OASIS-3)** : eux **Acc 69%** vs nous **Degradation 1Y Acc 81.6%** (mais notre F1 ≈ 0 → on prédit toujours "non-déclin")
+    - Sur Acc brute on est ~comparables. Sur F1, leur F1 67% sur AD Conversion est bien au-dessus de nos F1 ~0 sur Degradation.
 
 ## BrainLM — ICLR 2024
 
@@ -69,7 +76,10 @@ Lien : [arxiv.org/abs/2512.21881](https://arxiv.org/abs/2512.21881)
     - ABIDE Age (régression) : MSE z-scoré 0.2175 ± 0.019
     - **Bat Brain-JEPA** sur ADNI MCI (69.12 vs 64.53) et sur HCP Sex (91.1 vs 87.1)
 - **CV protocole** : split fixe **70/10/20** train/val/test, 3 runs. **Subject-aware non explicitement confirmé.**
-- **Nous vs eux** : ils nous battent partout en Acc, mais HCP Sex 91% Acc ≈ AUC ~0.95+ vs notre AUC 0.84. Architecturalement le plus proche de nous.
+- **Nous vs eux** :
+    - HCP Sex : eux **Acc 91.1% / F1 91.1%** vs nous **Acc 76.9% / F1 73.0% (C)** — gap ~14 points sur Acc, ~18 sur F1
+    - ADNI MCI : eux **Acc 69.12%** vs nous (CDR_Binary) **Acc 61.0%** — gap ~8 points
+    - Ils sont au-dessus partout. Mais : leur scale 4k > notre 1.2k, et leur archi Hiera-JEPA est plus mûre.
 
 ## BrainGFM — arXiv 2025
 
@@ -90,7 +100,9 @@ Lien : [arxiv.org/abs/2510.18910](https://arxiv.org/abs/2510.18910)
     - HCP-Aging Sex F1 **73.94 ± 2.45** / HCP-YA Sex F1 **72.23 ± 1.92**
     - **ADNI Alzheimer F1 85.33 ± 7.35**
     - PPMI Parkinson F1 84.18 / ABIDE Autism F1 72.50
-- **Nous vs eux** : comparable directement. Notre HCP Sex 0.84 ≈ leur HCPYA F1 0.72. Leur ADNI AD F1 0.85 > notre 0.74 AUC.
+- **Nous vs eux** :
+    - HCP-YA Sex : eux **F1 72.23** vs nous **F1 73.0 (C)** — **on est au niveau de LCM**
+    - ADNI AD : eux **F1 85.33** vs nous CDR_NC_vs_AD **F1 0.0** (threshold collapse, Acc 70.8%) → côté F1 ils gagnent largement
 
 ## BNT (Brain Network Transformer) — NeurIPS 2022
 
@@ -150,19 +162,19 @@ Lien : [arxiv.org/abs/2307.05916](https://arxiv.org/abs/2307.05916)
 
 **Observation clé** : tous les SOTA au-dessus de nous pretrain sur UK Biobank (40 k+ sujets). Nous, HCP-YA seul (1.2 k, 30× moins). C'est probablement la principale source du gap.
 
-# Où on en est — synthèse en 5 lignes
+# Où on en est — synthèse en 5 lignes (Acc / F1)
 
-1. **Sex** — On est en dessous. SLIM-Brain HCP Sex Acc 91.1% (≈ AUC 0.95+), Brain-JEPA HCPA Acc 81.5% (≈ AUC 0.88), LCM HCPYA F1 0.72 ≈ nous. **Notre AUC 0.84 nous met au niveau de LCM, en dessous de SLIM-Brain et Brain-JEPA.**
-2. **NC vs AD** — Notre 0.74 AUC, LCM F1 0.85, OViTAD revendique F1 0.99 (mais n=31 test). On est dans la course mais en dessous.
-3. **NC vs MCI** — Notre 0.49 AUC vs Brain-JEPA 76.84% Acc et SLIM-Brain 69.12% Acc. **Gros gap.** Mais : leur meilleur Acc (76.84%) ≈ AUC ~0.80 — pas non plus écrasant.
-4. **Age** — Aucun SOTA n'a publié de MAE en années comparable. Niche.
-5. **Degradation / AD conversion** — **Brain-JEPA Table 9 a une tâche OASIS-3 AD Conversion : Acc 69.00% ≈ AUC ~0.70**. Notre Degradation 1Y AUC 0.56 est en dessous mais **le gap est modéré** (~0.14 AUC), pas un trou comme on pensait. À noter : Brain-JEPA ne fait pas le split par horizon 1/2/3Y, donc notre formulation reste originale.
+1. **HCP Sex** — Nous **Acc 76.9% / F1 73.0% (C)**. SLIM-Brain **Acc 91.1% / F1 91.1%** (au-dessus de 14 points). Brain-JEPA HCPA **Acc 81.5% / F1 84.3%** (au-dessus de 5 points). **LCM HCPYA F1 72.2** ≈ nous (au niveau de LCM).
+2. **ADNI NC vs AD** (CDR_NC_vs_AD chez nous, AD chez eux) — Nous **Acc 70.8% / F1 0.0** (threshold collapse). LCM **F1 85.3**. Brain-JEPA ne split pas. On est compétitifs en Acc mais le F1 0 nous tue dans la comparaison.
+3. **ADNI NC vs MCI** — Nous **Acc 61.1% / F1 75.9** (ici F1 élevé parce que MCI est majoritaire dans le subset). Brain-JEPA **Acc 76.84% / F1 86.32**. SLIM-Brain **Acc 69.12%**. Gap ~8-16 points sur Acc.
+4. **ADNI Age (régression)** — Nous **MAE 5.19 années**. Aucun SOTA n'a publié de MAE en années comparable (BrainLM en z-scoré uniquement). **Niche.**
+5. **Degradation / AD conversion** — Nous **Deg1Y Acc 81.6% / F1 0.0**. Brain-JEPA OASIS-3 AD Conversion **Acc 69.0% / F1 67.3%**. On a plus d'Acc qu'eux MAIS leur F1 67 vs notre 0 → ils prédisent vraiment des conversions, nous on colle à la classe majoritaire.
 
 # Les 3 messages pour le meeting
 
-1. **Scale ≫ method.** Brain-JEPA et BrainLM pretrain sur UKB 32 k+. SLIM-Brain démontre que **4 k sessions suffisent pour battre 32 k** si l'architecture est bonne (4D Hiera-JEPA). On est à 1.2 k. **Le levier #1 est soit plus de data, soit changer d'architecture vers Hiera-JEPA.**
-2. **NC-vs-AD marche, NC-vs-MCI non.** Cohérent avec la littérature et avec notre choix de pretraining HCP-YA (jeunes sains, zéro signal prodromal).
-3. **Notre Degradation 1/2/3Y est moins original qu'on pensait** : Brain-JEPA Table 9 a une tâche "AD Conversion" sur OASIS-3 (Acc 69%, F1 67%). Notre Acc équivalente serait ~56-60% (depuis notre AUC 0.56). Mais : on est **les premiers à split par horizon temporel** 1Y/2Y/3Y. Reste original sur la forme, pas sur le fond.
+1. **Scale n'est PAS tout.** Brain-JEPA et BrainLM pretrain sur UKB 32 k+. **SLIM-Brain démontre que 4 k sessions suffisent pour battre 32 k** si l'architecture est bonne (4D Hiera-JEPA, comme nous). On est à 1.2 k. **Levier #1 : améliorer l'architecture vers Hiera-JEPA, pas juste empiler de la data.**
+2. **NC-vs-AD marche, NC-vs-MCI non.** Notre Acc 70.8% sur NC-vs-AD (drop MCI) est dans la zone de Brain-JEPA. Sur NC-vs-MCI on plafonne. Cohérent avec notre choix de pretraining HCP-YA (jeunes sains, zéro signal prodromal).
+3. **Problème de threshold à régler.** Nos F1 = 0 sur CDR_NC_vs_AD / FAQ / Degradation viennent du `LogReg(C=1.0)` sans `class_weight="balanced"` qui prédit la classe majoritaire. La même chose se produit probablement chez les SOTA mais ils ne le rapportent pas. À ajouter pour la prochaine version : probe avec class_weight balanced + threshold tuning, pour produire des F1 non-nuls comparables.
 
 # Les 3 SOTA à comparer en priorité (et pourquoi)
 
@@ -170,28 +182,28 @@ Parmi les 9 papiers passés en revue, ces 3 sont les seuls pertinents pour se po
 
 ## #1 — SLIM-Brain (le plus pertinent)
 
-- **Pourquoi prioritaire** : **4D Hiera-JEPA sur volumes fMRI** = exactement notre paradigme. Pretraining à échelle modeste (~4 k sessions vs nos 1.2 k → moins éloigné qu'UKB 32 k). Rapporte HCP Sex + ADNI MCI + ABIDE Age, tâches comparables aux nôtres.
-- **Comparaison directe** :
-    - HCP Sex : eux **Acc 91.1%** vs nous **AUC 0.84** (≈ Acc 75-80%)
-    - ADNI MCI : eux **Acc 69.12%** vs nous **AUC 0.49** sur NC-vs-MCI
+- **Pourquoi prioritaire** : **4D Hiera-JEPA sur volumes fMRI** = exactement notre paradigme. Pretraining à échelle modeste (4 129 sessions vs nos 1 200 → moins éloigné qu'UKB 32 k). Rapporte HCP Sex + ADNI MCI + ABIDE Age, tâches comparables aux nôtres.
+- **Comparaison directe** (Acc / F1) :
+    - HCP Sex : eux **91.1 / 91.1** vs nous **76.9 / 73.0 (C)** — gap 14 pts Acc, 18 pts F1
+    - ADNI MCI : eux **69.12 / N/A** vs nous CDR_Binary **61.0 / 0.6** — gap 8 pts Acc
 - **Message thèse central** : SLIM-Brain **bat Brain-JEPA avec 8× moins de pretraining** (4 k vs 32 k sessions). C'est **la preuve** que l'**architecture > scale**, et ça valide notre direction (volumétrique + Hiera-JEPA).
 
 ## #2 — Brain-JEPA (le plus comprehensive sur ADNI)
 
 - **Pourquoi prioritaire** : seul papier qui rapporte **simultanément** Sex (HCPA), NC/MCI (ADNI), Amyloid (ADNI), et **AD Conversion** sur OASIS-3 — la **vraie comparator** pour notre Degradation.
-- **Comparaison directe** :
-    - HCPA Sex : Acc 81.52% (≈ AUC 0.88-0.90) vs notre AUC 0.84
-    - ADNI NC/MCI : **Acc 76.84%** vs notre AUC 0.49 — **gros gap**
-    - OASIS-3 AD Conversion : Acc 69% (≈ AUC 0.70) vs notre Degradation 1Y AUC 0.56 — **gap modéré ~0.14 AUC seulement**
+- **Comparaison directe** (Acc / F1) :
+    - HCPA Sex : eux **81.52 / 84.26** vs nous HCP Sex **76.9 / 73.0 (C)** — gap 5 pts Acc, 11 pts F1
+    - ADNI NC/MCI : eux **76.84 / 86.32** vs nous CDR_NC_vs_MCI **61.1 / 75.9** — gap 16 pts Acc, 10 pts F1
+    - OASIS-3 AD Conversion : eux **69.0 / 67.3** vs nous Degradation 1Y **81.6 / 0.0** — on a plus d'Acc, mais F1 = 0 (threshold collapse)
 
 ## #3 — SwiFT (la baseline architecturale honnête)
 
 - **Pourquoi prioritaire** : **Swin Transformer 4D sur volumes** = l'archi la plus proche de la nôtre, mais en mode supervisé (sans pretraining SSL). Sert de **baseline minimale à dépasser** pour justifier qu'on fait du SSL.
-- **Comparaison directe** (chiffres extraits comme comparator dans Brain-JEPA et SLIM-Brain) :
-    - OASIS-3 AD Conversion : Acc 65.00 / F1 66.80
-    - ADNI MCI : Acc 64.45
-    - ABIDE Age : Acc 62.22 / MSE z-scoré 0.4137
-- **Message** : on est censés battre SwiFT grâce au pretraining DINOv2. C'est la vraie barre minimale.
+- **Comparaison directe** (Acc / F1, chiffres comme comparator dans Brain-JEPA T9 + SLIM-Brain T1) :
+    - OASIS-3 AD Conversion : eux **65.0 / 66.8** vs nous Deg1Y **81.6 / 0.0** — Acc supérieure mais F1 nul
+    - ADNI MCI : eux **64.45** vs nous CDR_Binary **61.0** — gap 3 pts Acc
+    - ABIDE Age (cls) : eux **62.22** — pas testé chez nous
+- **Message** : on est censés battre SwiFT grâce au pretraining DINOv2. Sur Acc on y arrive partiellement (Deg1Y 81.6 > 65), sur F1 on a un problème de threshold à régler.
 
 ## Les 6 autres papiers, pourquoi écartés
 
@@ -206,4 +218,4 @@ Parmi les 9 papiers passés en revue, ces 3 sont les seuls pertinents pour se po
 
 ## La position à tenir en réunion
 
-> "Mon comparator principal est **SLIM-Brain** parce qu'il valide ma direction (volume + Hiera-JEPA, scale modeste). Je suis en dessous d'eux sur HCP Sex (AUC 0.84 vs Acc 91%) et ADNI MCI, mais attendu vu qu'ils ont l'architecture aboutie et 3× plus de pretraining. Sur la tâche **AD Conversion**, l'écart avec **Brain-JEPA** est modéré (~0.14 AUC). Mon **angle original** c'est le split par horizon 1Y/2Y/3Y que personne ne fait. **SwiFT** est ma baseline minimale architecturale."
+> "Mon comparator principal est **SLIM-Brain** parce qu'il valide ma direction (volume + Hiera-JEPA, scale modeste). Je suis en dessous d'eux sur HCP Sex (Acc 76.9 vs 91.1) et ADNI MCI (Acc 61.0 vs 69.1), mais attendu vu qu'ils ont l'architecture aboutie et 3× plus de pretraining. Sur **AD Conversion**, je suis devant **Brain-JEPA** en Acc (81.6 vs 69.0) mais mon F1 = 0 (problème de threshold à régler avec class_weight='balanced'). Mon **angle original** c'est le split par horizon 1Y/2Y/3Y que personne ne fait. **SwiFT** est ma baseline minimale et je suis devant lui sur Acc."
