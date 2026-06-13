@@ -40,7 +40,8 @@ Lien : [arxiv.org/abs/2409.19407](https://arxiv.org/abs/2409.19407)
     - **Spatiotemporal masking** custom : masques séparés sur l'axe ROI et sur l'axe temporel (pas un masque 2D commun).
     - **Gradient positioning** : injection d'un encoding positionnel par gradient learning au lieu de tables fixes.
     - Input = série temporelle 2D `(450 ROI, 160 timesteps)`, pas un volume.
-- **Pretraining** : UK Biobank, **32 130 sujets** (80% des 40 162). Représentation = **450 ROI** Schaefer-400 + Tian-50, 160 timesteps. ROI-based, pas volumétrique.
+- **Pretraining (1 dataset)** : **UK Biobank uniquement** — 32 130 sujets (80% des 40 162 dispo), TR=0.735s. Représentation = **450 ROI** Schaefer-400 + Tian-50, 160 timesteps. ROI-based, pas volumétrique.
+- **Downstream evaluation (6 datasets)** : UKB held-out (20%), HCP-Aging (Sex), ADNI (NC/MCI, Amyloid, n=189), MACC (NC/MCI cohorte asiatique), OASIS-3 (AD conversion), CamCAN (Depression).
 - **Résultats clés** (verbatim, Tables 1-2-3-9, métrique = Acc% / F1%, **aucun AUC publié**) :
     - UKB Sex : Acc **88.17%** / F1 88.58%
     - HCP-Aging Sex : Acc **81.52%** / F1 84.26%
@@ -67,7 +68,12 @@ Lien : [biorxiv 2023.09.12.557460](https://www.biorxiv.org/content/10.1101/2023.
     - **Tokenisation** : chaque patch = `(1 ROI × petite fenêtre temporelle)`. Concrètement avec 424 ROI AAL et fenêtres de 20 timesteps, ça fait des milliers de tokens.
     - **111 M paramètres** — le plus gros des foundation models fMRI.
     - Encoder ne voit que les patches non-masqués (gain de compute) ; decoder reconstruit tout.
-- **Pretraining** : UKB 76 296 recordings (~6 450 h) + HCP 1 002 recordings (~250 h) = **77 298 recordings / 6 700 h**. Atlas **AAL-424 ROI**.
+- **Pretraining (2 datasets)** :
+    - **UK Biobank** : 76 296 recordings (~6 450 h)
+    - **HCP** : 1 002 recordings (~250 h)
+    - Total : **77 298 recordings / 6 700 h**. Effectivement entraîné sur 80% UKB (61 038 recordings) + tout HCP.
+    - Atlas **AAL-424 ROI** (atlas neuro-anatomique).
+- **Downstream evaluation** : UK Biobank held-out — régression sur Age, PTSD (PCL-5), Anxiety (GAD-7), Neuroticism. **Aucune évaluation ADNI / HCP downstream rapportée**, contrairement à Brain-JEPA.
 - **Résultats clés** : UKB Age MSE z-scoré **0.503**, PTSD 0.015, Anxiety 0.073, Neuroticism 0.069. Aucun chiffre Sex / MMSE / AD / MCI.
 - **Nous vs eux** : non comparable directement (MSE z-scoré, pas convertible en MAE sans la std d'âge UKB).
 
@@ -82,14 +88,17 @@ Lien : [arxiv.org/abs/2512.21881](https://arxiv.org/abs/2512.21881)
     - **4D natif** : input = volume `(T, X, Y, Z)`, patches 4D tubelets (genre `2×8×8×8` voxels-timesteps).
     - Hiérarchie pyramidale → représentations multi-échelles, ce qui permet de réduire la mémoire de **~70%** vs un ViT plat sur volumes.
     - **Architecturalement très proche de nous** (volume + transformer + SSL), mais : Hiera plutôt que ViT plat, JEPA plutôt que DINOv2.
-- **Pretraining** : **4 129 sessions** (= 70% des données totales), composées de **5 datasets** combinés (Section 4.1 du papier) :
+- **Pretraining (5 datasets combinés)** — 4 129 sessions = 70% du total (Section 4.1) :
     1. **HCP** (Van Essen 2013) — une seule session
-    2. **CHCP** (Chinese HCP, Ge 2023) — analogue chinois du HCP
+    2. **CHCP** (Chinese HCP, Ge 2023)
     3. **AOMIC PIOP1** (Amsterdam Open MRI Collection, Snoek 2021)
     4. **AOMIC PIOP2**
-    5. **ABCD** (Adolescent Brain Cognitive Development, Casey 2018) — le plus gros, ~12k adolescents
-    - Harmonisés à **2 mm isotrope** et **TR 0.72 s** pour tous les datasets.
-    - 8-20× moins que Brain-JEPA / BrainLM, **mais multi-source** — peut-être ce qui aide.
+    5. **ABCD** (Adolescent Brain Cognitive Development, Casey 2018) — probablement le plus gros contributeur (12k+ adolescents dans ABCD)
+    - Tous harmonisés à **2 mm isotrope** et **TR 0.72 s**.
+    - **Clé** : 8-20× moins de sessions que Brain-JEPA / BrainLM, **mais multi-source** (5 datasets de populations différentes).
+- **Downstream evaluation (7 benchmarks)** :
+    - Internal (HCP) : Sex, Fingerprint
+    - External : ADNI (MCI classification), ADHD-200, PPMI (Parkinson), ABIDE (Age classification + régression)
 - **Résultats clés** (verbatim, Tables 1-5-6, 3 runs) :
     - HCP Sex : Acc **91.1%** / F1 **91.1%** (linear probe : Acc 90.6 / F1 90.5)
     - HCP Fingerprint : Acc 98.5 / F1 98.1
@@ -119,7 +128,9 @@ Lien : [arxiv.org/abs/2506.02044](https://arxiv.org/abs/2506.02044)
     - **Meta-learning** : adaptation rapide à un nouveau disorder avec quelques shots, via MAML-like.
     - **Multi-prompts** : graph prompts (tokens spéciaux insérés dans le graphe) + language prompts (CLIP-style guidance par description textuelle de la pathologie).
     - **Multi-atlas** : entraîné sur 8 parcellations différentes (Schaefer-100/200/400, AAL, Power, etc.) → robustness à l'atlas downstream.
-- **Pretraining** : **27 datasets**, 25 pathologies, **25 000+ sujets / 60 000 scans / 400 000 graphes**, 8 parcellations.
+- **Pretraining (27 datasets, énormissime)** : 25 pathologies couvertes, **25 000+ sujets / 60 000 scans / 400 000 graph samples**, **8 parcellations** (Schaefer-100/200/400, AAL, Power, etc.) — la liste complète est en Appendix N du papier.
+    - Datasets identifiés en Section 4.1 : OpenNeuro, UK Biobank, HCP, ABIDE, ABIDE II, ADHD-200, OASIS, ADNI 2, HBN (Healthy Brain Network), SubMex_CUD (Mexican Substance Use Disorder), UCLA_CNP (UCLA Consortium for Neuropsychiatric Phenomics), parmi 17+ autres non énumérés dans le texte principal.
+- **Downstream evaluation** : multi-disorder — Autisme (ABIDE), TDAH (ADHD-200), Schizophrénie (COBRE/UCLA_CNP), Alzheimer (ADNI/OASIS), addictions (SubMex_CUD), etc. Cible explicite = **généralisation cross-disorder**.
 - **Résultats clés** : chiffres précis sous extraction.
 - **Nous vs eux** : paradigme totalement différent (graphes de connectomes).
 
@@ -136,7 +147,19 @@ Lien : [arxiv.org/abs/2510.18910](https://arxiv.org/abs/2510.18910)
     - Les **BEI tokens** encodent des covariables externes (âge, sexe, scanner, site...) — analogue à un prompt conditionnel CLIP-style.
     - **Pre-training task** : autoregression sur séquence de tokens connectome (predict next).
     - Représentation downstream = embedding du dernier token, fine-tunable sur classification/régression.
-- **Pretraining** : taille corpus non clairement caractérisée. Représentation = connectome (FC matrix).
+- **Pretraining (7 datasets, ~10 036 scans total)** — Section 4 Experiments + Table 6 Appendix B :
+    1. **HCP-Aging (HCPA)** : 713 sujets / 4 863 scans (le gros contributeur)
+    2. **HCP-YA (HCPYA)** : 248 sujets / 3 293 scans
+    3. **ADNI** : 138 sujets / 138 scans
+    4. **PPMI** : 209 sujets / 209 scans (Parkinson)
+    5. **ABIDE** : 1 025 sujets / 1 025 scans (Autisme)
+    6. **Taowu** : 40 sujets / 40 scans
+    7. **Neurocon** : 41 sujets / 41 scans
+    - Représentation = connectome (FC matrix), pas de volumes.
+- **Downstream evaluation (8 datasets)** :
+    - Sex prediction : sur tous les 7 datasets pretrain + 1 held-out
+    - Cognitive state recognition : HCPA (4 classes), HCPYA (7 classes)
+    - Maladie : Alzheimer (ADNI), Parkinson (PPMI / Taowu / Neurocon), Autisme (ABIDE), Schizophrénie (SZ held-out)
 - **Résultats clés** sous **5-fold subject-aware** (même protocole que nous) :
     - HCP-Aging Sex F1 **73.94 ± 2.45** / HCP-YA Sex F1 **72.23 ± 1.92**
     - **ADNI Alzheimer F1 85.33 ± 7.35**
@@ -156,8 +179,11 @@ Lien : [arxiv.org/abs/2210.06681](https://arxiv.org/abs/2210.06681)
     - **Self-attention standard** entre tous les nœuds → matrice d'attention N×N. Pas de masquage de graphe.
     - **Orthonormal Clustering Readout (OCR)** = innovation centrale : au lieu d'un mean-pooling final, on apprend K prototypes orthogonaux et chaque nœud est softmax-assigné à un cluster, puis on pool par cluster. Donne un readout graph-level plus structuré.
     - Pas de pretraining — entraîné end-to-end directement sur la tâche.
-- **Pretraining** : aucun, **supervisé end-to-end**.
-- **Résultats clés** : ABIDE Autism AUROC 80.2%. ABCD Sex (n=7 901). Brain-JEPA rapporte que **BNT bat Brain-JEPA** sur ADNI NC/MCI Acc (78.90% vs 76.84%).
+- **Pretraining** : **AUCUN** — supervisé end-to-end. Pas de SSL.
+- **Downstream / training datasets (2 datasets)** :
+    - **ABIDE** : autism classification, AUROC 80.2%
+    - **ABCD** : Sex prediction (n=7 901 adolescents) — un des plus gros datasets fMRI utilisés en supervisé
+    - **Pas d'évaluation HCP / ADNI / MCI** dans le papier original BNT (mais Brain-JEPA rapporte que BNT bat Brain-JEPA sur ADNI NC/MCI Acc 78.90% vs 76.84% comme comparator).
 - **Nous vs eux** : pas de comparator direct ADNI/HCP — baseline supervisée historique.
 
 ## OViTAD — Brain Sciences 2023
@@ -172,7 +198,9 @@ Lien : [biorxiv 2021.11.27.470184](https://www.biorxiv.org/content/10.1101/2021.
     - **Inférence par majority vote** : agrégation des prédictions slice-par-slice en une décision par sujet (vote majoritaire).
     - Entraîné end-to-end (pas de SSL) sur ADNI rs-fMRI directement.
     - Le "O" de OViTAD = "Optimized" : tuning d'hyperparamètres standard (pas une vraie innovation architecturale).
-- **Pretraining** : aucun, supervisé end-to-end ADNI.
+- **Pretraining** : **AUCUN** — supervisé end-to-end. Pas de SSL.
+- **Downstream / training dataset (1 seul dataset)** :
+    - **ADNI rs-fMRI** : **284 sujets total** répartis 80/10/10 → 226 train / 27 val / 31 test. Tâches : AD vs HC, HC vs MCI.
 - **Résultats clés** sous **subject-aware 80/10/10** (226/27/31) :
     - AD vs HC : F1 **0.99 ± 0.02**
     - HC vs MCI : F1 **0.97 ± 0.03**
@@ -190,8 +218,8 @@ Lien : [PDF Kawahara 2017](https://gwern.net/doc/psychology/neuroscience/2017-ka
         2. **Edge-to-Node (E2N)** : agrège toutes les connexions d'un ROI en un seul vecteur de features par ROI (1D).
         3. **Node-to-Graph (N2G)** : pool tous les ROI-features en un seul vecteur graph-level pour la classification finale.
     - Pas de SSL — entraîné end-to-end. Publication originale sur DTI bébés prématurés.
-- **Pretraining** : aucun, supervisé end-to-end.
-- **Résultats clés (papier original)** : prédiction Bayley-III sur DTI bébés prématurés. **Non comparable à nous.**
+- **Pretraining** : **AUCUN** — supervisé end-to-end. Pas de SSL.
+- **Downstream / training dataset (papier original)** : **DTI (diffusion MRI, pas fMRI)** de bébés prématurés (27-46 semaines GA), prédiction Bayley-III. **Non comparable à nos labels ADNI/HCP.** L'archi est réutilisée par d'autres (BNT, BrainGFM, BrainGB) sur fMRI adulte comme baseline.
 - **Nous vs eux** : baseline historique de référence, réutilisée par BNT / BrainGFM sur fMRI adulte.
 
 ## SwiFT — NeurIPS 2023
@@ -207,7 +235,12 @@ Lien : [arxiv.org/abs/2307.05916](https://arxiv.org/abs/2307.05916)
     - **Embeddings positionnels absolus** (pas relatifs comme Swin v2).
     - Input direct = volume 4D `(X, Y, Z, T)`, pas d'atlas, comme nous.
     - Entraîné supervisé (pas de SSL).
-- **Pretraining** : supervisé / SSL léger.
+- **Pretraining (SSL léger contrastif)** : optionnel, contrastive loss style SimCLR. Le papier montre que ça aide mais ne précise pas la composition exacte du corpus SSL.
+- **Datasets training/eval (3 datasets large-scale)** :
+    - **HCP-YA** : Sex, Age, Fluid Intelligence
+    - **ABCD** : Sex, Age, Intelligence cognitive (Total Composite Score)
+    - **UK Biobank** : Sex, Age (échelle UKB, ~40k sujets)
+    - Compte exacte des sujets/scans non rapportée dans le main paper (abstract dit "large-scale" uniquement).
 - **Résultats clés (en tant que comparator dans Brain-JEPA Table 9 et SLIM-Brain Table 1)** :
     - OASIS-3 AD Conversion : Acc 65.00 / F1 66.80
     - ADNI MCI : Acc 64.45 ± 1.69
