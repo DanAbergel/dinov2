@@ -82,7 +82,14 @@ Lien : [arxiv.org/abs/2512.21881](https://arxiv.org/abs/2512.21881)
     - **4D natif** : input = volume `(T, X, Y, Z)`, patches 4D tubelets (genre `2×8×8×8` voxels-timesteps).
     - Hiérarchie pyramidale → représentations multi-échelles, ce qui permet de réduire la mémoire de **~70%** vs un ViT plat sur volumes.
     - **Architecturalement très proche de nous** (volume + transformer + SSL), mais : Hiera plutôt que ViT plat, JEPA plutôt que DINOv2.
-- **Pretraining** : **4 129 sessions** seulement (8-20× moins que Brain-JEPA / BrainLM).
+- **Pretraining** : **4 129 sessions** (= 70% des données totales), composées de **5 datasets** combinés (Section 4.1 du papier) :
+    1. **HCP** (Van Essen 2013) — une seule session
+    2. **CHCP** (Chinese HCP, Ge 2023) — analogue chinois du HCP
+    3. **AOMIC PIOP1** (Amsterdam Open MRI Collection, Snoek 2021)
+    4. **AOMIC PIOP2**
+    5. **ABCD** (Adolescent Brain Cognitive Development, Casey 2018) — le plus gros, ~12k adolescents
+    - Harmonisés à **2 mm isotrope** et **TR 0.72 s** pour tous les datasets.
+    - 8-20× moins que Brain-JEPA / BrainLM, **mais multi-source** — peut-être ce qui aide.
 - **Résultats clés** (verbatim, Tables 1-5-6, 3 runs) :
     - HCP Sex : Acc **91.1%** / F1 **91.1%** (linear probe : Acc 90.6 / F1 90.5)
     - HCP Fingerprint : Acc 98.5 / F1 98.1
