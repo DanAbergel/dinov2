@@ -163,3 +163,47 @@ Lien : [arxiv.org/abs/2307.05916](https://arxiv.org/abs/2307.05916)
 1. **Scale ≫ method.** Brain-JEPA et BrainLM pretrain sur UKB 32 k+. SLIM-Brain démontre que **4 k sessions suffisent pour battre 32 k** si l'architecture est bonne (4D Hiera-JEPA). On est à 1.2 k. **Le levier #1 est soit plus de data, soit changer d'architecture vers Hiera-JEPA.**
 2. **NC-vs-AD marche, NC-vs-MCI non.** Cohérent avec la littérature et avec notre choix de pretraining HCP-YA (jeunes sains, zéro signal prodromal).
 3. **Notre Degradation 1/2/3Y est moins original qu'on pensait** : Brain-JEPA Table 9 a une tâche "AD Conversion" sur OASIS-3 (Acc 69%, F1 67%). Notre Acc équivalente serait ~56-60% (depuis notre AUC 0.56). Mais : on est **les premiers à split par horizon temporel** 1Y/2Y/3Y. Reste original sur la forme, pas sur le fond.
+
+# Les 3 SOTA à comparer en priorité (et pourquoi)
+
+Parmi les 9 papiers passés en revue, ces 3 sont les seuls pertinents pour se positionner. Les autres sont écartés en bas de section.
+
+## #1 — SLIM-Brain (le plus pertinent)
+
+- **Pourquoi prioritaire** : **4D Hiera-JEPA sur volumes fMRI** = exactement notre paradigme. Pretraining à échelle modeste (~4 k sessions vs nos 1.2 k → moins éloigné qu'UKB 32 k). Rapporte HCP Sex + ADNI MCI + ABIDE Age, tâches comparables aux nôtres.
+- **Comparaison directe** :
+    - HCP Sex : eux **Acc 91.1%** vs nous **AUC 0.84** (≈ Acc 75-80%)
+    - ADNI MCI : eux **Acc 69.12%** vs nous **AUC 0.49** sur NC-vs-MCI
+- **Message thèse central** : SLIM-Brain **bat Brain-JEPA avec 8× moins de pretraining** (4 k vs 32 k sessions). C'est **la preuve** que l'**architecture > scale**, et ça valide notre direction (volumétrique + Hiera-JEPA).
+
+## #2 — Brain-JEPA (le plus comprehensive sur ADNI)
+
+- **Pourquoi prioritaire** : seul papier qui rapporte **simultanément** Sex (HCPA), NC/MCI (ADNI), Amyloid (ADNI), et **AD Conversion** sur OASIS-3 — la **vraie comparator** pour notre Degradation.
+- **Comparaison directe** :
+    - HCPA Sex : Acc 81.52% (≈ AUC 0.88-0.90) vs notre AUC 0.84
+    - ADNI NC/MCI : **Acc 76.84%** vs notre AUC 0.49 — **gros gap**
+    - OASIS-3 AD Conversion : Acc 69% (≈ AUC 0.70) vs notre Degradation 1Y AUC 0.56 — **gap modéré ~0.14 AUC seulement**
+
+## #3 — SwiFT (la baseline architecturale honnête)
+
+- **Pourquoi prioritaire** : **Swin Transformer 4D sur volumes** = l'archi la plus proche de la nôtre, mais en mode supervisé (sans pretraining SSL). Sert de **baseline minimale à dépasser** pour justifier qu'on fait du SSL.
+- **Comparaison directe** (chiffres extraits comme comparator dans Brain-JEPA et SLIM-Brain) :
+    - OASIS-3 AD Conversion : Acc 65.00 / F1 66.80
+    - ADNI MCI : Acc 64.45
+    - ABIDE Age : Acc 62.22 / MSE z-scoré 0.4137
+- **Message** : on est censés battre SwiFT grâce au pretraining DINOv2. C'est la vraie barre minimale.
+
+## Les 6 autres papiers, pourquoi écartés
+
+| Papier | Raison |
+|---|---|
+| BrainLM | Rapporte uniquement MSE z-scoré sur Age/PTSD/Anxiety — aucun chiffre Sex/MCI/AD comparable |
+| LCM | Connectome FC matrix — paradigme totalement différent du nôtre |
+| BNT | Graphes de connectome — pas comparable au volumétrique |
+| OViTAD | 2D slices supervisé, test n=31 (variance σ=0.02 = bruit massif) |
+| BrainNetCNN | Préterm DTI à l'origine, baseline historique |
+| BrainGFM | Graphes multi-atlas, chiffres précis pas extraits dans nos passes |
+
+## La position à tenir en réunion
+
+> "Mon comparator principal est **SLIM-Brain** parce qu'il valide ma direction (volume + Hiera-JEPA, scale modeste). Je suis en dessous d'eux sur HCP Sex (AUC 0.84 vs Acc 91%) et ADNI MCI, mais attendu vu qu'ils ont l'architecture aboutie et 3× plus de pretraining. Sur la tâche **AD Conversion**, l'écart avec **Brain-JEPA** est modéré (~0.14 AUC). Mon **angle original** c'est le split par horizon 1Y/2Y/3Y que personne ne fait. **SwiFT** est ma baseline minimale architecturale."
