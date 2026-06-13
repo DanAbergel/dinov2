@@ -32,8 +32,14 @@ Linear probe sur CLS gelé, 5-fold subject-aware CV. **Métriques utilisées par
 ## Brain-JEPA — NeurIPS 2024 Spotlight
 
 Lien : [arxiv.org/abs/2409.19407](https://arxiv.org/abs/2409.19407)
+**Statut** : **PUBLIÉ — NeurIPS 2024 Spotlight** (top 3% des soumissions).
 
-- **Architecture** : JEPA (Joint Embedding Predictive Architecture) + ViT, sur séries temporelles ROI.
+- **Architecture — JEPA (Joint Embedding Predictive Architecture)** :
+    - Adaptation à la fMRI d'I-JEPA (Yann LeCun, 2023). Au lieu de prédire des **pixels bruts** (MAE) ou de contraster des **vues** (DINO/SimCLR), on prédit les **embeddings** d'un bloc cible à partir d'un bloc contexte.
+    - **3 réseaux distincts** : context encoder (ViT) → predictor → target encoder (EMA du context encoder). Le predictor aligne les représentations latentes, jamais les données brutes.
+    - **Spatiotemporal masking** custom : masques séparés sur l'axe ROI et sur l'axe temporel (pas un masque 2D commun).
+    - **Gradient positioning** : injection d'un encoding positionnel par gradient learning au lieu de tables fixes.
+    - Input = série temporelle 2D `(450 ROI, 160 timesteps)`, pas un volume.
 - **Pretraining** : UK Biobank, **32 130 sujets** (80% des 40 162). Représentation = **450 ROI** Schaefer-400 + Tian-50, 160 timesteps. ROI-based, pas volumétrique.
 - **Résultats clés** (verbatim, Tables 1-2-3-9, métrique = Acc% / F1%, **aucun AUC publié**) :
     - UKB Sex : Acc **88.17%** / F1 88.58%
@@ -53,8 +59,14 @@ Lien : [arxiv.org/abs/2409.19407](https://arxiv.org/abs/2409.19407)
 ## BrainLM — ICLR 2024
 
 Lien : [biorxiv 2023.09.12.557460](https://www.biorxiv.org/content/10.1101/2023.09.12.557460v1)
+**Statut** : **PUBLIÉ — ICLR 2024** (Spotlight). Première vague de "foundation models" pour fMRI.
 
-- **Architecture** : Masked-Autoencoder Transformer, 111 M params.
+- **Architecture — Vision Transformer en mode Masked Autoencoder (MAE)** :
+    - Standard ViT (encoder + decoder asymétrique style He et al. 2022) adapté aux séries fMRI.
+    - **Paradigme MAE** : on masque ~75% des patches d'entrée, le decoder reconstruit les **valeurs brutes** des patches masqués (à l'opposé de JEPA qui reconstruit les embeddings).
+    - **Tokenisation** : chaque patch = `(1 ROI × petite fenêtre temporelle)`. Concrètement avec 424 ROI AAL et fenêtres de 20 timesteps, ça fait des milliers de tokens.
+    - **111 M paramètres** — le plus gros des foundation models fMRI.
+    - Encoder ne voit que les patches non-masqués (gain de compute) ; decoder reconstruit tout.
 - **Pretraining** : UKB 76 296 recordings (~6 450 h) + HCP 1 002 recordings (~250 h) = **77 298 recordings / 6 700 h**. Atlas **AAL-424 ROI**.
 - **Résultats clés** : UKB Age MSE z-scoré **0.503**, PTSD 0.015, Anxiety 0.073, Neuroticism 0.069. Aucun chiffre Sex / MMSE / AD / MCI.
 - **Nous vs eux** : non comparable directement (MSE z-scoré, pas convertible en MAE sans la std d'âge UKB).
@@ -62,8 +74,14 @@ Lien : [biorxiv 2023.09.12.557460](https://www.biorxiv.org/content/10.1101/2023.
 ## SLIM-Brain — arXiv Déc 2025
 
 Lien : [arxiv.org/abs/2512.21881](https://arxiv.org/abs/2512.21881)
+**Statut** : **NON ENCORE PUBLIÉ** — preprint arXiv (déc 2025), **sous review à OpenReview** (probablement ICLR 2026). Anonyme. Chiffres SOTA self-reported, pas encore peer-reviewed.
 
-- **Architecture** : **4D Hiera-JEPA**, hiérarchique, sur volumes 4D bruts (comme nous).
+- **Architecture — 4D Hiera-JEPA (hybride de Hiera + JEPA)** :
+    - **Hiera** = hierarchical ViT (Meta AI 2023), variante simplifiée de Swin **sans** windowed attention. Pyramide de 4 stages, downsampling × 2 entre chaque, mais self-attention globale dans chaque stage.
+    - Combiné au **paradigme JEPA** (comme Brain-JEPA) : predictor latent au lieu de reconstruction pixel.
+    - **4D natif** : input = volume `(T, X, Y, Z)`, patches 4D tubelets (genre `2×8×8×8` voxels-timesteps).
+    - Hiérarchie pyramidale → représentations multi-échelles, ce qui permet de réduire la mémoire de **~70%** vs un ViT plat sur volumes.
+    - **Architecturalement très proche de nous** (volume + transformer + SSL), mais : Hiera plutôt que ViT plat, JEPA plutôt que DINOv2.
 - **Pretraining** : **4 129 sessions** seulement (8-20× moins que Brain-JEPA / BrainLM).
 - **Résultats clés** (verbatim, Tables 1-5-6, 3 runs) :
     - HCP Sex : Acc **91.1%** / F1 **91.1%** (linear probe : Acc 90.6 / F1 90.5)
@@ -84,8 +102,16 @@ Lien : [arxiv.org/abs/2512.21881](https://arxiv.org/abs/2512.21881)
 ## BrainGFM — arXiv 2025
 
 Lien : [arxiv.org/abs/2506.02044](https://arxiv.org/abs/2506.02044)
+**Statut** : **NON PUBLIÉ** — preprint arXiv (juin 2025). Pas de venue confirmée à notre connaissance.
 
-- **Architecture** : Graph FM (graph contrastive + masked AE + meta-learning + language prompts).
+- **Architecture — Graph Foundation Model (paradigme graphes de connectome)** :
+    - **Input** : connectome représenté en graphe — nœuds = ROIs, arêtes pondérées par corrélation fonctionnelle.
+    - **2 SSL objectives combinés** :
+        1. **Graph Contrastive Learning (GCL)** : contraste entre vues augmentées du même graphe (style SimCLR mais sur graphes).
+        2. **Graph Masked Autoencoder (GraphMAE)** : on masque certains nœuds/arêtes, on les reconstruit (style MAE pour graphes).
+    - **Meta-learning** : adaptation rapide à un nouveau disorder avec quelques shots, via MAML-like.
+    - **Multi-prompts** : graph prompts (tokens spéciaux insérés dans le graphe) + language prompts (CLIP-style guidance par description textuelle de la pathologie).
+    - **Multi-atlas** : entraîné sur 8 parcellations différentes (Schaefer-100/200/400, AAL, Power, etc.) → robustness à l'atlas downstream.
 - **Pretraining** : **27 datasets**, 25 pathologies, **25 000+ sujets / 60 000 scans / 400 000 graphes**, 8 parcellations.
 - **Résultats clés** : chiffres précis sous extraction.
 - **Nous vs eux** : paradigme totalement différent (graphes de connectomes).
@@ -93,8 +119,16 @@ Lien : [arxiv.org/abs/2506.02044](https://arxiv.org/abs/2506.02044)
 ## LCM (Large Connectome Model) — AAAI 2026
 
 Lien : [arxiv.org/abs/2510.18910](https://arxiv.org/abs/2510.18910)
+**Statut** : **PUBLIÉ — AAAI 2026** (accepté). Preprint arXiv (oct 2025).
 
-- **Architecture** : Transformer decoder-only avec MHSA + MHCA (features connectome × tokens "brain-environment").
+- **Architecture — Transformer decoder-only (style GPT) pour connectomes** :
+    - **Decoder-only** comme GPT-2/3 : pas d'encoder séparé, juste une pile de blocks transformer avec **causal masking**.
+    - **2 types d'attention** par block :
+        1. **Multi-Head Self-Attention (MHSA)** sur les features du connectome (FC matrix).
+        2. **Multi-Head Cross-Attention (MHCA)** entre features connectome (Query) et **tokens "Brain-Environment-Interaction" (BEI)** (Key/Value).
+    - Les **BEI tokens** encodent des covariables externes (âge, sexe, scanner, site...) — analogue à un prompt conditionnel CLIP-style.
+    - **Pre-training task** : autoregression sur séquence de tokens connectome (predict next).
+    - Représentation downstream = embedding du dernier token, fine-tunable sur classification/régression.
 - **Pretraining** : taille corpus non clairement caractérisée. Représentation = connectome (FC matrix).
 - **Résultats clés** sous **5-fold subject-aware** (même protocole que nous) :
     - HCP-Aging Sex F1 **73.94 ± 2.45** / HCP-YA Sex F1 **72.23 ± 1.92**
@@ -107,8 +141,14 @@ Lien : [arxiv.org/abs/2510.18910](https://arxiv.org/abs/2510.18910)
 ## BNT (Brain Network Transformer) — NeurIPS 2022
 
 Lien : [arxiv.org/abs/2210.06681](https://arxiv.org/abs/2210.06681)
+**Statut** : **PUBLIÉ — NeurIPS 2022**. Le Transformer-baseline canonique pour les graphes de connectome.
 
-- **Architecture** : Transformer sur graphes connectome, "Orthonormal Clustering Readout".
+- **Architecture — Transformer sur graphes de connectome avec readout custom** :
+    - **Pas un GNN** : c'est un Transformer pur où chaque ROI est un token. Pas de message-passing.
+    - **Features par nœud** = profil de connexion entier (ligne de la matrice de corrélation) → chaque nœud a un vecteur de dim N (où N = nombre total de ROIs).
+    - **Self-attention standard** entre tous les nœuds → matrice d'attention N×N. Pas de masquage de graphe.
+    - **Orthonormal Clustering Readout (OCR)** = innovation centrale : au lieu d'un mean-pooling final, on apprend K prototypes orthogonaux et chaque nœud est softmax-assigné à un cluster, puis on pool par cluster. Donne un readout graph-level plus structuré.
+    - Pas de pretraining — entraîné end-to-end directement sur la tâche.
 - **Pretraining** : aucun, **supervisé end-to-end**.
 - **Résultats clés** : ABIDE Autism AUROC 80.2%. ABCD Sex (n=7 901). Brain-JEPA rapporte que **BNT bat Brain-JEPA** sur ADNI NC/MCI Acc (78.90% vs 76.84%).
 - **Nous vs eux** : pas de comparator direct ADNI/HCP — baseline supervisée historique.
@@ -116,8 +156,15 @@ Lien : [arxiv.org/abs/2210.06681](https://arxiv.org/abs/2210.06681)
 ## OViTAD — Brain Sciences 2023
 
 Lien : [biorxiv 2021.11.27.470184](https://www.biorxiv.org/content/10.1101/2021.11.27.470184v2.full)
+**Statut** : **PUBLIÉ — Brain Sciences 2023** (journal MDPI, IF ~3, **pas une top venue**). Premier preprint bioRxiv 2021.
 
-- **Architecture** : ViT 2D entraîné slice-par-slice, majority vote au niveau sujet.
+- **Architecture — Vision Transformer 2D standard sur slices fMRI** :
+    - Pas de modification architecturale : c'est un **ViT-B/16 standard** (style Dosovitskiy 2020).
+    - **Input** = slices 2D axiales individuelles extraites des volumes 4D fMRI. **Pas de prise en compte du temps ni de la 3D.**
+    - Chaque scan 4D → N_slices × N_timepoints "images" 2D indépendantes pour l'entraînement.
+    - **Inférence par majority vote** : agrégation des prédictions slice-par-slice en une décision par sujet (vote majoritaire).
+    - Entraîné end-to-end (pas de SSL) sur ADNI rs-fMRI directement.
+    - Le "O" de OViTAD = "Optimized" : tuning d'hyperparamètres standard (pas une vraie innovation architecturale).
 - **Pretraining** : aucun, supervisé end-to-end ADNI.
 - **Résultats clés** sous **subject-aware 80/10/10** (226/27/31) :
     - AD vs HC : F1 **0.99 ± 0.02**
@@ -127,8 +174,15 @@ Lien : [biorxiv 2021.11.27.470184](https://www.biorxiv.org/content/10.1101/2021.
 ## BrainNetCNN — NeuroImage 2017
 
 Lien : [PDF Kawahara 2017](https://gwern.net/doc/psychology/neuroscience/2017-kawahara.pdf)
+**Statut** : **PUBLIÉ — NeuroImage 2017** (Elsevier, IF ~5). Baseline historique citée par tous les papiers connectome modernes.
 
-- **Architecture** : CNN avec filtres custom Edge-to-Edge / Edge-to-Node / Node-to-Graph.
+- **Architecture — CNN avec 3 filtres custom pensés pour la matrice de connectivité** :
+    - **Input** = matrice de connectivité N×N (N = nombre de ROIs). Pas une image classique : la position (i, j) a une **sémantique** (corrélation entre ROI i et j), pas une translation-invariance comme les images naturelles.
+    - 3 types de couches custom — la clé du papier :
+        1. **Edge-to-Edge (E2E)** : remplace la conv 2D classique. Pour chaque cellule (i, j), agrège la **ligne i** + la **colonne j** séparément (= les connexions des 2 ROIs concernées). Préserve la structure topologique de la matrice.
+        2. **Edge-to-Node (E2N)** : agrège toutes les connexions d'un ROI en un seul vecteur de features par ROI (1D).
+        3. **Node-to-Graph (N2G)** : pool tous les ROI-features en un seul vecteur graph-level pour la classification finale.
+    - Pas de SSL — entraîné end-to-end. Publication originale sur DTI bébés prématurés.
 - **Pretraining** : aucun, supervisé end-to-end.
 - **Résultats clés (papier original)** : prédiction Bayley-III sur DTI bébés prématurés. **Non comparable à nous.**
 - **Nous vs eux** : baseline historique de référence, réutilisée par BNT / BrainGFM sur fMRI adulte.
@@ -136,8 +190,16 @@ Lien : [PDF Kawahara 2017](https://gwern.net/doc/psychology/neuroscience/2017-ka
 ## SwiFT — NeurIPS 2023
 
 Lien : [arxiv.org/abs/2307.05916](https://arxiv.org/abs/2307.05916)
+**Statut** : **PUBLIÉ — NeurIPS 2023**. Premier Swin 4D pour fMRI.
 
-- **Architecture** : **Swin Transformer 4D** sur volumes fMRI directs (sans atlas). **Analogue architectural le plus proche de nous.**
+- **Architecture — Swin Transformer étendu en 4D pour fMRI volumes** :
+    - Extension du **Swin Transformer** (Liu et al. 2021, ICCV) en 4D : fenêtres `(X, Y, Z, T)` au lieu de `(H, W)`.
+    - **Windowed self-attention** : self-attention calculée à l'intérieur de fenêtres 4D non-chevauchantes (efficacité mémoire — l'attention complète sur 9000 tokens serait O(81M) ops).
+    - **Shifted windows** entre layers successives : les fenêtres bougent pour que des tokens dans des fenêtres voisines puissent communiquer indirectement → reçoit un contexte global progressivement.
+    - **Hiérarchique** : 4 stages avec patch merging × 2 entre chaque (style Swin classique).
+    - **Embeddings positionnels absolus** (pas relatifs comme Swin v2).
+    - Input direct = volume 4D `(X, Y, Z, T)`, pas d'atlas, comme nous.
+    - Entraîné supervisé (pas de SSL).
 - **Pretraining** : supervisé / SSL léger.
 - **Résultats clés (en tant que comparator dans Brain-JEPA Table 9 et SLIM-Brain Table 1)** :
     - OASIS-3 AD Conversion : Acc 65.00 / F1 66.80
