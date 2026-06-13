@@ -130,9 +130,29 @@ Lien : [arxiv.org/abs/2506.02044](https://arxiv.org/abs/2506.02044)
     - **Multi-atlas** : entraîné sur 8 parcellations différentes (Schaefer-100/200/400, AAL, Power, etc.) → robustness à l'atlas downstream.
 - **Pretraining (27 datasets, énormissime)** : 25 pathologies couvertes, **25 000+ sujets / 60 000 scans / 400 000 graph samples**, **8 parcellations** (Schaefer-100/200/400, AAL, Power, etc.) — la liste complète est en Appendix N du papier.
     - Datasets identifiés en Section 4.1 : OpenNeuro, UK Biobank, HCP, ABIDE, ABIDE II, ADHD-200, OASIS, ADNI 2, HBN (Healthy Brain Network), SubMex_CUD (Mexican Substance Use Disorder), UCLA_CNP (UCLA Consortium for Neuropsychiatric Phenomics), parmi 17+ autres non énumérés dans le texte principal.
-- **Downstream evaluation** : multi-disorder — Autisme (ABIDE), TDAH (ADHD-200), Schizophrénie (COBRE/UCLA_CNP), Alzheimer (ADNI/OASIS), addictions (SubMex_CUD), etc. Cible explicite = **généralisation cross-disorder**.
-- **Résultats clés** : chiffres précis sous extraction.
-- **Nous vs eux** : paradigme totalement différent (graphes de connectomes).
+- **Downstream evaluation (10 pathologies, Table 1 sur atlas Schaefer-100)** :
+
+| Pathologie | Dataset | AUC | Acc |
+|---|---|:---:|:---:|
+| TDAH | ADHD-200 | 70.6 | 72.2 |
+| Autisme (ASD) | ABIDE II | 71.2 | 73.5 |
+| **Alzheimer (AD)** | **ADNI 2** | **80.3** | **85.1** |
+| Dépression majeure (MDD) | HBN | 83.6 | 85.5 |
+| Anxiété (ANX) | HBN | 85.2 | 86.3 |
+| TOC (OCD) | HBN | 80.4 | 85.8 |
+| PTSD | HBN | 83.2 | 86.3 |
+| Cocaïne (CUD) | SubMex_CUD | 71.1 | 74.6 |
+| Schizophrénie (SCHZ) | UCLA_CNP | 84.2 | 86.7 |
+| Bipolaire (BP) | UCLA_CNP | 73.5 | 76.3 |
+
+   - **Pas de Sex / Age / Parkinson rapportés** (que les 10 pathologies au-dessus).
+   - **Comparator direct pour nous : AD sur ADNI 2** — Acc 85.1 vs notre CDR_NC_vs_AD Acc 70.8 = gap ~14 points.
+- **Few-shot (10% labels)** : 65-80% Acc selon dataset. **Zero-shot** via language prompts : adaptation sans entraînement.
+- **Nous vs eux** :
+    - **AD sur ADNI 2 : eux AUC 80.3 / Acc 85.1 vs nous CDR_NC_vs_AD AUC 0.74 / Acc 70.8** — gap ~14 points en Acc, ~6 points en AUC
+    - Autisme ABIDE II : eux AUC 71.2 — pas testé chez nous
+    - **Pas de Sex / Age** pour comparer
+    - Paradigme = graphes de connectomes (différent du nôtre volumétrique), mais leur AD sur ADNI est une référence importante.
 
 ## LCM (Large Connectome Model) — AAAI 2026
 
@@ -267,7 +287,7 @@ Lien : [arxiv.org/abs/2307.05916](https://arxiv.org/abs/2307.05916)
 # Où on en est — synthèse en 5 lignes (Acc / F1)
 
 1. **HCP Sex** — Nous **Acc 76.9% / F1 73.0% (C)**. SLIM-Brain **Acc 91.1% / F1 91.1%** (au-dessus de 14 points). Brain-JEPA HCPA **Acc 81.5% / F1 84.3%** (au-dessus de 5 points). **LCM HCPYA F1 72.2** ≈ nous (au niveau de LCM).
-2. **ADNI NC vs AD** (CDR_NC_vs_AD chez nous, AD chez eux) — Nous **Acc 70.8% / F1 0.0** (threshold collapse). LCM **F1 85.3**. Brain-JEPA ne split pas. On est compétitifs en Acc mais le F1 0 nous tue dans la comparaison.
+2. **ADNI NC vs AD** (CDR_NC_vs_AD chez nous, AD chez eux) — Nous **Acc 70.8% / F1 0.0** (threshold collapse). **BrainGFM AUC 80.3% / Acc 85.1%** sur ADNI 2 (gap ~14 pts Acc). LCM **F1 85.3**. Brain-JEPA ne split pas NC/AD. On est compétitifs en Acc mais le F1 = 0 nous tue.
 3. **ADNI NC vs MCI** — Nous **Acc 61.1% / F1 75.9** (ici F1 élevé parce que MCI est majoritaire dans le subset). Brain-JEPA **Acc 76.84% / F1 86.32**. SLIM-Brain **Acc 69.12%**. Gap ~8-16 points sur Acc.
 4. **ADNI Age (régression)** — Nous **MAE 5.19 années**. Aucun SOTA n'a publié de MAE en années comparable (BrainLM en z-scoré uniquement). **Niche.**
 5. **Degradation / AD conversion** — Nous **Deg1Y Acc 81.6% / F1 0.0**. Brain-JEPA OASIS-3 AD Conversion **Acc 69.0% / F1 67.3%**. On a plus d'Acc qu'eux MAIS leur F1 67 vs notre 0 → ils prédisent vraiment des conversions, nous on colle à la classe majoritaire.
