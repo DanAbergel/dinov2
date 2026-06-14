@@ -140,7 +140,7 @@ def main():
                     help="Where the downsampled .pt files go.")
     ap.add_argument("--tmp-dir", default="/tmp/hcp_raw",
                     help="Temp dir for raw NIfTIs (deleted after each session).")
-    ap.add_argument("--aws-profile", default="hcp",
+    ap.add_argument("--aws-profile", default="default",
                     help="AWS credentials profile (~/.aws/credentials).")
     ap.add_argument("--all-sessions", action="store_true",
                     help="Download all 4 runs per subject (default: just REST1_LR).")

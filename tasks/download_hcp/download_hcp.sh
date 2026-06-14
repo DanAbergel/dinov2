@@ -6,8 +6,9 @@
 # trilinear interpolation, save .pt, delete raw. ~5 min per session.
 #
 # Prereqs on Moriah:
-#   - AWS credentials in ~/.aws/credentials profile "hcp"
-#   - python pkgs: boto3, nibabel, pandas (install once via pip)
+#   - AWS credentials in ~/.aws/credentials (default profile is fine,
+#     override with AWS_PROFILE=hcp sbatch ... if you have a separate one)
+#   - python pkgs: boto3, nibabel (auto-installed via pip if missing)
 #
 # Self-contained task layout — script, sbatch and logs all live in
 # tasks/download_hcp/ :
@@ -76,7 +77,7 @@ cd "$OFFICIAL_DIR"
 python "$TASK_DIR/download_hcp.py" \
     --output-dir "$HCP_DIR/downsampled" \
     --tmp-dir "$TMPDIR" \
-    --aws-profile hcp \
+    --aws-profile "${AWS_PROFILE:-default}" \
     $EXTRA_ARGS
 
 echo ""
