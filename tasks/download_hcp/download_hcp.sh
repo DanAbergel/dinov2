@@ -41,7 +41,7 @@ export TMPDIR="$LAB_DIR/tmp/hcp_raw"
 export PYTHONUNBUFFERED=1
 
 mkdir -p "$TASK_DIR/logs"
-mkdir -p "$HCP_DIR/downsampled_v2"
+mkdir -p "$HCP_DIR/downsampled"
 mkdir -p "$TMPDIR"
 
 LOG_OUT="$TASK_DIR/logs/download_hcp.out"
@@ -59,18 +59,14 @@ echo "  Job ID:    ${SLURM_JOB_ID:-(local)}"
 echo "  Node:      $(hostname)"
 echo "  Date:      $(date)"
 echo "  TASK_DIR:  $TASK_DIR"
-echo "  HCP_DIR:   $HCP_DIR"
+echo "  HCP_DIR:   $HCP_DIR/downsampled"
 echo "  TMPDIR:    $TMPDIR"
 echo "============================================================"
 
 # Install missing pkgs (idempotent)
-for pkg in boto3 nibabel pandas; do
+for pkg in boto3 nibabel; do
     python -c "import $pkg" 2>/dev/null || pip install --no-input "$pkg"
 done
-
-# Find subjects CSV
-SUBJECTS_CSV=$(ls "$HCP_DIR/data/HCP_YA_subjects"*.csv 2>/dev/null | head -1)
-[ -z "$SUBJECTS_CSV" ] && { echo "no HCP_YA_subjects*.csv found"; exit 2; }
 
 EXTRA_ARGS=""
 [ -n "${LIMIT:-}" ] && EXTRA_ARGS="$EXTRA_ARGS --limit $LIMIT"
@@ -78,8 +74,7 @@ EXTRA_ARGS=""
 
 cd "$OFFICIAL_DIR"
 python "$TASK_DIR/download_hcp.py" \
-    --subjects-csv "$SUBJECTS_CSV" \
-    --output-dir "$HCP_DIR/downsampled_v2" \
+    --output-dir "$HCP_DIR/downsampled" \
     --tmp-dir "$TMPDIR" \
     --aws-profile hcp \
     $EXTRA_ARGS
@@ -87,5 +82,5 @@ python "$TASK_DIR/download_hcp.py" \
 echo ""
 echo "============================================================"
 echo "  Done: $(date)"
-echo "  Output: $HCP_DIR/downsampled_v2"
+echo "  Output: $HCP_DIR/downsampled"
 echo "============================================================"

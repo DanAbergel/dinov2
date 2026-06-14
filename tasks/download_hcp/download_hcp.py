@@ -1,6 +1,7 @@
 """Download HCP-YA rfMRI from AWS S3 and downsample to (45, 54, 45) on the fly.
 
-Streams one session at a time:
+Subject list is discovered by listing the HCP_1200/ prefix on s3 directly
+(no local CSV needed). Streams one session at a time:
   1. Download raw 4D NIfTI (~1.5 GB) from s3://hcp-openaccess
   2. Resample to (45, 54, 45) with trilinear interpolation
   3. Save downsampled tensor as .pt
@@ -10,9 +11,8 @@ For each subject, downloads only the REST1_LR session by default (1 of 4
 possible runs). Pass --all-sessions to grab all 4.
 
 Usage on Moriah:
-    python scripts/download_and_downsample_hcp.py \
-        --subjects-csv data/HCP_YA_subjects.csv \
-        --output-dir /sci/labs/arieljaffe/dan.abergel1/HCP_data/downsampled_v2 \
+    python tasks/download_hcp/download_hcp.py \
+        --output-dir /sci/labs/arieljaffe/dan.abergel1/HCP_data/downsampled \
         --tmp-dir /tmp/hcp_raw \
         --aws-profile hcp
 """
@@ -25,7 +25,6 @@ from pathlib import Path
 import boto3
 import nibabel as nib
 import numpy as np
-import pandas as pd
 import torch
 import torch.nn.functional as F
 from botocore.config import Config
@@ -36,6 +35,27 @@ DEFAULT_RUNS = ["rfMRI_REST1_LR"]   # 1 run per subject by default
 ALL_RUNS = ["rfMRI_REST1_LR", "rfMRI_REST1_RL", "rfMRI_REST2_LR", "rfMRI_REST2_RL"]
 
 TARGET_SHAPE = (45, 54, 45)         # (X, Y, Z) — matches our pipeline
+
+
+def list_subjects(s3) -> list:
+    """List all HCP-YA subject IDs by paginating the s3 HCP_1200/ prefix.
+
+    Returns a sorted list of 6-digit subject IDs as strings.
+    """
+    paginator = s3.get_paginator("list_objects_v2")
+    subjects = set()
+    for page in paginator.paginate(
+        Bucket=BUCKET,
+        Prefix="HCP_1200/",
+        Delimiter="/",
+        RequestPayer="requester",
+    ):
+        for common in page.get("CommonPrefixes", []):
+            # 'HCP_1200/100206/' -> '100206'
+            subj = common["Prefix"].rstrip("/").split("/")[-1]
+            if subj.isdigit():
+                subjects.add(subj)
+    return sorted(subjects)
 
 
 def make_s3_client(profile_name: str):
@@ -116,8 +136,6 @@ def process_subject(s3, subject: str, runs, output_dir: Path, tmp_dir: Path):
 
 def main():
     ap = argparse.ArgumentParser()
-    ap.add_argument("--subjects-csv", required=True,
-                    help="CSV with a 'Subject' column listing HCP subject IDs.")
     ap.add_argument("--output-dir", required=True,
                     help="Where the downsampled .pt files go.")
     ap.add_argument("--tmp-dir", default="/tmp/hcp_raw",
@@ -135,13 +153,15 @@ def main():
     tmp_dir.mkdir(parents=True, exist_ok=True)
     output_dir.mkdir(parents=True, exist_ok=True)
 
-    subjects = pd.read_csv(args.subjects_csv)["Subject"].astype(str).tolist()
+    s3 = make_s3_client(args.aws_profile)
+
+    print(f"Listing HCP_1200/ on s3://{BUCKET} ...")
+    subjects = list_subjects(s3)
+    print(f"Discovered {len(subjects)} subjects on s3.")
     if args.limit:
         subjects = subjects[:args.limit]
     runs = ALL_RUNS if args.all_sessions else DEFAULT_RUNS
-    print(f"Subjects: {len(subjects)} | runs/subject: {runs} | target: {TARGET_SHAPE}")
-
-    s3 = make_s3_client(args.aws_profile)
+    print(f"Will process: {len(subjects)} subjects | runs/subject: {runs} | target: {TARGET_SHAPE}")
 
     for i, subj in enumerate(subjects, 1):
         print(f"\n[{i}/{len(subjects)}] subject {subj}")
