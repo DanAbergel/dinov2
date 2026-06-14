@@ -9,10 +9,17 @@
 #   - AWS credentials in ~/.aws/credentials profile "hcp"
 #   - python pkgs: boto3, nibabel, pandas (install once via pip)
 #
+# Self-contained task layout — script, sbatch and logs all live in
+# tasks/download_hcp/ :
+#   tasks/download_hcp/
+#       download_hcp.py     (the python script)
+#       download_hcp.sh     (this file)
+#       logs/               (logs land here automatically)
+#
 # Usage:
-#   sbatch slurm_jobs/download_hcp.sh
+#   sbatch tasks/download_hcp/download_hcp.sh
 #   # or with custom limit / all-sessions:
-#   LIMIT=50 ALL=1 sbatch slurm_jobs/download_hcp.sh
+#   LIMIT=50 ALL=1 sbatch tasks/download_hcp/download_hcp.sh
 # =====================================================================
 
 #SBATCH --job-name=hcp-dl
@@ -27,19 +34,20 @@ set -euo pipefail
 
 export LAB_DIR="/sci/labs/arieljaffe/dan.abergel1"
 export OFFICIAL_DIR="$LAB_DIR/repos/FAIR_official"
+export TASK_DIR="$OFFICIAL_DIR/tasks/download_hcp"
 export HCP_DIR="$LAB_DIR/HCP_data"
 export VENV_DIR="$LAB_DIR/torch_env"
 export TMPDIR="$LAB_DIR/tmp/hcp_raw"
 export PYTHONUNBUFFERED=1
 
-mkdir -p "$OFFICIAL_DIR/slurm_jobs/logs"
+mkdir -p "$TASK_DIR/logs"
 mkdir -p "$HCP_DIR/downsampled_v2"
 mkdir -p "$TMPDIR"
 
-LOG_OUT="$OFFICIAL_DIR/slurm_jobs/logs/download_hcp.out"
-LOG_ERR="$OFFICIAL_DIR/slurm_jobs/logs/download_hcp.err"
-ln -sf "$(basename "$LOG_OUT")" "$OFFICIAL_DIR/slurm_jobs/logs/download_hcp_latest.out"
-ln -sf "$(basename "$LOG_ERR")" "$OFFICIAL_DIR/slurm_jobs/logs/download_hcp_latest.err"
+LOG_OUT="$TASK_DIR/logs/download_hcp.out"
+LOG_ERR="$TASK_DIR/logs/download_hcp.err"
+ln -sf "$(basename "$LOG_OUT")" "$TASK_DIR/logs/download_hcp_latest.out"
+ln -sf "$(basename "$LOG_ERR")" "$TASK_DIR/logs/download_hcp_latest.err"
 exec >"$LOG_OUT" 2>"$LOG_ERR"
 
 source "$VENV_DIR/bin/activate"
@@ -50,6 +58,7 @@ echo "============================================================"
 echo "  Job ID:    ${SLURM_JOB_ID:-(local)}"
 echo "  Node:      $(hostname)"
 echo "  Date:      $(date)"
+echo "  TASK_DIR:  $TASK_DIR"
 echo "  HCP_DIR:   $HCP_DIR"
 echo "  TMPDIR:    $TMPDIR"
 echo "============================================================"
@@ -59,7 +68,7 @@ for pkg in boto3 nibabel pandas; do
     python -c "import $pkg" 2>/dev/null || pip install --no-input "$pkg"
 done
 
-# Find subjects CSV (the same one used by probe_labels.py)
+# Find subjects CSV
 SUBJECTS_CSV=$(ls "$HCP_DIR/data/HCP_YA_subjects"*.csv 2>/dev/null | head -1)
 [ -z "$SUBJECTS_CSV" ] && { echo "no HCP_YA_subjects*.csv found"; exit 2; }
 
@@ -68,7 +77,7 @@ EXTRA_ARGS=""
 [ "${ALL:-0}" = "1" ] && EXTRA_ARGS="$EXTRA_ARGS --all-sessions"
 
 cd "$OFFICIAL_DIR"
-python scripts/download_and_downsample_hcp.py \
+python "$TASK_DIR/download_hcp.py" \
     --subjects-csv "$SUBJECTS_CSV" \
     --output-dir "$HCP_DIR/downsampled_v2" \
     --tmp-dir "$TMPDIR" \
