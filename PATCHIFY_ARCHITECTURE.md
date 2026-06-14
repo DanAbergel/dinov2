@@ -78,5 +78,3 @@ header-includes:
 **Grille de tokens** : $T_\text{eff} = 60$, $N_\text{spatial} = 5 \cdot 6 \cdot 5 = 150$ → **9 000 tokens** dim 384.
 
 **Pos embed factorisé** : `pos_temporal(60×384)` + `pos_spatial(150×384)` + `pos_cls(1×384)` = 81 k params, vs 3.46 M pour une table plate (43× moins).
-
-**Fichier source** : `dinov2/layers/patch_embed_3d_plus_1d.py`.
