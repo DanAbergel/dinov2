@@ -15,7 +15,7 @@ header-includes:
   - \pagestyle{empty}
 ---
 
-**Hierarchical 3D+1D patchify encoder, inspired by MovieGen TAE** ([github.com/MathieuTuli/MovieGen](https://github.com/MathieuTuli/MovieGen), `tae.py:740`).
+**Hierarchical 3D+1D patchify encoder, inspired by the MovieGen TAE `TemporalEncoder`** ([tae.py:1052](https://github.com/MathieuTuli/MovieGen/blob/main/tae.py#L1052)).
 
 \vspace{0.2cm}
 
@@ -123,3 +123,15 @@ header-includes:
 | **TOTAL**                 |                                               | **11 450 016**  |
 
 **Token grid output** : $T_\text{eff} = 60$, $N_\text{spatial} = 5 \cdot 6 \cdot 5 = 150$, total **9 000 tokens** of dim 384.
+
+## Differences vs MovieGen TAE `TemporalEncoder`
+
+| Aspect                   | MovieGen TAE                       | Ours (PatchEmbed3DPlus1D)            |
+|--------------------------|------------------------------------|---------------------------------------|
+| Domain                   | Video (T, H, W)                    | fMRI volumes (T, X, Y, Z)             |
+| Building block           | `Conv2Plus1d` (2D spatial + 1D temporal) | `Conv3Plus1d` (3D spatial + 1D temporal) |
+| Hierarchical levels      | 4 (default `ch_mult=(1,2,4,8)`)    | 3 (channels 32 / 64 / 384)            |
+| ResBlocks per level      | 2                                  | 1                                     |
+| Attention in encoder     | Yes (at specified resolutions)     | None                                  |
+| Middle bottleneck section| 2 ResBlocks + 1 AttnBlock          | None                                  |
+| Output                   | Latent tensor `z` (for decoder)    | Token sequence (B, $T_\text{eff} \cdot N_\text{spatial}$, 384) for ViT |
