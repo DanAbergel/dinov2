@@ -20,21 +20,47 @@ This document records the decisions made during the meeting. The current PDF des
 
 The current pretraining uses **HCP-Young Adult only** (~1 200 subjects, young healthy adults aged 22–35). This is far from the demographic targeted downstream (ADNI, aged 55–90). Recent SOTA work (notably SLIM-Brain, arXiv 2512.21881) shows that **multi-source pretraining with a modest scale (~4 k sessions)** outperforms single-source UK Biobank pretraining at much larger scale.
 
-## Decision
+## Decision: which datasets to add
 
-Extend pretraining to include three additional cohorts, biased toward aging populations:
+Extend pretraining to include three additional cohorts, biased toward aging populations.
 
-| Dataset            | Subjects | TR (s) | Access mode                  | Rationale                                            |
-|--------------------|:--------:|:------:|------------------------------|------------------------------------------------------|
-| HCP-YA (existing)  | 1 200    | 0.72   | already on Moriah            | Young healthy baseline                               |
-| **HCP-Aging**      | ~700     | 0.8    | NDA controlled (1–3 months)  | Aging healthy adults — closes the age gap with ADNI  |
-| **OASIS-3**        | ~1 098   | 2.2    | registration + proposal (1–7 days) | Aging + AD diagnosed subjects (longitudinal CDR) |
-| **AOMIC PIOP1+2**  | ~440     | 2.0    | open access                  | Scanner / acquisition diversity (Amsterdam protocol) |
-| **Total**          | ~3 440   |        |                              | Comparable to SLIM-Brain's 4 129 sessions            |
+### Dataset dimensions
 
-## Open question
+| Dataset            | Subjects | TR (s) | Timepoints $T$ | Scan length | Access mode                  | Rationale                                            |
+|--------------------|:--------:|:------:|:--------------:|:-----------:|------------------------------|------------------------------------------------------|
+| HCP-YA (existing)  | 1 200    | 0.72   | **1 200**      | 14.4 min    | already on Moriah            | Young healthy baseline                               |
+| **HCP-Aging**      | ~700     | 0.8    | ~470           | 6.3 min     | NDA controlled (1–3 months)  | Aging healthy adults — closes the age gap with ADNI  |
+| **OASIS-3**        | ~1 098   | 2.2    | ~180           | 6.6 min     | registration + proposal (1–7 days) | Aging + AD diagnosed (longitudinal CDR)        |
+| **AOMIC PIOP1+2**  | ~440     | 2.0    | ~480           | 16 min      | open access                  | Scanner / acquisition diversity (Amsterdam)          |
+| **Total**          | ~3 440   |        |                |             |                              | Comparable to SLIM-Brain's 4 129 sessions            |
 
-OASIS-3 contains AD patients and will partly be used for downstream evaluation against Brain-JEPA's AD Conversion task. A clear subject-level split between pretraining subjects and held-out evaluation subjects is required to avoid leakage. To be implemented as a JSON manifest tracked in the repo.
+## Decision: mixing datasets of different $T$ — padding to the longest
+
+All datasets are padded along the temporal axis to match the largest $T$ in the corpus, which is **$T_{\max} = 1200$** (HCP-YA). Shorter scans are zero-padded at the end of the sequence. This preserves the longest temporal context available (HCP-YA at full resolution) without truncation.
+
+Concrete padding amounts:
+
+| Dataset       | Original $T$ | Padded to | Padded frames | Fraction padded |
+|---------------|:------------:|:---------:|:-------------:|:---------------:|
+| HCP-YA        | 1 200        | 1 200     | 0             | 0%              |
+| HCP-Aging     | ~470         | 1 200     | ~730          | 61%             |
+| OASIS-3       | ~180         | 1 200     | ~1 020        | 85%             |
+| AOMIC PIOP1+2 | ~480         | 1 200     | ~720          | 60%             |
+
+The masking strategy (Section 2) will need to respect the padding mask so that padded frames are never used as prediction targets and never contribute to the loss.
+
+## Open question 1 — data leakage in SSL pretraining
+
+Whether the foundation model can be pretrained on the **full data** of each dataset (no held-out subjects) without introducing data leakage when those same datasets are then used downstream. The argument in favour: SSL never sees labels, so it cannot memorise the target. The argument against: SSL learns subject-specific anatomical representations, and reusing the same subjects downstream may inflate metrics through subject familiarity rather than genuine generalisation. SOTA practice is inconsistent — Brain-JEPA and SLIM-Brain both use fixed train/val/test splits at the subject level even for SSL pretraining, while BrainLM uses 80% of UK Biobank for SSL pretraining and evaluates on the held-out 20%. **To be decided at next meeting.**
+
+## Open question 2 — TR heterogeneity
+
+Different TRs across datasets (0.72 s to 3.0 s) mean that a fixed temporal window of N tokens corresponds to different physical durations (e.g.\ 20 timepoints at TR = 0.72 s is 14.4 s of brain activity, vs.\ 60 s at TR = 3.0 s). The model would learn different temporal semantics per dataset. Three possible mitigations:
+1. **Resample all datasets** to a common TR before padding (e.g.\ resample everything to TR = 0.72 s).
+2. **Keep native TR** and accept the inconsistency (simplest, what is currently proposed).
+3. **Per-dataset temporal kernel** so that each token spans the same physical duration regardless of TR.
+
+To be decided at next meeting.
 
 \newpage
 
