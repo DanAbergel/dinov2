@@ -68,28 +68,25 @@ if [ ! -d "$SCRIPTS_DIR" ]; then
     git clone --depth 1 https://github.com/NrgXnat/oasis-scripts.git "$SCRIPTS_DIR"
 fi
 
-# ----- 2. Authenticate (curl, same as bash that works) ----------------
-COOKIE_JAR="$WORK_DIR/cookies.jar"
-echo "Authenticating (verbose) ..."
-set +e
-curl -k -S -v -u "${XNAT_USERNAME}:${XNAT_PASSWORD}" \
-    --cookie-jar "$COOKIE_JAR" \
-    "$XNAT_HOST/data/JSESSION" 2>&1
-CURL_RC=$?
-set -e
-echo "  curl exit code: $CURL_RC"
-if [ "$CURL_RC" -ne 0 ]; then
-    echo "  cookie jar contents:"
-    cat "$COOKIE_JAR" 2>/dev/null || echo "  (cookie jar empty/missing)"
-    echo "ERROR: auth call failed."
+# ----- 2. Skip /data/JSESSION (different backend rejects Basic Auth).
+#         Test Basic Auth on the actual data endpoint we'll use. The
+#         /data/archive/* endpoints are served by Noelios-Restlet and
+#         DO accept Basic Auth (verified from earlier runs).
+echo "Testing Basic Auth on data archive endpoint ..."
+HTTP_CODE=$(curl -k -s -o /dev/null -w "%{http_code}" \
+    -u "${XNAT_USERNAME}:${XNAT_PASSWORD}" \
+    "$XNAT_HOST/data/archive/projects/$PROJECT?format=json")
+echo "  data/archive HTTP code: $HTTP_CODE"
+if [ "$HTTP_CODE" != "200" ]; then
+    echo "ERROR: archive endpoint returned $HTTP_CODE (not 200)" >&2
     exit 3
 fi
-echo "  auth OK (cookie jar: $COOKIE_JAR)"
+echo "  Basic Auth works on archive endpoints."
 
-# ----- 3. List subjects -----------------------------------------------
+# ----- 3. List subjects (Basic Auth, no cookie needed) ----------------
 SUBJECTS_JSON="$WORK_DIR/subjects.json"
 echo "Listing subjects ..."
-curl -f -k -s --cookie "$COOKIE_JAR" \
+curl -f -k -s -u "${XNAT_USERNAME}:${XNAT_PASSWORD}" \
     "$XNAT_HOST/data/archive/projects/$PROJECT/subjects?format=json" \
     > "$SUBJECTS_JSON"
 
@@ -120,7 +117,7 @@ TOTAL=$(wc -l < "$SUBJECTS_TXT")
 while read SUBJ; do
     i=$((i+1))
     EXP_JSON="$WORK_DIR/${SUBJ}_exp.json"
-    curl -f -k -s --cookie "$COOKIE_JAR" \
+    curl -f -k -s -u "${XNAT_USERNAME}:${XNAT_PASSWORD}" \
         "$XNAT_HOST/data/archive/projects/$PROJECT/subjects/$SUBJ/experiments?format=json&xsiType=xnat:mrSessionData" \
         > "$EXP_JSON" || { echo "  [$i/$TOTAL] $SUBJ: list-exp failed"; continue; }
 
