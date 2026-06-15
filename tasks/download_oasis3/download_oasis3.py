@@ -83,19 +83,33 @@ def mask_password(pw: str) -> str:
 # -------- curl wrappers -----------------------------------------------------
 
 def curl_auth(username: str, password: str, cookie_jar: Path) -> None:
-    """Authenticate against NITRC-IR; save session cookies to `cookie_jar`."""
+    """Authenticate against NITRC-IR; save session cookies to `cookie_jar`.
+
+    Verbose mode (-v) is enabled so we see exactly what curl sends/receives,
+    matching the diagnostic visibility of the bash script when not in
+    interactive mode. -S keeps progress hidden but DOES show errors.
+    """
     cmd = [
-        "curl", "-f", "-k", "-s",
+        "curl", "-f", "-k", "-S", "-v",          # -S show errors, -v verbose
         "-u", f"{username}:{password}",
         "--cookie-jar", str(cookie_jar),
         f"{XNAT_HOST}/data/JSESSION",
     ]
+    # Diagnostic: print the redacted command so the user can compare with
+    # what worked in their interactive shell.
+    masked = [a if a != f"{username}:{password}" else f"{username}:<REDACTED>"
+              for a in cmd]
+    print(f"  curl cmd: {' '.join(masked)}")
+
     r = subprocess.run(cmd, capture_output=True)
+    out = r.stdout.decode(errors="replace").strip()
+    err = r.stderr.decode(errors="replace").strip()
     if r.returncode != 0:
-        # curl -f exits 22 on HTTP errors; print HTTP code if extractable
-        err = r.stderr.decode(errors="replace").strip()
-        print(f"ERROR: curl auth failed (exit {r.returncode}): {err}",
-              file=sys.stderr)
+        print(f"ERROR: curl auth failed (exit {r.returncode}).", file=sys.stderr)
+        print(f"  --- curl stdout ---", file=sys.stderr)
+        print(out or "(empty)", file=sys.stderr)
+        print(f"  --- curl stderr ---", file=sys.stderr)
+        print(err or "(empty)", file=sys.stderr)
         sys.exit(3)
 
 
