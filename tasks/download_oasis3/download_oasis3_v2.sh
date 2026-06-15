@@ -70,10 +70,20 @@ fi
 
 # ----- 2. Authenticate (curl, same as bash that works) ----------------
 COOKIE_JAR="$WORK_DIR/cookies.jar"
-echo "Authenticating ..."
-curl -f -k -s -u "${XNAT_USERNAME}:${XNAT_PASSWORD}" \
+echo "Authenticating (verbose) ..."
+set +e
+curl -k -S -v -u "${XNAT_USERNAME}:${XNAT_PASSWORD}" \
     --cookie-jar "$COOKIE_JAR" \
-    "$XNAT_HOST/data/JSESSION" > /dev/null
+    "$XNAT_HOST/data/JSESSION" 2>&1
+CURL_RC=$?
+set -e
+echo "  curl exit code: $CURL_RC"
+if [ "$CURL_RC" -ne 0 ]; then
+    echo "  cookie jar contents:"
+    cat "$COOKIE_JAR" 2>/dev/null || echo "  (cookie jar empty/missing)"
+    echo "ERROR: auth call failed."
+    exit 3
+fi
 echo "  auth OK (cookie jar: $COOKIE_JAR)"
 
 # ----- 3. List subjects -----------------------------------------------
