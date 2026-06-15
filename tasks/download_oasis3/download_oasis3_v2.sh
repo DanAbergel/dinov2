@@ -99,16 +99,20 @@ curl -f -k -s --cookie "$COOKIE_JAR" \
     "$XNAT_HOST/data/archive/projects/$PROJECT/subjects?format=json" \
     > "$SUBJECTS_JSON"
 
-# Extract labels with python (no requests needed, just stdlib json)
+# Extract labels with python (no requests needed, just stdlib json).
+# Keep only real subjects matching OAS3 followed by digits (filters out
+# metadata folders like '0AS_data_files').
 SUBJECTS_TXT="$WORK_DIR/subjects.txt"
 python3 -c "
-import json, sys
+import json, re
 d = json.load(open('$SUBJECTS_JSON'))
+pat = re.compile(r'^OAS3\d+\$')
 for r in d['ResultSet']['Result']:
-    print(r['label'])
+    if pat.match(r['label']):
+        print(r['label'])
 " | sort > "$SUBJECTS_TXT"
 N_SUBJ=$(wc -l < "$SUBJECTS_TXT")
-echo "  found $N_SUBJ subjects"
+echo "  found $N_SUBJ real OAS3 subjects"
 
 # Limit if requested
 if [ -n "${LIMIT:-}" ]; then
@@ -130,25 +134,57 @@ while read SUBJ; do
         "$XNAT_HOST/data/archive/projects/$PROJECT/subjects/$SUBJ/experiments?format=json&xsiType=xnat:mrSessionData" \
         > "$EXP_JSON" || { echo "  [$i/$TOTAL] $SUBJ: list-exp failed"; continue; }
 
-    # Find earliest session (smallest _dXXXX)
-    EARLIEST=$(python3 -c "
+    # Get all MR sessions sorted earliest-first.
+    SESSIONS=$(python3 -c "
 import json, re
 d = json.load(open('$EXP_JSON'))
 items = d['ResultSet']['Result']
 def days(s):
     m = re.search(r'_d(\d+)\$', s.get('label',''))
     return int(m.group(1)) if m else 9999999
-items.sort(key=days)
-print(items[0]['label'] if items else '')
+for s in sorted(items, key=days):
+    print(s['label'], s['ID'])
 ")
-    if [ -z "$EARLIEST" ]; then
+    rm -f "$EXP_JSON"
+    if [ -z "$SESSIONS" ]; then
         echo "  [$i/$TOTAL] $SUBJ: no MR sessions"
-        rm -f "$EXP_JSON"
         continue
     fi
-    echo "$EARLIEST" >> "$CSV_FILE"
-    echo "  [$i/$TOTAL] $SUBJ -> $EARLIEST"
-    rm -f "$EXP_JSON"
+
+    # Walk sessions earliest-first; take the first that HAS a bold scan.
+    CHOSEN=""
+    while read -r SESS_LABEL SESS_ID; do
+        [ -z "$SESS_LABEL" ] && continue
+        SCANS_JSON="$WORK_DIR/${SESS_LABEL}_scans.json"
+        if ! curl -f -k -s --cookie "$COOKIE_JAR" \
+            "$XNAT_HOST/data/archive/experiments/$SESS_ID/scans?format=json" \
+            > "$SCANS_JSON" 2>/dev/null; then
+            rm -f "$SCANS_JSON"; continue
+        fi
+        HAS_BOLD=$(python3 -c "
+import json, sys
+try:
+    d = json.load(open('$SCANS_JSON'))
+except Exception:
+    print('no'); sys.exit()
+scans = d['ResultSet']['Result']
+ok = any('bold' in (s.get('type','')+s.get('series_description','')).lower()
+         for s in scans)
+print('yes' if ok else 'no')
+")
+        rm -f "$SCANS_JSON"
+        if [ "$HAS_BOLD" = "yes" ]; then
+            CHOSEN="$SESS_LABEL"
+            break
+        fi
+    done <<< "$SESSIONS"
+
+    if [ -z "$CHOSEN" ]; then
+        echo "  [$i/$TOTAL] $SUBJ: no session with a bold scan"
+        continue
+    fi
+    echo "$CHOSEN" >> "$CSV_FILE"
+    echo "  [$i/$TOTAL] $SUBJ -> $CHOSEN"
 done < "$SUBJECTS_TXT"
 
 N_EXP=$(( $(wc -l < "$CSV_FILE") - 1 ))
