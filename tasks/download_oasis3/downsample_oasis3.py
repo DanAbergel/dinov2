@@ -40,7 +40,11 @@ REST_PATTERN = re.compile(
 def downsample_4d(nii_path: Path) -> torch.Tensor:
     img = nib.load(str(nii_path))
     data = img.get_fdata(dtype=np.float32)
-    vol = torch.from_numpy(data).permute(3, 0, 1, 2).unsqueeze(0)
+    # DEBUG: print native shape to diagnose unexpected T (e.g. T=5).
+    print(f"    native nibabel shape: {data.shape}  (file: {nii_path.name})")
+    if data.ndim != 4:
+        raise ValueError(f"expected 4D (X,Y,Z,T), got {data.ndim}D {data.shape}")
+    vol = torch.from_numpy(data).permute(3, 0, 1, 2).unsqueeze(0)  # (1, T, X, Y, Z)
     vol_ds = F.interpolate(
         vol, size=TARGET_SHAPE, mode="trilinear", align_corners=False,
     )

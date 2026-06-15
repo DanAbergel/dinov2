@@ -127,10 +127,12 @@ echo "experiment_id" > "$CSV_FILE"
 
 i=0
 TOTAL=$(wc -l < "$SUBJECTS_TXT")
-while read SUBJ; do
+# Read the subject list on FD 3 so curls inside the loop (which read stdin)
+# can't consume it. This was corrupting subject IDs (e.g. 'OAS30005' -> 'AS30005').
+while IFS= read -r SUBJ <&3; do
     i=$((i+1))
     EXP_JSON="$WORK_DIR/${SUBJ}_exp.json"
-    curl -f -k -s --cookie "$COOKIE_JAR" \
+    curl -f -k -s </dev/null --cookie "$COOKIE_JAR" \
         "$XNAT_HOST/data/archive/projects/$PROJECT/subjects/$SUBJ/experiments?format=json&xsiType=xnat:mrSessionData" \
         > "$EXP_JSON" || { echo "  [$i/$TOTAL] $SUBJ: list-exp failed"; continue; }
 
@@ -156,7 +158,7 @@ for s in sorted(items, key=days):
     while read -r SESS_LABEL SESS_ID; do
         [ -z "$SESS_LABEL" ] && continue
         SCANS_JSON="$WORK_DIR/${SESS_LABEL}_scans.json"
-        if ! curl -f -k -s --cookie "$COOKIE_JAR" \
+        if ! curl -f -k -s </dev/null --cookie "$COOKIE_JAR" \
             "$XNAT_HOST/data/archive/experiments/$SESS_ID/scans?format=json" \
             > "$SCANS_JSON" 2>/dev/null; then
             rm -f "$SCANS_JSON"; continue
@@ -185,7 +187,7 @@ print('yes' if ok else 'no')
     fi
     echo "$CHOSEN" >> "$CSV_FILE"
     echo "  [$i/$TOTAL] $SUBJ -> $CHOSEN"
-done < "$SUBJECTS_TXT"
+done 3< "$SUBJECTS_TXT"
 
 N_EXP=$(( $(wc -l < "$CSV_FILE") - 1 ))
 echo "Total experiments to download: $N_EXP"
