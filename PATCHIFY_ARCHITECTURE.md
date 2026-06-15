@@ -124,6 +124,95 @@ header-includes:
 
 **Token grid output** : $T_\text{eff} = 60$, $N_\text{spatial} = 5 \cdot 6 \cdot 5 = 150$, total **9 000 tokens** of dim 384.
 
+\vspace{0.3cm}
+
+## Detailed parameter calculation per layer
+
+Each Conv3Plus1d has 2 internal modules : `Conv3d(in_c, out_c, K_s)` (spatial) + `Conv1d(out_c, out_c, K_t)` (temporal). Both convs include a bias term.
+
+\vspace{0.1cm}
+
+**Conv3d** params  = $\text{in}_c \cdot \text{out}_c \cdot K_s^3 + \text{out}_c$
+**Conv1d** params  = $\text{out}_c \cdot \text{out}_c \cdot K_t + \text{out}_c$
+**GroupNorm** params  = $2 \cdot C$ (scale + shift, both of length $C$)
+
+\vspace{0.2cm}
+
+### 1. `conv_in` = Conv3Plus1d(1 $\to$ 32, $K_s{=}3$, $K_t{=}3$)
+```
+spatial    Conv3d(1, 32, k=3)    :  1 ×  32 × 3³ +  32  =       896
+temporal   Conv1d(32, 32, k=3)   : 32 ×  32 × 3  +  32  =     3 104
+                                                          ─────────
+                                                              4 000
+```
+
+### 2. `block_0` = ResBlock3Plus1d(32) = 2× Conv3Plus1d(32 $\to$ 32) + 2× GroupNorm(8, 32)
+```
+GroupNorm × 2          : 2 × (2 × 32)            =       128
+Conv3Plus1d × 2 :
+  spatial each   :  32 ×  32 × 3³ +  32   = 27 680 each
+  temporal each  :  32 ×  32 × 3  +  32   =  3 104 each
+  total one       : 27 680 + 3 104 = 30 784
+  × 2             :                       =    61 568
+                                                  ─────────
+                                                      61 696
+```
+
+### 3. `down_0` = Conv3Plus1d(32 $\to$ 64, $K_s{=}3$, $K_t{=}3$)
+```
+spatial    Conv3d(32, 64, k=3)   : 32 ×  64 × 3³ +  64  =    55 360
+temporal   Conv1d(64, 64, k=3)   : 64 ×  64 × 3  +  64  =    12 352
+                                                          ─────────
+                                                             67 712
+```
+
+### 4. `block_1` = ResBlock3Plus1d(64) = 2× Conv3Plus1d(64 $\to$ 64) + 2× GroupNorm(8, 64)
+```
+GroupNorm × 2          : 2 × (2 × 64)            =       256
+Conv3Plus1d × 2 :
+  spatial each   :  64 ×  64 × 3³ +  64   = 110 656 each
+  temporal each  :  64 ×  64 × 3  +  64   =  12 352 each
+  total one       : 110 656 + 12 352 = 123 008
+  × 2             :                       =   246 016
+                                                  ─────────
+                                                     246 272
+```
+
+### 5. `down_1` = Conv3Plus1d(64 $\to$ 384, $K_s{=}3$, $K_t{=}10$)
+```
+spatial    Conv3d(64, 384, k=3)  : 64 × 384 × 3³ + 384  =   663 936
+temporal   Conv1d(384,384, k=10) : 384× 384 × 10 + 384  = 1 474 944
+                                                          ─────────
+                                                          2 138 880
+```
+
+### 6. `block_2` = ResBlock3Plus1d(384) = 2× Conv3Plus1d(384 $\to$ 384) + 2× GroupNorm(8, 384)
+\textbf{The dominant layer — 77\% of the total.}
+
+```
+GroupNorm × 2          : 2 × (2 × 384)           =     1 536
+Conv3Plus1d × 2 :
+  spatial each   : 384 × 384 × 3³ + 384   = 3 981 696 each
+  temporal each  : 384 × 384 × 3  + 384   =   442 752 each
+  total one       : 3 981 696 + 442 752 = 4 424 448
+  × 2             :                       = 8 848 896
+                                                  ─────────
+                                                   8 850 432
+```
+
+### 7. `PositionEmbedding3D` (HCP-YA : $T_\text{eff}{=}60$, $N_\text{spatial}{=}150$, dim ${=}384$)
+```
+pos_temporal     :  60 × 384         =    23 040
+pos_spatial      : 150 × 384         =    57 600
+pos_cls          :   1 × 384         =       384
+                                       ──────────
+                                          81 024
+```
+
+\vspace{0.2cm}
+
+\textbf{Grand total:} 4 000 + 61 696 + 67 712 + 246 272 + 2 138 880 + 8 850 432 + 81 024 = \textbf{11 450 016 params}.
+
 ## Differences vs MovieGen TAE `TemporalEncoder`
 
 | Aspect                   | MovieGen TAE                       | Ours (PatchEmbed3DPlus1D)            |
