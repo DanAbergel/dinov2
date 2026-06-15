@@ -58,8 +58,20 @@ echo "============================================================"
 # ----- 0. Password -----------------------------------------------------
 PW_FILE="$HOME/.xnat_password"
 [ -f "$PW_FILE" ] || { echo "ERROR: $PW_FILE missing" >&2; exit 2; }
-XNAT_PASSWORD=$(cat "$PW_FILE")
-echo "  password read (len=${#XNAT_PASSWORD})"
+XNAT_PASSWORD_RAW=$(cat "$PW_FILE")
+echo "  password read (len=${#XNAT_PASSWORD_RAW})"
+
+# CRITICAL: NITRC-IR expects the password URL-encoded in the Basic Auth
+# header (this is what the NrgXnat script does and why it works). Reproduce
+# their escape_chars_for_URL function. Without this, a '#' (or other special
+# char) in the password causes a 401.
+escape_chars_for_URL() {
+    echo "${1}" | sed -e 's/%/%25/g;' | sed -e 's/ /%20/g; s/</%3C/g; s/>/%3E/g; s/#/%23/g; s/+/%2B/g; s/{/%7B/g; s/}/%7D/g; s/|/%7C/g; s/\\/%5C/g; s/\^/%5E/g; s/~/%7E/g; s/\[/%5B/g; s/\]/%5D/g; s/`/%60/g; s/;/%3B/g; s/?/%3F/g; s/:/%3A/g; s/@/%40/g; s/=/%3D/g; s/&/%26/g; s/\$/%24/g'
+}
+# Username is also lowercased by the NrgXnat script.
+XNAT_USERNAME=$(echo "$XNAT_USERNAME" | tr 'A-Z' 'a-z')
+XNAT_PASSWORD=$(escape_chars_for_URL "$XNAT_PASSWORD_RAW")
+echo "  password URL-encoded (len=${#XNAT_PASSWORD})"
 
 # ----- 1. Clone NrgXnat scripts if missing ----------------------------
 SCRIPTS_DIR="$WORK_DIR/oasis-scripts"
@@ -68,25 +80,22 @@ if [ ! -d "$SCRIPTS_DIR" ]; then
     git clone --depth 1 https://github.com/NrgXnat/oasis-scripts.git "$SCRIPTS_DIR"
 fi
 
-# ----- 2. Skip /data/JSESSION (different backend rejects Basic Auth).
-#         Test Basic Auth on the actual data endpoint we'll use. The
-#         /data/archive/* endpoints are served by Noelios-Restlet and
-#         DO accept Basic Auth (verified from earlier runs).
-echo "Testing Basic Auth on data archive endpoint ..."
-HTTP_CODE=$(curl -k -s -o /dev/null -w "%{http_code}" \
-    -u "${XNAT_USERNAME}:${XNAT_PASSWORD}" \
-    "$XNAT_HOST/data/archive/projects/$PROJECT?format=json")
-echo "  data/archive HTTP code: $HTTP_CODE"
-if [ "$HTTP_CODE" != "200" ]; then
-    echo "ERROR: archive endpoint returned $HTTP_CODE (not 200)" >&2
+# ----- 2. Authenticate via JSESSION (exactly like NrgXnat startSession).
+#         With the URL-encoded password this now succeeds.
+COOKIE_JAR="$WORK_DIR/cookies.jar"
+echo "Authenticating (JSESSION, URL-encoded password) ..."
+if ! curl -f -k -s -u "${XNAT_USERNAME}:${XNAT_PASSWORD}" \
+        --cookie-jar "$COOKIE_JAR" \
+        "$XNAT_HOST/data/JSESSION" > /dev/null; then
+    echo "ERROR: JSESSION auth failed. Bad username/password?" >&2
     exit 3
 fi
-echo "  Basic Auth works on archive endpoints."
+echo "  auth OK (cookie jar: $COOKIE_JAR)"
 
-# ----- 3. List subjects (Basic Auth, no cookie needed) ----------------
+# ----- 3. List subjects (using the session cookie) --------------------
 SUBJECTS_JSON="$WORK_DIR/subjects.json"
 echo "Listing subjects ..."
-curl -f -k -s -u "${XNAT_USERNAME}:${XNAT_PASSWORD}" \
+curl -f -k -s --cookie "$COOKIE_JAR" \
     "$XNAT_HOST/data/archive/projects/$PROJECT/subjects?format=json" \
     > "$SUBJECTS_JSON"
 
@@ -117,7 +126,7 @@ TOTAL=$(wc -l < "$SUBJECTS_TXT")
 while read SUBJ; do
     i=$((i+1))
     EXP_JSON="$WORK_DIR/${SUBJ}_exp.json"
-    curl -f -k -s -u "${XNAT_USERNAME}:${XNAT_PASSWORD}" \
+    curl -f -k -s --cookie "$COOKIE_JAR" \
         "$XNAT_HOST/data/archive/projects/$PROJECT/subjects/$SUBJ/experiments?format=json&xsiType=xnat:mrSessionData" \
         > "$EXP_JSON" || { echo "  [$i/$TOTAL] $SUBJ: list-exp failed"; continue; }
 
@@ -148,9 +157,11 @@ echo "Total experiments to download: $N_EXP"
 # ----- 5. Download all selected experiments via the official script ----
 RAW_DIR="$OASIS3_DIR/raw_nifti"
 echo "Downloading ALL scan types for each experiment to $RAW_DIR ..."
-# The official bash script reads password via `read -s`, so we pipe it.
-echo "$XNAT_PASSWORD" | bash "$SCRIPTS_DIR/download_scans/download_oasis_scans.sh" \
-    "$CSV_FILE" "$RAW_DIR" "$XNAT_USERNAME"
+# The official bash script reads password via `read -s` and URL-encodes it
+# ITSELF, so we pipe the RAW (un-encoded) password to avoid double-encoding.
+# We only download the 'bold' scan type to skip anat/dwi/etc. and save time.
+echo "$XNAT_PASSWORD_RAW" | bash "$SCRIPTS_DIR/download_scans/download_oasis_scans.sh" \
+    "$CSV_FILE" "$RAW_DIR" "$XNAT_USERNAME" bold
 
 # ----- 6. Downsample with Python --------------------------------------
 source "$VENV_DIR/bin/activate"
