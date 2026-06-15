@@ -99,7 +99,7 @@ def authenticate(host: str, username: str, password: str) -> requests.Session:
     session.headers.update({"User-Agent": "FAIR_official/download_oasis3"})
 
     # Sanity check: try to fetch the OASIS3 project entry.
-    r = session.get(f"{host}/data/projects/{PROJECT}",
+    r = session.get(f"{host}/data/archive/projects/{PROJECT}",
                     params={"format": "json"}, timeout=30)
     if r.status_code == 401:
         print(f"ERROR: auth failed (401) for user {username!r}. "
@@ -117,7 +117,7 @@ def authenticate(host: str, username: str, password: str) -> requests.Session:
 def list_subjects(session: requests.Session) -> list:
     """List subject labels in OASIS-3 (e.g. ['OAS30001', 'OAS30002', ...])."""
     r = session.get(
-        f"{XNAT_HOST}/data/projects/{PROJECT}/subjects",
+        f"{XNAT_HOST}/data/archive/projects/{PROJECT}/subjects",
         params={"format": "json"},
         timeout=60,
     )
@@ -132,7 +132,7 @@ def list_mr_sessions(session: requests.Session, subject: str) -> list:
     'ID' (the XNAT-internal experiment ID).
     """
     r = session.get(
-        f"{XNAT_HOST}/data/projects/{PROJECT}/subjects/{subject}/experiments",
+        f"{XNAT_HOST}/data/archive/projects/{PROJECT}/subjects/{subject}/experiments",
         params={"format": "json", "xsiType": "xnat:mrSessionData"},
         timeout=60,
     )
@@ -151,7 +151,7 @@ def list_scans(session: requests.Session, experiment_id: str) -> list:
     Returns list of dicts with 'ID', 'type', 'series_description'.
     """
     r = session.get(
-        f"{XNAT_HOST}/data/experiments/{experiment_id}/scans",
+        f"{XNAT_HOST}/data/archive/experiments/{experiment_id}/scans",
         params={"format": "json"},
         timeout=60,
     )
@@ -188,14 +188,14 @@ def download_scan_zip(session: requests.Session, experiment_id: str,
                       scan_id: str, dest_zip: Path):
     """Download the NIFTI resource (or all files) for one scan as a ZIP."""
     url = (
-        f"{XNAT_HOST}/data/experiments/{experiment_id}/scans/{scan_id}"
+        f"{XNAT_HOST}/data/archive/experiments/{experiment_id}/scans/{scan_id}"
         f"/resources/NIFTI/files"
     )
     r = session.get(url, params={"format": "zip"}, stream=True, timeout=600)
     if r.status_code == 404:
         # Fall back to all files (the resource might be named differently)
         url = (
-            f"{XNAT_HOST}/data/experiments/{experiment_id}/scans/{scan_id}/files"
+            f"{XNAT_HOST}/data/archive/experiments/{experiment_id}/scans/{scan_id}/files"
         )
         r = session.get(url, params={"format": "zip"}, stream=True, timeout=600)
     r.raise_for_status()
