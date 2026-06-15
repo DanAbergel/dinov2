@@ -121,7 +121,9 @@ def authenticate(host: str, username: str, password: str) -> requests.Session:
     session = requests.Session()
     session.verify = False                                  # equivalent of curl -k
     session.auth = (username, password)
-    # No custom User-Agent — NITRC seems picky. Let requests send its default.
+    # NITRC's anti-bot rejects "python-requests/X.X.X" User-Agent with 401.
+    # The bash script's curl works because it sends "curl/X.X.X". Mimic it.
+    session.headers.update({"User-Agent": "curl/7.81.0"})
 
     # The bash script does GET (not POST) on /data/JSESSION. Match it.
     r = session.get(f"{host}/data/JSESSION", timeout=30)
