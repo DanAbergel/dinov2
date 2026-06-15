@@ -52,18 +52,37 @@ def downsample_4d(nii_path: Path) -> torch.Tensor:
 
 
 def find_first_rest(experiment_dir: Path):
-    """Return the path to the earliest run of task-rest BOLD."""
+    """Return the rest-BOLD run with the MOST timepoints.
+
+    OASIS-3 sessions often have 3 rest runs where run-01 is a short
+    calibration (~5 frames) and the real rs-fMRI is a longer run. So we
+    read each candidate's nibabel header (cheap — no data load) and pick
+    the one with the largest T.
+    """
     candidates = []
     for func_dir in experiment_dir.glob("func*"):
         for f in func_dir.glob("*.nii.gz"):
             m = REST_PATTERN.match(f.name)
             if m:
-                run = int(m.group(3)) if m.group(3) else 1
-                candidates.append((run, f, m.group(1), m.group(2)))
+                candidates.append((f, m.group(1), m.group(2)))
     if not candidates:
         return None
-    candidates.sort(key=lambda x: x[0])
-    _, path, subject, day = candidates[0]
+
+    best = None  # (T, path, subject, day)
+    for path, subject, day in candidates:
+        try:
+            shape = nib.load(str(path)).shape          # header only, no data
+        except Exception:
+            continue
+        T = shape[3] if len(shape) == 4 else 0
+        if best is None or T > best[0]:
+            best = (T, path, subject, day)
+    if best is None:
+        return None
+    T, path, subject, day = best
+    if T < 20:
+        print(f"    WARNING: longest rest run for {subject}/{day} has only "
+              f"T={T} frames")
     return path, subject, day
 
 
