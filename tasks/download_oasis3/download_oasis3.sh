@@ -48,7 +48,7 @@ export TMPDIR="$LAB_DIR/tmp/oasis3_raw"
 export PYTHONUNBUFFERED=1
 
 # Default username — override with XNAT_USERNAME=other sbatch ...
-XNAT_USERNAME="${XNAT_USERNAME:-danab}"
+XNAT_USERNAME="${XNAT_USERNAME:-danab95}"
 
 mkdir -p "$TASK_DIR/logs"
 mkdir -p "$OASIS3_DIR/downsampled"
