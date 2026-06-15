@@ -59,11 +59,15 @@ RSFMRI_PATTERNS = [
 ]
 
 
-def get_password() -> str:
-    """Read XNAT password from env var or ~/.xnat_password file."""
+def get_password() -> tuple[str, str]:
+    """Read XNAT password from env var or ~/.xnat_password file.
+
+    Returns (password, source) where source is a short description like
+    'env var XNAT_PASSWORD' or '~/.xnat_password' for diagnostic prints.
+    """
     pw = os.environ.get("XNAT_PASSWORD")
     if pw:
-        return pw
+        return pw, "env var XNAT_PASSWORD"
     pw_file = Path("~/.xnat_password").expanduser()
     if pw_file.exists():
         # Refuse to read if it's world-readable (security)
@@ -72,13 +76,25 @@ def get_password() -> str:
             print(f"ERROR: {pw_file} is too permissive (mode {oct(mode)}). "
                   f"Run: chmod 600 {pw_file}", file=sys.stderr)
             sys.exit(2)
-        return pw_file.read_text().strip()
+        return pw_file.read_text().strip(), "~/.xnat_password"
     print(
         "ERROR: no XNAT password found. Set XNAT_PASSWORD env var, or put it in "
         "~/.xnat_password with chmod 600.",
         file=sys.stderr,
     )
     sys.exit(2)
+
+
+def mask_password(pw: str) -> str:
+    """Return a debug-friendly masked version of the password.
+
+    Examples:
+      'DADADA300722#' -> "'DA...2#' (len=13)"
+      'ab'            -> "'**' (len=2)"
+    """
+    if len(pw) <= 4:
+        return f"{'*' * len(pw)!r} (len={len(pw)})"
+    return f"{pw[:2] + '...' + pw[-2:]!r} (len={len(pw)})"
 
 
 def authenticate(host: str, username: str, password: str) -> requests.Session:
@@ -105,10 +121,10 @@ def authenticate(host: str, username: str, password: str) -> requests.Session:
     session = requests.Session()
     session.verify = False                                  # equivalent of curl -k
     session.auth = (username, password)
-    session.headers.update({"User-Agent": "FAIR_official/download_oasis3"})
+    # No custom User-Agent — NITRC seems picky. Let requests send its default.
 
-    # Hit /data/JSESSION to set the auth cookie (same as bash step 1).
-    r = session.post(f"{host}/data/JSESSION", timeout=30)
+    # The bash script does GET (not POST) on /data/JSESSION. Match it.
+    r = session.get(f"{host}/data/JSESSION", timeout=30)
     if r.status_code == 401:
         print(f"ERROR: auth failed (401) for user {username!r} on /data/JSESSION. "
               f"Wrong password, or NITRC-IR account not active.", file=sys.stderr)
@@ -291,7 +307,7 @@ def main():
                     help="Process only the first N subjects (testing)")
     args = ap.parse_args()
 
-    password = get_password()
+    password, pw_source = get_password()
     output_dir = Path(args.output_dir).resolve()
     tmp_dir = Path(args.tmp_dir).resolve()
     output_dir.mkdir(parents=True, exist_ok=True)
@@ -302,6 +318,8 @@ def main():
     print(f"Target     : {TARGET_SHAPE}")
     print(f"Output dir : {output_dir}")
     print(f"Tmp dir    : {tmp_dir}")
+    print(f"Username   : {args.username}")
+    print(f"Password   : {mask_password(password)}  source: {pw_source}")
 
     http_session = authenticate(XNAT_HOST, args.username, password)
 
