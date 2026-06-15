@@ -82,17 +82,35 @@ def get_password() -> str:
 
 
 def authenticate(host: str, username: str, password: str) -> requests.Session:
-    """Login and return a session with JSESSIONID cookie set."""
+    """Set up a session with HTTP Basic Auth applied to every request.
+
+    NITRC-IR's /data/JSESSION endpoint can return 401 for some accounts even
+    when credentials are valid for the data archive endpoints. The official
+    NrgXnat bash script bypasses /JSESSION entirely and just sends Basic
+    Auth on every download URL. We do the same: persistent session.auth =
+    (user, pwd) means requests will send the auth header on each call.
+
+    We sanity-check the credentials by hitting a known-public-to-team URL
+    (the OASIS3 project descriptor). Failure here = real auth/access issue.
+    """
     session = requests.Session()
-    r = session.post(
-        f"{host}/data/JSESSION",
-        auth=(username, password),
-        timeout=30,
-    )
-    if r.status_code != 200:
-        print(f"ERROR: auth failed ({r.status_code}): {r.text[:200]}", file=sys.stderr)
+    session.auth = (username, password)
+    # Set a User-Agent — some XNAT installs are picky.
+    session.headers.update({"User-Agent": "FAIR_official/download_oasis3"})
+
+    # Sanity check: try to fetch the OASIS3 project entry.
+    r = session.get(f"{host}/data/projects/{PROJECT}",
+                    params={"format": "json"}, timeout=30)
+    if r.status_code == 401:
+        print(f"ERROR: auth failed (401) for user {username!r}. "
+              f"Wrong password, or NITRC-IR account not active.", file=sys.stderr)
         sys.exit(3)
-    print(f"Authenticated as {username}.")
+    if r.status_code == 403:
+        print(f"ERROR: auth OK but no access to project {PROJECT} (403). "
+              f"Contact oasisadmin to confirm project membership.", file=sys.stderr)
+        sys.exit(3)
+    r.raise_for_status()
+    print(f"Authenticated as {username}. Project {PROJECT} accessible.")
     return session
 
 
