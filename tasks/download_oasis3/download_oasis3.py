@@ -1,37 +1,30 @@
 """Download OASIS-3 resting-state fMRI from NITRC-IR XNAT and downsample to (45, 54, 45).
 
-OASIS-3 (Longitudinal Multimodal Neuroimaging, Clinical, and Cognitive Dataset for
-Normal Aging and Alzheimer's Disease) is hosted on the NITRC Image Repository
-(NITRC-IR) at https://www.nitrc.org/ir/. Access requires being a member of the
-OASIS-3 NITRC team.
+OASIS-3 is hosted on NITRC-IR (https://www.nitrc.org/ir/). NITRC applies
+TLS fingerprinting that blocks the Python `requests` library even with a
+spoofed curl User-Agent. The official NrgXnat bash script that works uses
+curl directly — so this Python wrapper does the same: every HTTP call is
+delegated to a `curl` subprocess.
 
-Strategy: for each subject, take ONE rs-fMRI scan (the earliest MR session that
-contains a resting-state BOLD scan = "baseline visit"). This gives ~1000 unique
-subjects, ~85 GB after downsampling, ~12h download.
+Strategy: 1 rs-fMRI per subject (the EARLIEST MR session containing a
+resting-state BOLD scan = baseline visit).
 
-Authentication is via NITRC username + password. Password is read from one of:
-  1. Env var XNAT_PASSWORD
-  2. File ~/.xnat_password (chmod 600)
-The password is NEVER printed, logged, or sent to anyone else.
-
-Streams per subject:
-  1. Find earliest MR session with rs-fMRI for that subject
-  2. Download the resting-state scan as ZIP (~50-100 MB)
-  3. Extract the .nii.gz
-  4. Resample (X, Y, Z, T) -> (T, 45, 54, 45) via trilinear
-  5. Save .pt, delete ZIP and extracted NIfTI
+Password is read from one of (priority order):
+  1. env var XNAT_PASSWORD
+  2. file ~/.xnat_password (chmod 600)
+NEVER printed or logged in plaintext.
 
 Usage:
-    XNAT_PASSWORD=xxx python tasks/download_oasis3/download_oasis3.py \\
-        --username danab \\
-        --output-dir /sci/labs/arieljaffe/dan.abergel1/OASIS3_data/downsampled \\
-        --tmp-dir /tmp/oasis3_raw
+    sbatch tasks/download_oasis3/download_oasis3.sh
+    LIMIT=5 sbatch tasks/download_oasis3/download_oasis3.sh   # test 5 subjects
 """
 
 import argparse
+import json
 import os
 import re
 import shutil
+import subprocess
 import sys
 import tempfile
 import zipfile
@@ -39,7 +32,6 @@ from pathlib import Path
 
 import nibabel as nib
 import numpy as np
-import requests
 import torch
 import torch.nn.functional as F
 
@@ -48,7 +40,6 @@ PROJECT = "OASIS3"
 TARGET_SHAPE = (45, 54, 45)
 
 # Match rs-fMRI by scan "type" or "series_description" (case-insensitive).
-# OASIS-3 uses labels like "rsfMRI", "Resting State BOLD", etc.
 RSFMRI_PATTERNS = [
     re.compile(p, re.IGNORECASE) for p in [
         r"rsfmri",
@@ -62,15 +53,13 @@ RSFMRI_PATTERNS = [
 def get_password() -> tuple[str, str]:
     """Read XNAT password from env var or ~/.xnat_password file.
 
-    Returns (password, source) where source is a short description like
-    'env var XNAT_PASSWORD' or '~/.xnat_password' for diagnostic prints.
+    Returns (password, source_label).
     """
     pw = os.environ.get("XNAT_PASSWORD")
     if pw:
         return pw, "env var XNAT_PASSWORD"
     pw_file = Path("~/.xnat_password").expanduser()
     if pw_file.exists():
-        # Refuse to read if it's world-readable (security)
         mode = pw_file.stat().st_mode & 0o777
         if mode & 0o077:
             print(f"ERROR: {pw_file} is too permissive (mode {oct(mode)}). "
@@ -86,107 +75,97 @@ def get_password() -> tuple[str, str]:
 
 
 def mask_password(pw: str) -> str:
-    """Return a debug-friendly masked version of the password.
-
-    Examples:
-      'DADADA300722#' -> "'DA...2#' (len=13)"
-      'ab'            -> "'**' (len=2)"
-    """
     if len(pw) <= 4:
         return f"{'*' * len(pw)!r} (len={len(pw)})"
     return f"{pw[:2] + '...' + pw[-2:]!r} (len={len(pw)})"
 
 
-def authenticate(host: str, username: str, password: str) -> requests.Session:
-    """Set up a session matching the NrgXnat bash script's curl flow.
+# -------- curl wrappers -----------------------------------------------------
 
-    The bash script uses:
-        curl -f -k -s -u USER:PASS --cookie-jar JAR https://.../data/JSESSION
-    then reuses the cookie. The KEY DETAIL is `-k` (insecure SSL, no cert
-    verification). Python requests verifies certs by default and that's
-    why our previous attempts got 401 — the cert chain rejection happens
-    BEFORE the auth header is even processed by the server, so XNAT sees
-    no creds and returns 401.
-
-    Mirror the bash flow:
-      1. session.verify = False               (matches -k)
-      2. Basic Auth on every request          (matches -u on each curl)
-      3. POST /data/JSESSION first            (sets the cookie)
-      4. then subsequent calls reuse cookie automatically
-    """
-    # Disable cert verification + silence the warning that comes with it.
-    from urllib3.exceptions import InsecureRequestWarning
-    requests.packages.urllib3.disable_warnings(InsecureRequestWarning)
-
-    session = requests.Session()
-    session.verify = False                                  # equivalent of curl -k
-    session.auth = (username, password)
-    # NITRC's anti-bot rejects "python-requests/X.X.X" User-Agent with 401.
-    # The bash script's curl works because it sends "curl/X.X.X". Mimic it.
-    session.headers.update({"User-Agent": "curl/7.81.0"})
-
-    # The bash script does GET (not POST) on /data/JSESSION. Match it.
-    r = session.get(f"{host}/data/JSESSION", timeout=30)
-    if r.status_code == 401:
-        print(f"ERROR: auth failed (401) for user {username!r} on /data/JSESSION. "
-              f"Wrong password, or NITRC-IR account not active.", file=sys.stderr)
+def curl_auth(username: str, password: str, cookie_jar: Path) -> None:
+    """Authenticate against NITRC-IR; save session cookies to `cookie_jar`."""
+    cmd = [
+        "curl", "-f", "-k", "-s",
+        "-u", f"{username}:{password}",
+        "--cookie-jar", str(cookie_jar),
+        f"{XNAT_HOST}/data/JSESSION",
+    ]
+    r = subprocess.run(cmd, capture_output=True)
+    if r.returncode != 0:
+        # curl -f exits 22 on HTTP errors; print HTTP code if extractable
+        err = r.stderr.decode(errors="replace").strip()
+        print(f"ERROR: curl auth failed (exit {r.returncode}): {err}",
+              file=sys.stderr)
         sys.exit(3)
-    if r.status_code == 403:
-        print(f"ERROR: auth OK but no project access (403). "
-              f"Contact oasisadmin.", file=sys.stderr)
-        sys.exit(3)
-    r.raise_for_status()
-    print(f"Authenticated as {username}. JSESSIONID set.")
-    return session
 
 
-def list_subjects(session: requests.Session) -> list:
-    """List subject labels in OASIS-3 (e.g. ['OAS30001', 'OAS30002', ...])."""
-    r = session.get(
-        f"{XNAT_HOST}/data/archive/projects/{PROJECT}/subjects",
-        params={"format": "json"},
-        timeout=60,
+def curl_get_json(url: str, cookie_jar: Path) -> dict | list:
+    """GET a URL with the saved cookie and parse the JSON response."""
+    cmd = [
+        "curl", "-f", "-k", "-s",
+        "--cookie", str(cookie_jar),
+        url,
+    ]
+    r = subprocess.run(cmd, capture_output=True)
+    if r.returncode != 0:
+        raise RuntimeError(
+            f"curl GET failed ({r.returncode}) on {url}: "
+            f"{r.stderr.decode(errors='replace')}"
+        )
+    try:
+        return json.loads(r.stdout.decode())
+    except json.JSONDecodeError:
+        snippet = r.stdout[:200].decode(errors="replace")
+        raise RuntimeError(f"non-JSON response from {url}: {snippet!r}")
+
+
+def curl_download(url: str, cookie_jar: Path, dest: Path) -> None:
+    """Download a binary file (e.g. a ZIP) with the saved cookie."""
+    dest.parent.mkdir(parents=True, exist_ok=True)
+    cmd = [
+        "curl", "-f", "-k", "-s",
+        "--cookie", str(cookie_jar),
+        "-o", str(dest),
+        url,
+    ]
+    r = subprocess.run(cmd, capture_output=True)
+    if r.returncode != 0:
+        raise RuntimeError(
+            f"curl download failed ({r.returncode}) on {url}: "
+            f"{r.stderr.decode(errors='replace')}"
+        )
+
+
+# -------- XNAT API wrappers (built on curl) ---------------------------------
+
+def list_subjects(cookie_jar: Path) -> list[str]:
+    url = f"{XNAT_HOST}/data/archive/projects/{PROJECT}/subjects?format=json"
+    data = curl_get_json(url, cookie_jar)
+    return sorted(s["label"] for s in data["ResultSet"]["Result"])
+
+
+def list_mr_sessions(cookie_jar: Path, subject: str) -> list[dict]:
+    url = (
+        f"{XNAT_HOST}/data/archive/projects/{PROJECT}/subjects/{subject}"
+        f"/experiments?format=json&xsiType=xnat:mrSessionData"
     )
-    r.raise_for_status()
-    return sorted(s["label"] for s in r.json()["ResultSet"]["Result"])
-
-
-def list_mr_sessions(session: requests.Session, subject: str) -> list:
-    """List MR sessions for one subject, sorted by days-from-entry (earliest first).
-
-    Returns list of dicts with at least 'label' (e.g. 'OAS30001_MR_d0129') and
-    'ID' (the XNAT-internal experiment ID).
-    """
-    r = session.get(
-        f"{XNAT_HOST}/data/archive/projects/{PROJECT}/subjects/{subject}/experiments",
-        params={"format": "json", "xsiType": "xnat:mrSessionData"},
-        timeout=60,
-    )
-    r.raise_for_status()
-    sessions = r.json()["ResultSet"]["Result"]
-    # Sort by the 'd<days>' suffix in the label.
-    def days_from_label(s):
+    data = curl_get_json(url, cookie_jar)
+    sessions = data["ResultSet"]["Result"]
+    def days(s):
         m = re.search(r"_d(\d+)$", s.get("label", ""))
-        return int(m.group(1)) if m else 9999999
-    return sorted(sessions, key=days_from_label)
+        return int(m.group(1)) if m else 9_999_999
+    return sorted(sessions, key=days)
 
 
-def list_scans(session: requests.Session, experiment_id: str) -> list:
-    """List scans within an MR session.
-
-    Returns list of dicts with 'ID', 'type', 'series_description'.
-    """
-    r = session.get(
-        f"{XNAT_HOST}/data/archive/experiments/{experiment_id}/scans",
-        params={"format": "json"},
-        timeout=60,
+def list_scans(cookie_jar: Path, experiment_id: str) -> list[dict]:
+    url = (
+        f"{XNAT_HOST}/data/archive/experiments/{experiment_id}/scans?format=json"
     )
-    r.raise_for_status()
-    return r.json()["ResultSet"]["Result"]
+    data = curl_get_json(url, cookie_jar)
+    return data["ResultSet"]["Result"]
 
 
 def is_rsfmri(scan: dict) -> bool:
-    """Check if a scan dict represents a resting-state BOLD scan."""
     haystacks = [
         scan.get("type") or "",
         scan.get("series_description") or "",
@@ -194,100 +173,88 @@ def is_rsfmri(scan: dict) -> bool:
     return any(p.search(h) for h in haystacks for p in RSFMRI_PATTERNS)
 
 
-def find_first_rsfmri(session: requests.Session, subject: str):
-    """For one subject, return (session_label, scan_id) of the earliest rs-fMRI.
+def find_first_rsfmri(cookie_jar: Path, subject: str):
+    """Return (session_label, experiment_id, scan_id) for earliest rs-fMRI.
 
-    Returns None if no rs-fMRI scan found in any session.
+    None if not found.
     """
-    for mr in list_mr_sessions(session, subject):
+    for mr in list_mr_sessions(cookie_jar, subject):
         try:
-            scans = list_scans(session, mr["ID"])
-        except requests.HTTPError:
+            scans = list_scans(cookie_jar, mr["ID"])
+        except RuntimeError:
             continue
-        for scan in scans:
-            if is_rsfmri(scan):
-                return mr["label"], mr["ID"], scan["ID"]
+        for sc in scans:
+            if is_rsfmri(sc):
+                return mr["label"], mr["ID"], sc["ID"]
     return None
 
 
-def download_scan_zip(session: requests.Session, experiment_id: str,
+def download_scan_zip(cookie_jar: Path, experiment_id: str,
                       scan_id: str, dest_zip: Path):
-    """Download the NIFTI resource (or all files) for one scan as a ZIP."""
+    """Download the scan's NIfTI resource (or fallback to all files) as ZIP."""
     url = (
         f"{XNAT_HOST}/data/archive/experiments/{experiment_id}/scans/{scan_id}"
-        f"/resources/NIFTI/files"
+        f"/resources/NIFTI/files?format=zip"
     )
-    r = session.get(url, params={"format": "zip"}, stream=True, timeout=600)
-    if r.status_code == 404:
-        # Fall back to all files (the resource might be named differently)
+    try:
+        curl_download(url, cookie_jar, dest_zip)
+    except RuntimeError:
+        # Fallback: all files for the scan
         url = (
-            f"{XNAT_HOST}/data/archive/experiments/{experiment_id}/scans/{scan_id}/files"
+            f"{XNAT_HOST}/data/archive/experiments/{experiment_id}/scans/{scan_id}"
+            f"/files?format=zip"
         )
-        r = session.get(url, params={"format": "zip"}, stream=True, timeout=600)
-    r.raise_for_status()
-    dest_zip.parent.mkdir(parents=True, exist_ok=True)
-    with open(dest_zip, "wb") as f:
-        for chunk in r.iter_content(chunk_size=65536):
-            f.write(chunk)
+        curl_download(url, cookie_jar, dest_zip)
 
+
+# -------- ZIP + downsample --------------------------------------------------
 
 def extract_first_nii_gz(zip_path: Path, dest_dir: Path) -> Path | None:
-    """Extract the .nii.gz file from a ZIP and return its path."""
     dest_dir.mkdir(parents=True, exist_ok=True)
     with zipfile.ZipFile(zip_path, "r") as zf:
-        nii_names = [n for n in zf.namelist() if n.endswith(".nii.gz")]
-        if not nii_names:
+        nii = [n for n in zf.namelist() if n.endswith(".nii.gz")]
+        if not nii:
             return None
-        # Take the first (and usually only) NIfTI
-        nii_name = nii_names[0]
-        out_path = dest_dir / Path(nii_name).name
-        with zf.open(nii_name) as src, open(out_path, "wb") as dst:
+        out_path = dest_dir / Path(nii[0]).name
+        with zf.open(nii[0]) as src, open(out_path, "wb") as dst:
             shutil.copyfileobj(src, dst)
         return out_path
 
 
 def downsample_4d(nii_path: Path) -> torch.Tensor:
-    """Load 4D NIfTI, downsample spatial to TARGET_SHAPE via trilinear."""
     img = nib.load(str(nii_path))
     data = img.get_fdata(dtype=np.float32)
-    vol = torch.from_numpy(data).permute(3, 0, 1, 2).unsqueeze(0)  # (1, T, X, Y, Z)
+    vol = torch.from_numpy(data).permute(3, 0, 1, 2).unsqueeze(0)
     vol_ds = F.interpolate(
         vol,
         size=TARGET_SHAPE,
         mode="trilinear",
         align_corners=False,
     )
-    return vol_ds.squeeze(0)  # (T, 45, 54, 45)
+    return vol_ds.squeeze(0)
 
 
-def process_subject(http_session: requests.Session, subject: str,
+def process_subject(cookie_jar: Path, subject: str,
                     output_dir: Path, tmp_dir: Path) -> str:
-    """Download + downsample one subject's baseline rs-fMRI. Returns status string."""
-    out_subject_dir = output_dir / subject
-    # If any .pt already exists for this subject, skip.
-    if list(out_subject_dir.glob("*.pt")):
+    out_subj_dir = output_dir / subject
+    if list(out_subj_dir.glob("*.pt")):
         return "skip (already done)"
-
-    found = find_first_rsfmri(http_session, subject)
+    found = find_first_rsfmri(cookie_jar, subject)
     if found is None:
         return "no rs-fMRI found"
-    session_label, experiment_id, scan_id = found
-
-    # Extract the d<days> suffix for filename
+    session_label, exp_id, scan_id = found
     m = re.search(r"_d(\d+)$", session_label)
     days = m.group(1) if m else "0000"
-
     tmp_zip = tmp_dir / f"{subject}_{session_label}_scan{scan_id}.zip"
     tmp_extract = tmp_dir / f"{subject}_{session_label}_scan{scan_id}_ext"
-
     try:
-        download_scan_zip(http_session, experiment_id, scan_id, tmp_zip)
+        download_scan_zip(cookie_jar, exp_id, scan_id, tmp_zip)
         nii = extract_first_nii_gz(tmp_zip, tmp_extract)
         if nii is None:
             return "ZIP contained no .nii.gz"
         ds = downsample_4d(nii)
-        out_subject_dir.mkdir(parents=True, exist_ok=True)
-        out_path = out_subject_dir / f"rest_d{days}_downsampled.pt"
+        out_subj_dir.mkdir(parents=True, exist_ok=True)
+        out_path = out_subj_dir / f"rest_d{days}_downsampled.pt"
         torch.save(ds, out_path)
         return f"ok  shape={tuple(ds.shape)}  -> {out_path.name}"
     finally:
@@ -297,16 +264,14 @@ def process_subject(http_session: requests.Session, subject: str,
             shutil.rmtree(tmp_extract, ignore_errors=True)
 
 
+# -------- main --------------------------------------------------------------
+
 def main():
     ap = argparse.ArgumentParser()
-    ap.add_argument("--username", required=True,
-                    help="NITRC-IR username (XNAT login)")
-    ap.add_argument("--output-dir", required=True,
-                    help="Where to save downsampled .pt files")
-    ap.add_argument("--tmp-dir", default="/tmp/oasis3_raw",
-                    help="Temp dir for raw ZIPs / NIfTIs (cleaned up per session)")
-    ap.add_argument("--limit", type=int, default=None,
-                    help="Process only the first N subjects (testing)")
+    ap.add_argument("--username", required=True)
+    ap.add_argument("--output-dir", required=True)
+    ap.add_argument("--tmp-dir", default="/tmp/oasis3_raw")
+    ap.add_argument("--limit", type=int, default=None)
     args = ap.parse_args()
 
     password, pw_source = get_password()
@@ -323,34 +288,43 @@ def main():
     print(f"Username   : {args.username}")
     print(f"Password   : {mask_password(password)}  source: {pw_source}")
 
-    http_session = authenticate(XNAT_HOST, args.username, password)
+    # Auth: save cookie to a private temp file (chmod 600).
+    cookie_jar = Path(tempfile.mkstemp(prefix="oasis3_cookie_", suffix=".jar")[1])
+    cookie_jar.chmod(0o600)
+    try:
+        print("Authenticating via curl subprocess ...")
+        curl_auth(args.username, password, cookie_jar)
+        print(f"Authenticated. Cookie jar: {cookie_jar}")
 
-    print("Listing subjects ...")
-    subjects = list_subjects(http_session)
-    print(f"Found {len(subjects)} subjects on OASIS-3.")
-    if args.limit:
-        subjects = subjects[:args.limit]
-        print(f"Limiting to first {len(subjects)}.")
+        print("Listing subjects ...")
+        subjects = list_subjects(cookie_jar)
+        print(f"Found {len(subjects)} subjects on OASIS-3.")
+        if args.limit:
+            subjects = subjects[:args.limit]
+            print(f"Limiting to first {len(subjects)}.")
 
-    n_ok = n_skip = n_no = n_err = 0
-    for i, subj in enumerate(subjects, 1):
-        try:
-            status = process_subject(http_session, subj, output_dir, tmp_dir)
-        except Exception as e:
-            status = f"error: {e!r}"
-        print(f"[{i}/{len(subjects)}] {subj}  -- {status}", flush=True)
-        if status.startswith("ok"):
-            n_ok += 1
-        elif status.startswith("skip"):
-            n_skip += 1
-        elif "no rs-fMRI" in status:
-            n_no += 1
-        else:
-            n_err += 1
+        n_ok = n_skip = n_no = n_err = 0
+        for i, subj in enumerate(subjects, 1):
+            try:
+                status = process_subject(cookie_jar, subj, output_dir, tmp_dir)
+            except Exception as e:
+                status = f"error: {e!r}"
+            print(f"[{i}/{len(subjects)}] {subj}  -- {status}", flush=True)
+            if status.startswith("ok"):
+                n_ok += 1
+            elif status.startswith("skip"):
+                n_skip += 1
+            elif "no rs-fMRI" in status:
+                n_no += 1
+            else:
+                n_err += 1
 
-    print(f"\nSummary: ok={n_ok}  skipped={n_skip}  no rs-fMRI={n_no}  errors={n_err}")
-    if tmp_dir.exists():
-        shutil.rmtree(tmp_dir, ignore_errors=True)
+        print(f"\nSummary: ok={n_ok} skipped={n_skip} no rs-fMRI={n_no} errors={n_err}")
+    finally:
+        if cookie_jar.exists():
+            cookie_jar.unlink()
+        if tmp_dir.exists():
+            shutil.rmtree(tmp_dir, ignore_errors=True)
     print("Done.")
 
 
