@@ -54,9 +54,15 @@ for pkg in nibabel; do
     python -c "import $pkg" 2>/dev/null || pip install --no-input "$pkg"
 done
 
+# DELETE_RAW=1 frees each raw dir right after its .pt is saved (the TR is
+# captured to the manifest first). Use this when disk is tight.
+EXTRA_ARGS=""
+[ "${DELETE_RAW:-0}" = "1" ] && EXTRA_ARGS="--delete-raw"
+
 python3 "$TASK_DIR/downsample_oasis3.py" \
     --input-dir "$INPUT_DIR" \
-    --output-dir "$OUTPUT_DIR"
+    --output-dir "$OUTPUT_DIR" \
+    $EXTRA_ARGS
 
 echo ""
 echo "============================================================"

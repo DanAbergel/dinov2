@@ -19,7 +19,9 @@ Output:
 """
 
 import argparse
+import json
 import re
+import shutil
 import sys
 from pathlib import Path
 
@@ -86,11 +88,31 @@ def find_first_rest(experiment_dir: Path):
     return path, subject, day
 
 
+def read_tr_from_json(nii_path: Path):
+    """Read RepetitionTime (seconds) from the BIDS JSON sidecar next to the
+    NIfTI. OASIS-3 has no fixed TR, so this per-scan value is essential and
+    MUST be captured before the raw is deleted. Returns None if unavailable.
+    """
+    json_path = Path(str(nii_path).replace(".nii.gz", ".json"))
+    if not json_path.exists():
+        return None
+    try:
+        with open(json_path) as f:
+            meta = json.load(f)
+        return meta.get("RepetitionTime")
+    except Exception:
+        return None
+
+
 def main():
     ap = argparse.ArgumentParser()
     ap.add_argument("--input-dir", required=True,
                     help="Dir with per-experiment subfolders from NrgXnat")
     ap.add_argument("--output-dir", required=True)
+    ap.add_argument("--delete-raw", action="store_true",
+                    help="Delete each experiment's raw dir after its .pt is "
+                         "saved (frees disk; the TR is captured to the manifest "
+                         "first).")
     args = ap.parse_args()
 
     input_dir = Path(args.input_dir).resolve()
@@ -100,8 +122,15 @@ def main():
         sys.exit(2)
     output_dir.mkdir(parents=True, exist_ok=True)
 
+    # Manifest of per-scan TR (OASIS-3 has no fixed TR). Appended as we go so
+    # the TR survives raw deletion. Format: subject,day,tr,T
+    manifest_path = output_dir / "oasis3_tr_manifest.csv"
+    if not manifest_path.exists():
+        manifest_path.write_text("subject,day,tr,T\n")
+
     experiments = sorted(p for p in input_dir.iterdir() if p.is_dir())
     print(f"Found {len(experiments)} experiment dirs to process.")
+    print(f"delete-raw: {args.delete_raw}")
     n_ok = n_skip = n_err = 0
 
     for i, exp_dir in enumerate(experiments, 1):
@@ -116,19 +145,27 @@ def main():
         if out_path.exists():
             print(f"[{i}/{len(experiments)}] {subject}/{day}: skip (already done)")
             n_skip += 1
+            if args.delete_raw:                      # already done -> free its raw
+                shutil.rmtree(exp_dir, ignore_errors=True)
             continue
         try:
+            tr = read_tr_from_json(nii_path)          # capture TR BEFORE delete
             ds = downsample_4d(nii_path)
             out_subject_dir.mkdir(parents=True, exist_ok=True)
             torch.save(ds, out_path)
+            with open(manifest_path, "a") as f:
+                f.write(f"{subject},{day},{tr},{ds.shape[0]}\n")
             print(f"[{i}/{len(experiments)}] {subject}/{day}: "
-                  f"saved shape={tuple(ds.shape)}")
+                  f"saved shape={tuple(ds.shape)} tr={tr}")
             n_ok += 1
+            if args.delete_raw:
+                shutil.rmtree(exp_dir, ignore_errors=True)
         except Exception as e:
             print(f"[{i}/{len(experiments)}] {subject}/{day}: error {e!r}")
             n_err += 1
 
     print(f"\nSummary: ok={n_ok} skipped={n_skip} errors={n_err}")
+    print(f"TR manifest: {manifest_path}")
 
 
 if __name__ == "__main__":
