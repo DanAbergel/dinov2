@@ -114,6 +114,19 @@ for r in d['ResultSet']['Result']:
 N_SUBJ=$(wc -l < "$SUBJECTS_TXT")
 echo "  found $N_SUBJ real OAS3 subjects"
 
+# Skip subjects already downloaded (a dir OAS3XXXX_MR_* already exists in
+# raw_nifti). Lets a 2nd job resume where a previous run stopped, without
+# re-querying/re-downloading the ~726 already on disk.
+RAW_DIR="$OASIS3_DIR/raw_nifti"
+if [ -d "$RAW_DIR" ]; then
+    ls "$RAW_DIR" 2>/dev/null | sed -E 's/_MR_.*$//' | sort -u > "$WORK_DIR/already.txt"
+    N_ALREADY=$(wc -l < "$WORK_DIR/already.txt")
+    comm -23 "$SUBJECTS_TXT" "$WORK_DIR/already.txt" > "$SUBJECTS_TXT.todo"
+    mv "$SUBJECTS_TXT.todo" "$SUBJECTS_TXT"
+    echo "  skipping $N_ALREADY already-downloaded subjects"
+    echo "  remaining to process: $(wc -l < "$SUBJECTS_TXT")"
+fi
+
 # Limit if requested
 if [ -n "${LIMIT:-}" ]; then
     head -n "$LIMIT" "$SUBJECTS_TXT" > "$SUBJECTS_TXT.lim"
