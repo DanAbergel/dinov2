@@ -7,32 +7,32 @@ fontsize: 10pt
 
 # Goal
 
-Build a multi-source resting-state fMRI corpus to pretrain the DINOv2-based foundation model, then evaluate downstream on Alzheimer's disease (ADNI). The strategy mirrors SLIM-Brain (arXiv 2512.21881), which showed that a **diverse multi-source corpus (~4,000 sessions)** outperforms a single large cohort. Our target is a comparable scale (~4,000–5,000 scans) but **biased toward aging populations** to match the AD downstream task.
+Build a multi-source resting-state fMRI corpus to pretrain the DINOv2-based foundation model, then evaluate downstream on Alzheimer's disease (ADNI). Strategy: a diverse multi-source corpus biased toward aging populations (as in SLIM-Brain, arXiv 2512.21881).
 
 # 1. Datasets — status and properties
 
-All scans are spatially downsampled to a common grid of **45 × 54 × 45** voxels (≈ 4 mm isotropic) via trilinear interpolation, saved as PyTorch tensors of shape `(T, 45, 54, 45)`. The temporal dimension `T` and the repetition time (TR) are **not yet harmonized** — see open problems below.
+All scans are spatially downsampled to **45 × 54 × 45** voxels via trilinear interpolation, saved as tensors of shape `(T, 45, 54, 45)`. The temporal dimension `T` and the TR are not yet harmonized (see Problem 1).
 
-| Dataset       | Status        | Scans (target) | Population                | Age range | TR (s)   | Native T (frames) | Access        |
-|---------------|---------------|:--------------:|---------------------------|-----------|:--------:|:-----------------:|---------------|
-| **HCP-YA**    | Done          | ~1,206         | Young healthy adults      | 22–35     | 0.72     | 1200              | Open (S3)     |
-| **ABIDE I**   | Done          | 1,102          | Autism + controls         | 6–64      | 1.5–3.0\* | 116–296           | Open (S3, PCP)|
-| **OASIS-3**   | In progress   | ~1,197         | Aging + AD (longitudinal) | 42–95     | 2.2      | ~164              | NITRC (XNAT)  |
-| **AOMIC PIOP**| Code ready    | ~442           | Young adults (Amsterdam)  | 18–26     | 0.75     | ~480              | Open (OpenNeuro)|
-| **ADNI**      | Downloading   | ~800–1,000     | Aging + MCI + AD          | 55–95     | 3.0      | ~140              | LONI IDA / Sagi |
+| Dataset       | Scans | Population                | Age range | TR (s)   | Native T  | Access          |
+|---------------|:-----:|---------------------------|-----------|:--------:|:---------:|-----------------|
+| **HCP-YA**    | 1,206 | Young healthy adults      | 22–35     | 0.72     | 1200      | Open (S3)       |
+| **ABIDE I**   | 1,102 | Autism + controls         | 6–64      | 1.5–3.0\* | 116–296   | Open (S3, PCP)  |
+| **OASIS-3**   | 1,197 | Aging + AD (longitudinal) | 42–95     | 2.2      | ~164      | NITRC (XNAT)    |
+| **AOMIC PIOP**| 442   | Young adults (Amsterdam)  | 18–26     | 0.75     | ~480      | Open (OpenNeuro)|
+| **ADNI**      | 812   | Aging + MCI + AD          | 55–95     | 3.0      | ~140      | Sagi (preproc.) |
+| **Total**     | **4,759** |                       |           |          |           |                 |
 
 \* ABIDE TR varies by acquisition site (17 sites, e.g. NYU 2.0s, UCLA 3.0s, Pitt 1.5s).
 
-**Current total (downloaded & usable):** ~2,308 scans (HCP + ABIDE), with OASIS-3 (~580 raw so far) in progress.
-**Projected total:** ~4,750 scans once all five datasets are complete — comparable to SLIM-Brain's 4,129, with a stronger aging bias (OASIS-3 + ADNI + part of ABIDE) suited to the Alzheimer's downstream task.
+**Total: 4,759 scans** — comparable in scale to SLIM-Brain (4,129), with a stronger aging bias (OASIS-3 + ADNI) for the Alzheimer's downstream task.
 
 ## Per-dataset notes
 
-- **HCP-YA**: re-downloaded from scratch with proper **trilinear** spatial downsampling (the previous version used every-other-voxel subsampling, which introduces spatial aliasing). 1 resting run per subject (REST1_LR).
-- **ABIDE I**: uses the Preprocessed Connectomes Project outputs, CPAC pipeline, `nofilt_noglobal` strategy (no band-pass, no global signal regression) to stay close to the minimal preprocessing of the other datasets. Already motion-corrected and MNI-registered.
-- **OASIS-3**: 1 resting run per subject (the longest run of the earliest session that contains an rs-fMRI). Note that OASIS-3 sessions often contain a short ~5-frame calibration run that we explicitly skip.
-- **AOMIC PIOP1+PIOP2**: fMRIPrep-preprocessed MNI rest BOLD; adds scanner/site diversity (Philips, Amsterdam) vs. the US-based cohorts.
-- **ADNI**: most complex to acquire (no public S3; LONI IDA requires a Java downloader, and raw scans are in subject space, not MNI). We are evaluating whether to (a) preprocess fresh from LONI or (b) reuse the already-preprocessed ADNI from a collaborator (Sagi). See problem #2.
+- **HCP-YA**: trilinear spatial downsampling (the previous version used every-other-voxel subsampling, which causes aliasing). 1 resting run per subject (REST1_LR).
+- **ABIDE I**: Preprocessed Connectomes Project, CPAC pipeline, `nofilt_noglobal` strategy (no band-pass, no global signal regression — minimal, like the others). Already motion-corrected and MNI-registered.
+- **OASIS-3**: 1 resting run per subject (longest run of the earliest session with rs-fMRI; a short ~5-frame calibration run is skipped).
+- **AOMIC PIOP1+PIOP2**: fMRIPrep MNI rest BOLD; adds scanner diversity (Philips, Amsterdam).
+- **ADNI**: no public S3 (LONI IDA only, raw scans in subject space). Two sources under evaluation — fresh from LONI, or Sagi's already-preprocessed version (see Problem 2).
 
 # 2. Open problem 1 — heterogeneous TR across datasets
 
