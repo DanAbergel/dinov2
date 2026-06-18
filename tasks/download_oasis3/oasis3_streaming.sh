@@ -40,7 +40,12 @@ SHARD_ID="${SLURM_ARRAY_TASK_ID:-0}"
 N_SHARDS="${N_SHARDS:-${SLURM_ARRAY_TASK_COUNT:-10}}"
 XNAT_USERNAME="${XNAT_USERNAME:-danab95}"
 
-mkdir -p "$TASK_DIR/logs" "$OASIS3_DIR/downsampled"
+# Where the downsampled .pt files go. Override to write into a shared
+# lab folder, e.g. OUTPUT_DIR=/sci/labs/arieljaffe/arieljaffe/OASIS3_data/downsampled
+# The per-subject structure (<subject>/rest_d<XXX>_downsampled.pt) is unchanged.
+OUTPUT_DIR="${OUTPUT_DIR:-$OASIS3_DIR/downsampled}"
+
+mkdir -p "$TASK_DIR/logs" "$OUTPUT_DIR"
 TMP_DIR="$LAB_DIR/tmp/oasis3_shard${SHARD_ID}"
 mkdir -p "$TMP_DIR"
 
@@ -62,9 +67,11 @@ python -c "import nibabel" 2>/dev/null || {
     exit 4
 }
 
+echo "  OUTPUT_DIR: $OUTPUT_DIR"
+
 XNAT_USERNAME="$XNAT_USERNAME" python "$TASK_DIR/oasis3_streaming.py" \
     --username "$XNAT_USERNAME" \
-    --output-dir "$OASIS3_DIR/downsampled" \
+    --output-dir "$OUTPUT_DIR" \
     --tmp-dir "$TMP_DIR" \
     --shard-id "$SHARD_ID" \
     --n-shards "$N_SHARDS"
