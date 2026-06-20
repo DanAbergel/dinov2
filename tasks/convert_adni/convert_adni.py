@@ -108,17 +108,35 @@ def main():
         print(f"  WARNING: tensor has {N} scans but index_to_name has "
               f"{len(index_to_name)} entries")
 
-    # Collect the union of label keys for a stable CSV header.
+    # T is uniform across scans (a stacked tensor forces the same length for
+    # all), so read it once from the shape — no need to touch each scan.
+    T_global = data.shape[-1] if t_is_last else data.shape[1]
+    print(f"  uniform T = {T_global}")
+
+    # ---- STEP 1: write the FULL manifest up front, from the JSONs alone. ----
+    # Independent of the (slow, killable) volume loop, so the labels are always
+    # complete on disk even if volume conversion is interrupted. Flushed+closed
+    # immediately (the old version buffered rows until the end -> empty file on
+    # a kill).
     label_keys = set()
     for v in image_labels.values():
         label_keys.update(v.keys())
     label_keys = sorted(label_keys)
 
     manifest_path = out / "adni_manifest.csv"
-    f_manifest = open(manifest_path, "w", newline="")
-    writer = csv.writer(f_manifest)
-    writer.writerow(["image_id", "subject_id", "T", "tr"] + label_keys)
+    with open(manifest_path, "w", newline="") as f_manifest:
+        writer = csv.writer(f_manifest)
+        writer.writerow(["image_id", "subject_id", "T", "tr"] + label_keys)
+        for idx in sorted(index_to_name.keys(), key=int):
+            entry = index_to_name[idx]
+            image_id = entry["image_id"]
+            labels = image_labels.get(image_id, {})
+            writer.writerow([image_id, entry["subject_id"], T_global, args.tr]
+                            + [labels.get(k, "") for k in label_keys])
+        f_manifest.flush()
+    print(f"  manifest written ({len(index_to_name)} rows): {manifest_path}")
 
+    # ---- STEP 2: convert volumes (skippable / resumable). ----
     n_ok = n_skip = 0
     for idx in sorted(index_to_name.keys(), key=int):
         i = int(idx)
@@ -128,28 +146,22 @@ def main():
 
         subj_dir = out / subject_id
         out_path = subj_dir / f"{image_id}.pt"
-        # Read ONLY scan i from the mmap'd file, then move T to front per-scan
-        # (a single scan is small, so the permute/contiguous is cheap).
-        vol = data[i].float()                           # (X,Y,Z,T) or (T,X,Y,Z)
-        if t_is_last:
-            vol = vol.permute(3, 0, 1, 2).contiguous()  # -> (T, X, Y, Z)
-        T = int(vol.shape[0])
         if out_path.exists():
             n_skip += 1
         else:
-            vol = resample_spatial(vol)                 # (T, 45, 54, 45)
+            # Read ONLY scan i from the mmap'd file, then move T to front
+            # per-scan (a single scan is small, so permute/contiguous is cheap).
+            vol = data[i].float()                           # (X,Y,Z,T) or (T,X,Y,Z)
+            if t_is_last:
+                vol = vol.permute(3, 0, 1, 2).contiguous()  # -> (T, X, Y, Z)
+            vol = resample_spatial(vol)                     # (T, 45, 54, 45)
             subj_dir.mkdir(parents=True, exist_ok=True)
             torch.save(vol.contiguous(), out_path)
             n_ok += 1
 
-        labels = image_labels.get(image_id, {})
-        writer.writerow([image_id, subject_id, T, args.tr]
-                        + [labels.get(k, "") for k in label_keys])
-
         if (n_ok + n_skip) % 100 == 0:
             print(f"  {n_ok+n_skip}/{N}  (saved={n_ok} skip={n_skip})")
 
-    f_manifest.close()
     print(f"\nDone: saved={n_ok} skipped={n_skip} of {N}")
     print(f"Per-scan .pt under: {out}")
     print(f"Manifest: {manifest_path}")
