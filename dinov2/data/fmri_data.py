@@ -22,6 +22,7 @@ from typing import Any, Callable, Optional, Tuple
 import numpy as np
 import torch
 import torch.nn.functional as F
+from scipy.signal import resample_poly
 from torch.utils.data import Dataset, Sampler
 
 
@@ -136,15 +137,28 @@ def _native_window(T, tr_native, t_fixed, target_tr=TARGET_TR):
 
 
 def _temporal_resample(clip, n_out):
-    """(n_in,1,X,Y,Z) -> (n_out,1,X,Y,Z) by linear interpolation along time.
-    For HCP (tr==target) n_in already equals n_out -> no-op."""
+    """(n_in,1,X,Y,Z) -> (n_out,1,X,Y,Z) by POLYPHASE resampling along time
+    (scipy.signal.resample_poly, per Ariel — anti-aliased FIR, the correct tool
+    for resampling a band-limited BOLD signal, vs naive linear interpolation).
+
+    Resamples the cropped window from n_in to n_out samples, i.e. from the
+    native TR to TARGET_TR (since n_in native frames span ~n_out*TARGET_TR
+    seconds). For HCP (n_in == n_out) it's a no-op.
+    """
     n_in = clip.shape[0]
     if n_in == n_out:
         return clip
-    C, X, Y, Z = clip.shape[1:]
-    flat = clip.reshape(n_in, -1).transpose(0, 1).unsqueeze(0)     # (1, V, n_in)
-    flat = F.interpolate(flat, size=n_out, mode="linear", align_corners=False)
-    return flat.squeeze(0).transpose(0, 1).reshape(n_out, C, X, Y, Z).contiguous()
+    g = math.gcd(n_out, n_in)
+    up, down = n_out // g, n_in // g                  # new_rate/old_rate = n_out/n_in
+    arr = clip.contiguous().numpy()                   # (n_in, 1, X, Y, Z)
+    out = resample_poly(arr, up, down, axis=0)        # ~n_out along time
+    out = torch.from_numpy(np.ascontiguousarray(out)).float()
+    if out.shape[0] > n_out:                          # guard off-by-one from ceil
+        out = out[:n_out]
+    elif out.shape[0] < n_out:
+        pad = n_out - out.shape[0]
+        out = torch.cat([out, out[-1:].expand(pad, *out.shape[1:])], dim=0)
+    return out.contiguous()
 
 
 def _finalize(clip, t_fixed, target_shape=TARGET_SHAPE):
@@ -157,6 +171,29 @@ def _finalize(clip, t_fixed, target_shape=TARGET_SHAPE):
                              mode="trilinear", align_corners=False)
     clip = _temporal_resample(clip, t_fixed)
     return _zscore_per_frame(clip)
+
+
+def compute_t_fixed_max(lab_root=LAB_ROOT,
+                        datasets=("HCP", "ABIDE", "OASIS", "AOMIC", "ADNI"),
+                        margin=0):
+    """Largest T_fixed window (in TARGET_TR frames) that fits EVERY scan with no
+    padding = the global minimum upsampled length round(T_native*tr/TARGET_TR).
+
+    Reads every scan's header T (cheap mmap) once. Returns
+    (t_fixed_max - margin, per_dataset_min, n_argmin_scan). Use it offline to
+    pick DEFAULT_T_FIXED; a small margin guards the round()/edge off-by-one.
+    """
+    entries, _ = build_corpus_entries(lab_root, datasets)
+    per: dict = {}
+    g_min, argmin = None, None
+    for e in entries:
+        T = _load_mmap(e["path"]).shape[0]
+        up = round(T * e["tr"] / TARGET_TR)
+        d = e["dataset"]
+        per[d] = min(per.get(d, up), up)
+        if g_min is None or up < g_min:
+            g_min, argmin = up, e
+    return max(1, g_min - margin), per, argmin
 
 
 class HCPFullScanDataset(Dataset):
