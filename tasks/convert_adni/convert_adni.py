@@ -47,25 +47,23 @@ INDEX_JSON = "index_to_name.json"
 LABELS_JSON = "imageID_to_labels.json"
 
 
-def detect_and_move_T_first(data: torch.Tensor) -> torch.Tensor:
-    """(N, a, b, c, d) -> (N, T, X, Y, Z).
+def detect_T_position(shape) -> bool:
+    """Return True if T is the LAST axis (N, X, Y, Z, T), False if FIRST.
 
     The spatial triplet (X, Y, Z) has similar magnitudes; T is the outlier.
     We compare the spread (max/min) of the last-three vs first-three of the
-    non-batch dims and put T first. Mirrors adni_probe.extract_embeddings.
+    non-batch dims. Works from the SHAPE alone — no data is moved (critical
+    so we never materialize the full multi-GB tensor in RAM).
     """
-    if data.ndim != 5:
-        raise ValueError(f"expected 5D (N,a,b,c,d), got {data.ndim}D {tuple(data.shape)}")
-    _, *rest = data.shape  # 4 dims
+    if len(shape) != 5:
+        raise ValueError(f"expected 5D (N,a,b,c,d), got {len(shape)}D {tuple(shape)}")
+    rest = list(shape[1:])  # 4 dims (a,b,c,d)
     spread_if_T_last = max(rest[:-1]) / min(rest[:-1])   # treat last as T
     spread_if_T_first = max(rest[1:]) / min(rest[1:])    # treat first as T
-    if spread_if_T_last < spread_if_T_first:
-        # last dim is T (spatial triplet = rest[:-1]) -> move it to front
-        data = data.permute(0, 4, 1, 2, 3).contiguous()
-        print(f"  T detected LAST -> permuted to (N,T,X,Y,Z): {tuple(data.shape)}")
-    else:
-        print(f"  T detected FIRST already: {tuple(data.shape)}")
-    return data
+    t_is_last = spread_if_T_last < spread_if_T_first
+    print(f"  T detected {'LAST' if t_is_last else 'FIRST'} "
+          f"(per-scan dims {tuple(rest)})")
+    return t_is_last
 
 
 def resample_spatial(vol_4d: torch.Tensor) -> torch.Tensor:
@@ -91,10 +89,14 @@ def main():
     out = Path(args.output_dir)
     out.mkdir(parents=True, exist_ok=True)
 
-    print(f"Loading {src/SOURCE_TENSOR} ...")
-    data = torch.load(src / SOURCE_TENSOR, map_location="cpu", weights_only=True)
+    # mmap=True keeps the tensor on disk and reads only the slice we index
+    # (data[i]) into RAM. Essential: the stacked tensor can be tens of GB,
+    # which OOM-kills a naive full load.
+    print(f"Loading {src/SOURCE_TENSOR} (mmap, lazy) ...")
+    data = torch.load(src / SOURCE_TENSOR, map_location="cpu",
+                      weights_only=True, mmap=True)
     print(f"  raw shape={tuple(data.shape)} dtype={data.dtype}")
-    data = detect_and_move_T_first(data)
+    t_is_last = detect_T_position(data.shape)
 
     with open(src / INDEX_JSON) as f:
         index_to_name = json.load(f)
@@ -126,16 +128,20 @@ def main():
 
         subj_dir = out / subject_id
         out_path = subj_dir / f"{image_id}.pt"
+        # Read ONLY scan i from the mmap'd file, then move T to front per-scan
+        # (a single scan is small, so the permute/contiguous is cheap).
+        vol = data[i].float()                           # (X,Y,Z,T) or (T,X,Y,Z)
+        if t_is_last:
+            vol = vol.permute(3, 0, 1, 2).contiguous()  # -> (T, X, Y, Z)
+        T = int(vol.shape[0])
         if out_path.exists():
             n_skip += 1
         else:
-            vol = data[i].float()                       # (T, X, Y, Z)
             vol = resample_spatial(vol)                 # (T, 45, 54, 45)
             subj_dir.mkdir(parents=True, exist_ok=True)
             torch.save(vol.contiguous(), out_path)
             n_ok += 1
 
-        T = int(data[i].shape[0])
         labels = image_labels.get(image_id, {})
         writer.writerow([image_id, subject_id, T, args.tr]
                         + [labels.get(k, "") for k in label_keys])
