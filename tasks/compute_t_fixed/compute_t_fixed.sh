@@ -36,6 +36,10 @@ exec >"$LOG_OUT" 2>"$LOG_ERR"
 
 source "$VENV_DIR/bin/activate"
 
+# Make the `dinov2` package importable: running a script FILE puts the script's
+# dir on sys.path, not the repo root, so add the repo root explicitly.
+export PYTHONPATH="$OFFICIAL_DIR:${PYTHONPATH:-}"
+
 echo "============================================================"
 echo "  Compute T_fixed_max   Node: $(hostname)   Date: $(date)"
 echo "============================================================"
