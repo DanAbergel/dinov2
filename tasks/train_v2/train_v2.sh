@@ -22,7 +22,7 @@
 # =====================================================================
 
 #SBATCH --job-name=fmri-v2
-#SBATCH --gres=gpu:l40s:1
+#SBATCH --gres=gpu:h200:1
 #SBATCH --cpus-per-task=8
 #SBATCH --mem=64G
 #SBATCH --time=72:00:00
@@ -38,7 +38,7 @@ TASK_DIR="$OFFICIAL_DIR/tasks/train_v2"
 CONFIG="$OFFICIAL_DIR/dinov2/configs/train/fmri_vits.yaml"
 
 # --- cluster-specific (override on the command line) ---------------------
-VENV="${VENV:-$OFFICIAL_DIR/dinov2/env_dino}"      # dinov2 env (xformers, etc.)
+VENV="${VENV:-$LAB_DIR/torch_env}"                 # dinov2 training env
 RUN_NAME="${RUN_NAME:-fmri_v2_baseline}"
 OUTPUT_DIR="${OUTPUT_DIR:-$LAB_DIR/runs/$RUN_NAME}"
 MASTER_PORT="${MASTER_PORT:-29531}"
