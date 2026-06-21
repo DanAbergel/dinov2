@@ -251,14 +251,23 @@ def make_data_loader(
         proportional_quota=proportional_quota,
     )
 
-    # FMRI: the proportional sampler yields one quota-composed block per
-    # batch_size indices, so the loader batch_size MUST equal sum(quota).
+    # FMRI: the proportional sampler yields a quota-composed block of
+    # sum(quota) indices at a time. The loader batch_size must DIVIDE that
+    # block so micro-batches align with block boundaries — then the proportional
+    # composition is realized over (sum(quota) // batch_size) consecutive
+    # micro-batches (= grad_accum_steps for a proportional *effective* batch).
     if sampler_type == SamplerType.PROPORTIONAL:
-        if batch_size != sampler.batch_size:
+        if sampler.batch_size % batch_size != 0:
             raise ValueError(
-                f"batch_size ({batch_size}) must equal sum(quota) "
-                f"({sampler.batch_size}) for the proportional sampler."
+                f"sum(quota) ({sampler.batch_size}) must be a multiple of "
+                f"batch_size ({batch_size}) for the proportional sampler."
             )
+        n_micro = sampler.batch_size // batch_size
+        logger.info(
+            f"proportional sampler: block={sampler.batch_size}, batch_size={batch_size} "
+            f"-> proportional effective batch over {n_micro} micro-batches "
+            f"(set grad_accum_steps={n_micro} for a fully proportional step)."
+        )
 
     logger.info("using PyTorch data loader")
     data_loader = torch.utils.data.DataLoader(
