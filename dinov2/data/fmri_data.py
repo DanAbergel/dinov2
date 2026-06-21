@@ -180,20 +180,24 @@ def compute_t_fixed_max(lab_root=LAB_ROOT,
     padding = the global minimum upsampled length round(T_native*tr/TARGET_TR).
 
     Reads every scan's header T (cheap mmap) once. Returns
-    (t_fixed_max - margin, per_dataset_min, n_argmin_scan). Use it offline to
-    pick DEFAULT_T_FIXED; a small margin guards the round()/edge off-by-one.
+    (t_fixed_max - margin, per_dataset_min, shortest_scan_entry, per_all_upsampled).
+    Use it offline to pick DEFAULT_T_FIXED; a small margin guards the
+    round()/edge off-by-one. `per_all_upsampled` (dataset -> list of every scan's
+    upsampled T) lets callers compute how many scans a larger T_fixed would drop.
     """
     entries, _ = build_corpus_entries(lab_root, datasets)
     per: dict = {}
+    per_all: dict = {}       # dataset -> list of every scan's upsampled T
     g_min, argmin = None, None
     for e in entries:
         T = _load_mmap(e["path"]).shape[0]
         up = round(T * e["tr"] / TARGET_TR)
         d = e["dataset"]
         per[d] = min(per.get(d, up), up)
+        per_all.setdefault(d, []).append(up)
         if g_min is None or up < g_min:
             g_min, argmin = up, e
-    return max(1, g_min - margin), per, argmin
+    return max(1, g_min - margin), per, argmin, per_all
 
 
 class HCPFullScanDataset(Dataset):
