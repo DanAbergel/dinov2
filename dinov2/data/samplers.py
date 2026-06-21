@@ -227,3 +227,98 @@ class ShardedInfiniteSampler(Sampler):
             )
             yield from iterable
             self._iter_count += 1
+
+
+class ProportionalInfiniteSampler(Sampler):
+    """Infinite index stream whose every consecutive ``batch_size`` block has a
+    fixed per-dataset composition (the ``quota``). Drop-in for DINOv2's infinite,
+    iteration-based loop.
+
+    Unlike InfiniteSampler/ShardedInfiniteSampler, this does NOT apply
+    ``[start::step]`` striding (which would shuffle datasets across batch
+    boundaries and break the quota). Instead each DDP rank produces its OWN
+    proportional stream, seeded by its rank. Therefore the DataLoader's
+    ``batch_size`` MUST equal ``sum(quota)`` so that each loader batch is exactly
+    one proportional block.
+
+    Args:
+        dataset_indices: ``{dataset_name: [global indices]}`` (exposed by
+            MixedFMRIDataset).
+        quota: ``{dataset_name: count_per_batch}``. Keys absent from
+            dataset_indices (or with count 0) are ignored.
+        seed, advance: as in InfiniteSampler.
+        rank, world_size: default to the DDP rank/size.
+    """
+
+    DEFAULT_QUOTA = {"HCP": 4, "ABIDE": 4, "OASIS": 4, "ADNI": 3, "AOMIC": 1}
+
+    def __init__(
+        self,
+        *,
+        dataset_indices,
+        quota=None,
+        seed: int = 0,
+        advance: int = 0,
+        rank: Optional[int] = None,
+        world_size: Optional[int] = None,
+    ):
+        self._indices = {k: list(v) for k, v in dataset_indices.items() if v}
+        quota = quota or self.DEFAULT_QUOTA
+        self._quota = {k: int(q) for k, q in quota.items()
+                       if k in self._indices and q > 0}
+        if not self._quota:
+            raise ValueError(
+                f"quota {list(quota)} matches none of datasets {list(self._indices)}"
+            )
+        self._batch_size = sum(self._quota.values())
+        self._seed = seed
+        self._advance = advance
+        self._rank = distributed.get_global_rank() if rank is None else rank
+        self._world_size = distributed.get_global_size() if world_size is None else world_size
+        # stable per-dataset seed offset, independent of dict insertion order
+        self._offset = {name: i for i, name in enumerate(sorted(self._quota))}
+
+    @property
+    def batch_size(self) -> int:
+        return self._batch_size
+
+    def _pool(self, name, cycle):
+        """rank- and cycle-dependent shuffle of this dataset's global indices."""
+        g = torch.Generator().manual_seed(
+            self._seed
+            + 1_000_003 * (self._rank + 1)
+            + 7_919 * self._offset[name]
+            + cycle
+        )
+        idxs = self._indices[name]
+        order = torch.randperm(len(idxs), generator=g).tolist()
+        return [idxs[i] for i in order]
+
+    def _iterator(self):
+        pools, ptr, cyc = {}, {}, {}
+        for name in self._quota:
+            pools[name], ptr[name], cyc[name] = self._pool(name, 0), 0, 0
+        batch_idx = 0
+        while True:
+            batch = []
+            for name, q in self._quota.items():
+                pool, p = pools[name], ptr[name]
+                for _ in range(q):
+                    if p >= len(pool):                 # exhausted -> reshuffle + cycle
+                        cyc[name] += 1
+                        pool = self._pool(name, cyc[name])
+                        pools[name] = pool
+                        p = 0
+                    batch.append(pool[p])
+                    p += 1
+                ptr[name] = p
+            g = torch.Generator().manual_seed(
+                self._seed + 1_000_003 * (self._rank + 1) + 31 * batch_idx
+            )
+            order = torch.randperm(len(batch), generator=g).tolist()
+            batch_idx += 1
+            for i in order:
+                yield batch[i]
+
+    def __iter__(self):
+        yield from itertools.islice(self._iterator(), self._advance, None)

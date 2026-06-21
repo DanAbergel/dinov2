@@ -318,8 +318,19 @@ def do_train(cfg, model, resume=False):
         transform=data_transform,
         target_transform=lambda _: (),
     )
-    # sampler_type = SamplerType.INFINITE
-    sampler_type = SamplerType.SHARDED_INFINITE
+    # FMRI CHANGE: per-batch dataset proportions over MixedFMRIDataset. WHY: with
+    # 5 heterogeneous cohorts we want every batch to contain a fixed share of
+    # each (default HCP4/ABIDE4/OASIS4/ADNI3/AOMIC1 = 16). Enabled by
+    # cfg.train.proportional_sampler; the optional cfg.train.proportional_quota
+    # overrides the default. Falls back to the official sharded-infinite sampler.
+    proportional_quota = None
+    if getattr(cfg.train, "proportional_sampler", False) and hasattr(dataset, "dataset_indices"):
+        sampler_type = SamplerType.PROPORTIONAL
+        proportional_quota = {str(k): int(v) for k, v in cfg.train.proportional_quota.items()} \
+            if cfg.train.get("proportional_quota", None) else None
+        logger.info(f"FMRI proportional sampler: quota={proportional_quota or 'default'}")
+    else:
+        sampler_type = SamplerType.SHARDED_INFINITE
     data_loader = make_data_loader(
         dataset=dataset,
         batch_size=cfg.train.batch_size_per_gpu,
@@ -330,6 +341,7 @@ def do_train(cfg, model, resume=False):
         sampler_advance=0,  # TODO(qas): fix this -- start_iter * cfg.train.batch_size_per_gpu,
         drop_last=True,
         collate_fn=collate_fn,
+        proportional_quota=proportional_quota,
     )
 
     # training loop

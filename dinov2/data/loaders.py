@@ -17,7 +17,10 @@ from .datasets import (
     ImageNet, ImageNet22k, HPAone, HPAFoV, CHAMMI_CP, CHAMMI_HPA, CHAMMI_WTC,
     HCPFullScanDataset, ADNIFullScanDataset, MixedFMRIDataset,
 )
-from .samplers import EpochSampler, InfiniteSampler, ShardedInfiniteSampler
+from .samplers import (
+    EpochSampler, InfiniteSampler, ShardedInfiniteSampler,
+    ProportionalInfiniteSampler,
+)
 
 
 logger = logging.getLogger("dinov2")
@@ -29,6 +32,7 @@ class SamplerType(Enum):
     INFINITE = 2
     SHARDED_INFINITE = 3
     SHARDED_INFINITE_NEW = 4
+    PROPORTIONAL = 5          # FMRI: per-batch dataset quota over MixedFMRIDataset
 
 
 def _make_bool_str(b: bool) -> str:
@@ -130,10 +134,27 @@ def _make_sampler(
     seed: int = 0,
     size: int = -1,
     advance: int = 0,
+    proportional_quota: Optional[dict] = None,
 ) -> Optional[Sampler]:
     sample_count = len(dataset)
 
-    if type == SamplerType.INFINITE:
+    if type == SamplerType.PROPORTIONAL:
+        # FMRI: per-batch dataset composition over MixedFMRIDataset. The dataset
+        # exposes dataset_indices = {name: [global indices]}. Each DDP rank gets
+        # its own proportional stream (no [start::step] striding).
+        if not hasattr(dataset, "dataset_indices"):
+            raise ValueError(
+                "SamplerType.PROPORTIONAL requires a dataset exposing "
+                "`dataset_indices` (e.g. MixedFMRIDataset)."
+            )
+        logger.info("sampler: proportional infinite")
+        return ProportionalInfiniteSampler(
+            dataset_indices=dataset.dataset_indices,
+            quota=proportional_quota,
+            seed=seed,
+            advance=advance,
+        )
+    elif type == SamplerType.INFINITE:
         logger.info("sampler: infinite")
         if size > 0:
             raise ValueError("sampler size > 0 is invalid")
@@ -201,6 +222,7 @@ def make_data_loader(
     drop_last: bool = True,
     persistent_workers: bool = False,
     collate_fn: Optional[Callable[[List[T]], Any]] = None,
+    proportional_quota: Optional[dict] = None,
 ):
     """
     Creates a data loader with the specified parameters.
@@ -226,7 +248,17 @@ def make_data_loader(
         seed=seed,
         size=sampler_size,
         advance=sampler_advance,
+        proportional_quota=proportional_quota,
     )
+
+    # FMRI: the proportional sampler yields one quota-composed block per
+    # batch_size indices, so the loader batch_size MUST equal sum(quota).
+    if sampler_type == SamplerType.PROPORTIONAL:
+        if batch_size != sampler.batch_size:
+            raise ValueError(
+                f"batch_size ({batch_size}) must equal sum(quota) "
+                f"({sampler.batch_size}) for the proportional sampler."
+            )
 
     logger.info("using PyTorch data loader")
     data_loader = torch.utils.data.DataLoader(
