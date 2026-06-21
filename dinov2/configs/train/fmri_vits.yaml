@@ -6,14 +6,16 @@
 # values that genuinely need to change for fMRI.
 
 train:
-  dataset_path: Mixed                 # HCP (random T=140 window) + ADNI (native T=140), 1779 scans total
-  batch_size_per_gpu: 2               # Back to 2: data-bound regime, bigger batches make worker->main queue transfer the bottleneck (10 crops/sample x large batch = multi-GB per .next() call). 2 was the sweet spot.
+  dataset_path: Mixed                 # 5-source corpus (HCP/ABIDE/OASIS/AOMIC/ADNI), 4627 scans @ T_fixed=270
+  batch_size_per_gpu: 2               # micro-batch 2; effective 16 via grad_accum=8 (= sum(quota) proportional block)
   num_workers: 4                      # data loading bottleneck; cap at 4 to fit cgroup RAM
   cache_dataset: false
-  OFFICIAL_EPOCH_LENGTH: 1000         # ~ N_subjects with batch 1; tune to your subject count
+  OFFICIAL_EPOCH_LENGTH: 2300         # ~ one pass over 4627 scans at micro-batch 2 (4627/2); drives the LR schedule
   centering: "sinkhorn_knopp"
   cell_augmentation: false
-  fmri_augmentation: true             # NEW; triggers MultiCrop3D + (T_eff, N_spatial) MaskingGenerator
+  fmri_augmentation: true             # fMRI token grid (T_eff, N_spatial) + fMRI augmentation branch
+  fmri_masking_only: true             # full-image crops + per-token random masking (meeting 2026-06-14 §2)
+  proportional_sampler: true          # per-batch dataset quota HCP4/ABIDE4/OASIS4/ADNI3/AOMIC1 (=16)
   seed: 42
 
 student:
@@ -40,10 +42,10 @@ student:
   # ----- fMRI-specific fields (consumed by build_model_from_cfg) -----
   fmri_mode: true
   fmri_img_size: [45, 54, 45]         # HCP downsampled volume; patch=9 -> 5*6*5 = 150 spatial tokens
-  fmri_temporal_size: 140             # common T across HCP (random crop) + ADNI (native)
-  fmri_temporal_kernel: 14            # T_eff = 140 / 14 = 10 temporal tokens per crop
-  # Token grid: T_eff * N_spatial = 10 * 150 = 1500 tokens (much smaller than HCP-only at T=1200).
-  # Factorised pos params: (10 + 150 + 1) * 384 = 61 824. Plus de marge GPU pour batch plus grand.
+  fmri_temporal_size: 270             # T_fixed window (= 194.4 s @ TR 0.72 s) shared by all 5 datasets
+  fmri_temporal_kernel: 10            # T_eff = 270 / 10 = 27 temporal tokens per crop (even kernel: 270->135->27)
+  # Token grid: T_eff * N_spatial = 27 * 150 = 4050 tokens.
+  # Factorised pos params: (27 + 150 + 1) * 384 = 68 352.
 
 teacher:
   momentum_teacher: 0.992
@@ -72,7 +74,7 @@ optim:
 
 crops:
   global_crops_scale: [0.32, 1.0]
-  local_crops_number: 8               # original DINOv2 default
+  local_crops_number: 3               # meeting §2: keep 2 global (DINOv2 forward) + 3 local, all full-image
   local_crops_scale: [0.05, 0.32]
   global_crops_size: 224              # unused in fmri_mode (img_size comes from fmri_img_size) but must be present for the schema
   local_crops_size: 96                # same — accepted for API parity with DataAugmentationDINO
