@@ -60,7 +60,13 @@ def _zscore_per_frame(scan: torch.Tensor) -> torch.Tensor:
 LAB_ROOT = "/sci/labs/arieljaffe/dan.abergel1"
 TARGET_TR = 0.72                       # common TR after harmonization (HCP native)
 TARGET_SHAPE = (45, 54, 45)
-DEFAULT_T_FIXED = 140                  # window length in TARGET_TR frames (~100.8 s)
+# T_fixed = 270 frames @ 0.72s = 194.4s window. Chosen at the knee of the
+# window-vs-scans trade-off: it sits 1 frame under ABIDE's min upsampled length
+# (271) so ALL of ABIDE is kept, and drops only the 2 short OASIS outliers whose
+# upsampled length is < 270 (filtered via the corpus manifest; see build_corpus_
+# manifest / MixedFMRIDataset(manifest=...)).
+DEFAULT_T_FIXED = 270
+DEFAULT_MANIFEST = "corpus_manifest.csv"   # under LAB_ROOT; auto-used if present
 
 # ABIDE I native TR per site (seconds). Site = filename.split("_")[0].
 # Standard ABIDE acquisition parameters — CROSS-CHECK against the deep-research
@@ -117,6 +123,58 @@ def build_corpus_entries(lab_root=LAB_ROOT,
         for p in sorted(lab.glob("ADNI_data/downsampled/*/I*.pt")):
             add("ADNI", p, p.parent.name, ADNI_TR)
 
+    return entries, by_dataset
+
+
+def write_corpus_manifest(out_path, lab_root=LAB_ROOT,
+                          datasets=("HCP", "ABIDE", "OASIS", "AOMIC", "ADNI")):
+    """Scan every scan's native T ONCE and write a corpus manifest CSV:
+        dataset,path,subject_id,tr,T_native,upsampled_T
+    where upsampled_T = round(T_native * tr / TARGET_TR). Built offline (the
+    header scan is slow on the network FS); MixedFMRIDataset then reads this
+    instead of re-scanning shapes, and uses upsampled_T to drop too-short scans.
+    """
+    import csv
+    entries, _ = build_corpus_entries(lab_root, datasets)
+    out_path = Path(out_path)
+    out_path.parent.mkdir(parents=True, exist_ok=True)
+    n = 0
+    with open(out_path, "w", newline="") as f:
+        w = csv.writer(f)
+        w.writerow(["dataset", "path", "subject_id", "tr", "T_native", "upsampled_T"])
+        for e in entries:
+            T = int(_load_mmap(e["path"]).shape[0])
+            up = round(T * e["tr"] / TARGET_TR)
+            w.writerow([e["dataset"], e["path"], e["subject_id"],
+                        e["tr"], T, up])
+            n += 1
+            if n % 200 == 0:
+                logger.info(f"  corpus manifest: {n}/{len(entries)}")
+    logger.info(f"corpus manifest written: {n} scans -> {out_path}")
+    return out_path
+
+
+def entries_from_manifest(manifest_path, datasets=("HCP", "ABIDE", "OASIS", "AOMIC", "ADNI"),
+                          min_upsampled_t=0):
+    """Build (entries, name->indices) from a corpus manifest CSV, keeping only
+    rows whose dataset is requested and whose upsampled_T >= min_upsampled_t
+    (drops too-short scans so the T_fixed window never needs padding)."""
+    import csv
+    entries: list = []
+    by_dataset: dict = {}
+    dropped = 0
+    with open(manifest_path) as f:
+        for row in csv.DictReader(f):
+            if row["dataset"] not in datasets:
+                continue
+            if int(row["upsampled_T"]) < min_upsampled_t:
+                dropped += 1
+                continue
+            by_dataset.setdefault(row["dataset"], []).append(len(entries))
+            entries.append({"dataset": row["dataset"], "path": row["path"],
+                            "subject_id": row["subject_id"], "tr": float(row["tr"])})
+    if dropped:
+        logger.info(f"manifest: dropped {dropped} scans with upsampled_T < {min_upsampled_t}")
     return entries, by_dataset
 
 
@@ -380,6 +438,8 @@ class MixedFMRIDataset(Dataset):
         t_fixed: int = DEFAULT_T_FIXED,
         temporal_crop: Optional[int] = None,        # legacy alias for t_fixed
         datasets: Tuple[str, ...] = ("HCP", "ABIDE", "OASIS", "AOMIC", "ADNI"),
+        manifest: Optional[str] = None,             # corpus_manifest.csv; auto if present
+        drop_short: bool = True,                    # drop scans whose window needs padding
         transform: Optional[Callable] = None,
         target_transform: Optional[Callable] = None,
         **_ignored,
@@ -387,19 +447,37 @@ class MixedFMRIDataset(Dataset):
         if temporal_crop is not None:
             t_fixed = temporal_crop
         self.t_fixed = int(t_fixed)
-        self.entries, self.dataset_indices = build_corpus_entries(
-            root or LAB_ROOT, datasets
-        )
+        lab_root = root or LAB_ROOT
+
+        # Prefer the corpus manifest (fast + carries T_native so we can drop
+        # too-short scans). Falls back to globbing if no manifest is found.
+        man = Path(manifest) if manifest else Path(lab_root) / DEFAULT_MANIFEST
+        if man.exists():
+            min_t = self.t_fixed if drop_short else 0
+            self.entries, self.dataset_indices = entries_from_manifest(
+                man, datasets, min_upsampled_t=min_t
+            )
+            src = f"manifest {man.name}" + (f" (drop_short<{min_t})" if drop_short else "")
+        else:
+            self.entries, self.dataset_indices = build_corpus_entries(lab_root, datasets)
+            src = "glob (no manifest; short scans will be stretched, not dropped)"
+            if drop_short:
+                logger.warning(
+                    f"drop_short requested but no manifest at {man} — short scans "
+                    "cannot be filtered without T_native. Build it with "
+                    "write_corpus_manifest()."
+                )
+
         if not self.entries:
             raise FileNotFoundError(
-                f"No scans found under {root or LAB_ROOT} for datasets={datasets}"
+                f"No scans found under {lab_root} for datasets={datasets}"
             )
         self.transform = transform
         self.target_transform = target_transform
         counts = {k: len(v) for k, v in self.dataset_indices.items()}
         logger.info(
             f"MixedFMRIDataset: {len(self.entries)} scans  T_fixed={self.t_fixed}  "
-            f"target_TR={TARGET_TR}s  per-dataset={counts}"
+            f"target_TR={TARGET_TR}s  src={src}  per-dataset={counts}"
         )
 
     def __len__(self) -> int:
