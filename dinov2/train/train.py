@@ -17,7 +17,7 @@ from dinov2.data import SamplerType, make_data_loader, make_dataset
 # WHY: needed for the fmri_augmentation branch in do_train below.
 from dinov2.data import (
     collate_data_and_cast, DataAugmentationDINO, CellAugmentationDINO,
-    MaskingGenerator, MultiCrop3D,
+    MaskingGenerator, RandomTokenMaskingGenerator, MultiCrop3D, MaskingAugmentation3D,
 )
 import dinov2.distributed as distributed
 from dinov2.fsdp import FSDPCheckpointer
@@ -261,10 +261,16 @@ def do_train(cfg, model, resume=False):
         n_spatial = gx * gy * gz
         t_eff = cfg.student.fmri_temporal_size // cfg.student.fmri_temporal_kernel
         n_tokens = t_eff * n_spatial
-        mask_generator = MaskingGenerator(
-            input_size=(t_eff, n_spatial),
-            max_num_patches=int(0.5 * n_tokens),
-        )
+        # FMRI CHANGE: per-token (MAE) random masking instead of BeiT block, since
+        # the flattened (T_eff, N_spatial) order doesn't respect 3D neighbourhoods
+        # (meeting 2026-06-14, §2). Enabled by cfg.train.fmri_masking_only.
+        if getattr(cfg.train, "fmri_masking_only", False):
+            mask_generator = RandomTokenMaskingGenerator(input_size=(t_eff, n_spatial))
+        else:
+            mask_generator = MaskingGenerator(
+                input_size=(t_eff, n_spatial),
+                max_num_patches=int(0.5 * n_tokens),
+            )
     else:
         img_size = cfg.crops.global_crops_size
         patch_size = cfg.student.patch_size
@@ -286,13 +292,24 @@ def do_train(cfg, model, resume=False):
             local_crops_size=cfg.crops.local_crops_size,
         )
     elif getattr(cfg.train, "fmri_augmentation", False):
-        data_transform = MultiCrop3D(
-            cfg.crops.global_crops_scale,
-            cfg.crops.local_crops_scale,
-            cfg.crops.local_crops_number,
-            global_crops_size=cfg.crops.global_crops_size,
-            local_crops_size=cfg.crops.local_crops_size,
-        )
+        # FMRI CHANGE: masking-only (full-image crops) vs the older spatial
+        # MultiCrop3D, selected by cfg.train.fmri_masking_only (meeting §2).
+        if getattr(cfg.train, "fmri_masking_only", False):
+            data_transform = MaskingAugmentation3D(
+                cfg.crops.global_crops_scale,
+                cfg.crops.local_crops_scale,
+                cfg.crops.local_crops_number,
+                global_crops_size=cfg.crops.global_crops_size,
+                local_crops_size=cfg.crops.local_crops_size,
+            )
+        else:
+            data_transform = MultiCrop3D(
+                cfg.crops.global_crops_scale,
+                cfg.crops.local_crops_scale,
+                cfg.crops.local_crops_number,
+                global_crops_size=cfg.crops.global_crops_size,
+                local_crops_size=cfg.crops.local_crops_size,
+            )
     else:
         data_transform = DataAugmentationDINO(
             cfg.crops.global_crops_scale,

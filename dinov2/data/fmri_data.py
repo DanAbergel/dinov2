@@ -628,3 +628,47 @@ class MultiCrop3D:
             "local_crops":          local_crops,
             "offsets":              (),
         }
+
+
+class MaskingAugmentation3D:
+    """fMRI augmentation = MASKING ONLY (no spatial/temporal crop).
+
+    All crops are the FULL volume; the per-token random masking applied in the
+    collate (to the global crops, for iBOT) is the only corruption. Spatial zoom
+    is dropped because a brain is a fixed anatomical structure, not a scene to
+    crop (meeting 2026-06-14, §2). Temporal augmentation is off for now.
+
+    Matches DataAugmentationDINO's call contract (returns global_crops /
+    global_crops_teacher / local_crops / offsets) so do_train uses it as a
+    drop-in. The scale args are accepted (API parity) but unused — there is no
+    cropping. num_global_crops stays 2 (DINOv2's forward requires it); the
+    distinct masked student views come from the collate, not from cropping.
+    """
+
+    def __init__(
+        self,
+        global_crops_scale=None,        # unused (no cropping)
+        local_crops_scale=None,         # unused
+        local_crops_number=3,
+        global_crops_size=None,         # unused
+        local_crops_size=None,          # unused
+        global_crops_number=2,
+    ):
+        self.global_crops_number = int(global_crops_number)
+        self.local_crops_number = int(local_crops_number)
+        logger.info("###################################")
+        logger.info("Using fMRI MASKING-ONLY augmentation (full-image crops):")
+        logger.info(f"  global_crops_number: {self.global_crops_number}")
+        logger.info(f"  local_crops_number:  {self.local_crops_number}")
+        logger.info("  (no spatial/temporal crop; masking applied in collate)")
+        logger.info("###################################")
+
+    def __call__(self, scan: torch.Tensor) -> dict:
+        global_crops = [scan for _ in range(self.global_crops_number)]
+        local_crops = [scan for _ in range(self.local_crops_number)]
+        return {
+            "global_crops":         global_crops,
+            "global_crops_teacher": global_crops,
+            "local_crops":          local_crops,
+            "offsets":              (),
+        }
