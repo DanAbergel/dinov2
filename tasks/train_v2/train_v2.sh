@@ -63,6 +63,12 @@ EXTRA=""
 if [ "${SMOKE:-0}" = "1" ]; then
     EXTRA="optim.epochs=1 train.OFFICIAL_EPOCH_LENGTH=10 evaluation.eval_period_iterations=0"
 fi
+# Optional batch override (config default 2x8=16 is safe on any GPU incl. L40s).
+# On h200 use BATCH_PER_GPU=16 GRAD_ACCUM=1 (effective batch unchanged at 16, but
+# one forward instead of 8 -> faster; ~55-65 GB of h200's 141 GB). Note: the
+# proportional sampler caps batch_size_per_gpu at sum(quota)=16 (must divide 16).
+[ -n "${BATCH_PER_GPU:-}" ] && EXTRA="$EXTRA train.batch_size_per_gpu=${BATCH_PER_GPU}"
+[ -n "${GRAD_ACCUM:-}" ]    && EXTRA="$EXTRA optim.grad_accum_steps=${GRAD_ACCUM}"
 
 echo "============================================================"
 echo "  fMRI V2 training   Node: $(hostname)   Date: $(date)"
