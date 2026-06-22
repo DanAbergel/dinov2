@@ -38,7 +38,7 @@ student:
   # patch_embed.* removed because their shapes don't match the fMRI
   # 3D+1D embedding / token grid). Prepared by jobs/run_dinov2_fmri.sh
   # before the run. Set to '' to train from random init.
-  pretrained_weights: ""              # train from random init (ImageNet init checkpoint not prepared)
+  pretrained_weights: "/sci/labs/arieljaffe/dan.abergel1/checkpoints/dinov2_vits14_reg4_fmri_init.pth"  # DINOv2 init (run tasks/prepare_dinov2_init first)
   # ----- fMRI-specific fields (consumed by build_model_from_cfg) -----
   fmri_mode: true
   fmri_img_size: [45, 54, 45]         # HCP downsampled volume; patch=9 -> 5*6*5 = 150 spatial tokens
@@ -57,6 +57,7 @@ teacher:
   channel_adaptive: false
 
 optim:
+  freeze_pretrained: "fmri_plus_last_3"  # B: freeze DINOv2 blocks 0-8; train patch_embed + blocks 9-11 + norm + heads. ('none'=A full-FT, 'fmri_only'=C)
   grad_accum_steps: 8                 # batch=2 * accum=8 -> effective batch = 16 (unchanged).
   epochs: 10                          # halved (was 20). Aggressive LR + shorter warmup means we know fast if it works.
   weight_decay: 0.04
