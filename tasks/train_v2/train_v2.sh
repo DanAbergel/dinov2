@@ -23,6 +23,8 @@
 
 #SBATCH --job-name=fmri-v2
 #SBATCH --gres=gpu:h200:1
+#SBATCH --ntasks=1
+#SBATCH --ntasks-per-node=1
 #SBATCH --cpus-per-task=8
 #SBATCH --mem=64G
 #SBATCH --time=120:00:00
@@ -41,7 +43,6 @@ CONFIG="$OFFICIAL_DIR/dinov2/configs/train/fmri_vits.yaml"
 VENV="${VENV:-$LAB_DIR/torch_env}"                 # dinov2 training env
 RUN_NAME="${RUN_NAME:-fmri_v2_baseline}"
 OUTPUT_DIR="${OUTPUT_DIR:-$LAB_DIR/runs/$RUN_NAME}"
-MASTER_PORT="${MASTER_PORT:-29531}"
 
 export TMPDIR="$LAB_DIR/tmp"
 export XDG_CACHE_HOME="$LAB_DIR/cache"
@@ -70,13 +71,16 @@ echo "  config:  $CONFIG"
 echo "  output:  $OUTPUT_DIR"
 echo "  smoke:   ${SMOKE:-0}   extra: $EXTRA"
 echo "============================================================"
-nvidia-smi --query-gpu=name,memory.total --format=csv,noheader || true
+command -v nvidia-smi >/dev/null && nvidia-smi --query-gpu=name,memory.total --format=csv,noheader || true
 
-torchrun --nproc_per_node=1 --master_port="$MASTER_PORT" \
-    dinov2/train/train.py \
-        --config-file "$CONFIG" \
-        --output-dir "$OUTPUT_DIR" \
-        $EXTRA
+# Launch with srun (NOT torchrun): dinov2's distributed.enable() takes the SLURM
+# path when in a SLURM job, and srun + --ntasks sets SLURM_NTASKS/PROCID/LOCALID.
+# For multi-GPU later: bump --gres + --ntasks (one task per GPU); the
+# ProportionalInfiniteSampler reads rank/size from this same SLURM env.
+srun python dinov2/train/train.py \
+    --config-file "$CONFIG" \
+    --output-dir "$OUTPUT_DIR" \
+    $EXTRA
 
 echo ""
 echo "Done: $(date)"
