@@ -19,6 +19,8 @@
 # Carries the factorised positional embedding (pos_temporal + pos_spatial
 # + pos_cls) added by the ViT's 6D branch in `prepare_tokens_with_masks`.
 
+import math
+
 import torch
 import torch.nn as nn
 import torch.nn.functional as F
@@ -82,6 +84,25 @@ class _ResBlock3Plus1d(nn.Module):
         return x + h
 
 
+class FourierFeatures3D(nn.Module):
+    """Fourier-feature map of 3D coordinates (Tancik et al., NeurIPS 2020).
+
+        gamma(v) = [cos(2*pi * B v), sin(2*pi * B v)],  v in R^3, B in R^{F x 3}
+
+    B is sampled once from N(0, sigma^2) and registered as a buffer (fixed,
+    NOT learned) for the first iteration. Nearby 3D positions map to similar
+    features at low frequencies but become distinguishable at high frequencies.
+    """
+
+    def __init__(self, num_freqs: int = 32, sigma: float = 10.0):
+        super().__init__()
+        self.register_buffer("B", torch.randn(num_freqs, 3) * sigma)
+
+    def forward(self, positions: torch.Tensor) -> torch.Tensor:   # (N, 3) -> (N, 2*F)
+        proj = 2 * math.pi * positions @ self.B.t()               # (N, F)
+        return torch.cat([torch.cos(proj), torch.sin(proj)], dim=-1)
+
+
 class PositionEmbedding3D(nn.Module):
     """Factorised positional embedding for the fMRI token grid.
 
@@ -91,26 +112,64 @@ class PositionEmbedding3D(nn.Module):
     plus a separate pos_cls for the CLS token. This is O(T_eff + N_spatial)
     parameters instead of O(T_eff * N_spatial).
 
+    spatial_mode:
+      'learned' (default) -> pos_spatial is a learned table (original behaviour).
+      'fourier'           -> pos_spatial is computed from Fourier features of the
+                             3D patch-grid coordinates + a small MLP (meeting
+                             2026-06-14 §3). pos_temporal and pos_cls stay learned.
+
     Kept as its own nn.Module so positional encoding is a separate concern
     from the patchify conv stack (PatchEmbed3DPlus1D holds one of these).
     """
 
-    def __init__(self, num_temporal_patches: int, num_spatial_patches: int, embed_dim: int):
+    def __init__(self, num_temporal_patches: int, num_spatial_patches: int, embed_dim: int,
+                 grid=None, spatial_mode: str = "learned",
+                 num_freqs: int = 32, sigma: float = 10.0):
         super().__init__()
         self.num_temporal_patches = num_temporal_patches
         self.num_spatial_patches = num_spatial_patches
+        self.spatial_mode = spatial_mode
         self.pos_temporal = nn.Parameter(torch.zeros(1, num_temporal_patches, embed_dim))
-        self.pos_spatial  = nn.Parameter(torch.zeros(1, num_spatial_patches, embed_dim))
         self.pos_cls      = nn.Parameter(torch.zeros(1, 1, embed_dim))
         trunc_normal_(self.pos_temporal, std=0.02)
-        trunc_normal_(self.pos_spatial,  std=0.02)
         trunc_normal_(self.pos_cls,      std=0.02)
+
+        if spatial_mode == "learned":
+            self.pos_spatial = nn.Parameter(torch.zeros(1, num_spatial_patches, embed_dim))
+            trunc_normal_(self.pos_spatial, std=0.02)
+        elif spatial_mode == "fourier":
+            assert grid is not None, "fourier spatial pos needs the (gx, gy, gz) grid"
+            gx, gy, gz = grid
+            assert gx * gy * gz == num_spatial_patches, "grid does not match N_spatial"
+            self.register_buffer("coords", self._make_grid_coords(gx, gy, gz))
+            self.fourier = FourierFeatures3D(num_freqs, sigma)
+            self.spatial_proj = nn.Sequential(
+                nn.Linear(2 * num_freqs, embed_dim),
+                nn.GELU(),
+                nn.Linear(embed_dim, embed_dim),
+            )
+        else:
+            raise ValueError(f"unknown spatial_mode {spatial_mode!r}")
+
+    @staticmethod
+    def _make_grid_coords(gx, gy, gz) -> torch.Tensor:
+        """(N_spatial, 3) coords in [-1, 1], in the SAME order the patchify
+        flattens spatial tokens: 'b c t x y z -> b (t x y z) c' (x outer, z inner)."""
+        xs, ys, zs = (torch.linspace(-1, 1, g) for g in (gx, gy, gz))
+        gxx, gyy, gzz = torch.meshgrid(xs, ys, zs, indexing="ij")
+        return torch.stack([gxx.flatten(), gyy.flatten(), gzz.flatten()], dim=-1)
+
+    def get_spatial(self) -> torch.Tensor:
+        """(1, N_spatial, embed_dim) — learned table or Fourier-derived."""
+        if self.spatial_mode == "learned":
+            return self.pos_spatial
+        return self.spatial_proj(self.fourier(self.coords)).unsqueeze(0)
 
     def combined_patch_pos(self) -> torch.Tensor:
         """(1, T_eff * N_spatial, embed_dim) — broadcast sum of the two
         factorised embeddings. Order: (t outer, n inner)."""
         pos_t = repeat(self.pos_temporal, '1 t d -> 1 (t n) d', n=self.num_spatial_patches)
-        pos_s = repeat(self.pos_spatial,  '1 n d -> 1 (t n) d', t=self.num_temporal_patches)
+        pos_s = repeat(self.get_spatial(), '1 n d -> 1 (t n) d', t=self.num_temporal_patches)
         return pos_t + pos_s
 
 
@@ -131,6 +190,9 @@ class PatchEmbed3DPlus1D(nn.Module):
         in_chans: int = 1,
         embed_dim: int = 384,
         temporal_kernel: int = 14,
+        fourier_pos: bool = False,        # spatial pos: Fourier features vs learned table
+        fourier_num_freqs: int = 32,
+        fourier_sigma: float = 10.0,
     ) -> None:
         super().__init__()
         self.img_size = tuple(img_size)
@@ -188,9 +250,13 @@ class PatchEmbed3DPlus1D(nn.Module):
         self.num_temporal_patches = temporal_size // temporal_kernel
         self.num_patches = self.num_temporal_patches * self.num_spatial_patches
 
-        # Factorised positional embedding (separate nn.Module).
+        # Factorised positional embedding (separate nn.Module). Spatial part is
+        # either a learned table or Fourier features of the 3D grid coords.
         self.pos = PositionEmbedding3D(
             self.num_temporal_patches, self.num_spatial_patches, embed_dim,
+            grid=(gx, gy, gz),
+            spatial_mode="fourier" if fourier_pos else "learned",
+            num_freqs=fourier_num_freqs, sigma=fourier_sigma,
         )
 
     def _encoder_forward(self, x: torch.Tensor) -> torch.Tensor:

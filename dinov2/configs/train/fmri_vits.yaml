@@ -46,6 +46,9 @@ student:
   fmri_temporal_kernel: 10            # T_eff = 270 / 10 = 27 temporal tokens per crop (even kernel: 270->135->27)
   # Token grid: T_eff * N_spatial = 27 * 150 = 4050 tokens.
   # Factorised pos params: (27 + 150 + 1) * 384 = 68 352.
+  fmri_fourier_pos: false             # spatial pos: false=learned table (baseline), true=Fourier features (ablation)
+  fmri_fourier_num_freqs: 32
+  fmri_fourier_sigma: 10.0
 
 teacher:
   momentum_teacher: 0.992

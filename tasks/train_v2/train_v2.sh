@@ -69,6 +69,9 @@ fi
 # proportional sampler caps batch_size_per_gpu at sum(quota)=16 (must divide 16).
 [ -n "${BATCH_PER_GPU:-}" ] && EXTRA="$EXTRA train.batch_size_per_gpu=${BATCH_PER_GPU}"
 [ -n "${GRAD_ACCUM:-}" ]    && EXTRA="$EXTRA optim.grad_accum_steps=${GRAD_ACCUM}"
+# FOURIER=1 -> Fourier spatial positional encoding instead of the learned table
+# (the §3 ablation). Pair with a distinct RUN_NAME so it lands in its own dir.
+[ "${FOURIER:-0}" = "1" ]   && EXTRA="$EXTRA student.fmri_fourier_pos=true"
 
 echo "============================================================"
 echo "  fMRI V2 training   Node: $(hostname)   Date: $(date)"
