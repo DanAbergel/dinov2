@@ -79,6 +79,9 @@ fi
 # FOURIER=1 -> Fourier spatial positional encoding instead of the learned table
 # (the §3 ablation). Pair with a distinct RUN_NAME so it lands in its own dir.
 [ "${FOURIER:-0}" = "1" ]   && EXTRA="$EXTRA student.fmri_fourier_pos=true"
+# OVERRIDES -> any extra dinov2 config overrides, space-separated, e.g.
+#   OVERRIDES="optim.base_lr=1e-3 optim.freeze_pretrained=fmri_only"
+[ -n "${OVERRIDES:-}" ]     && EXTRA="$EXTRA ${OVERRIDES}"
 
 echo "============================================================"
 echo "  fMRI V2 training   Node: $(hostname)   Date: $(date)"
