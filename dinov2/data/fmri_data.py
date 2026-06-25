@@ -67,6 +67,11 @@ TARGET_SHAPE = (45, 54, 45)
 # manifest / MixedFMRIDataset(manifest=...)).
 DEFAULT_T_FIXED = 270
 DEFAULT_MANIFEST = "corpus_manifest.csv"   # under LAB_ROOT; auto-used if present
+DEFAULT_SPLIT = "subject_split.json"       # under LAB_ROOT; auto-used if present
+# Downstream datasets: their val+test SUBJECTS are excluded from SSL pretraining
+# (no leakage), so probes evaluate on subjects the encoder never saw. HCP/AOMIC
+# are pretraining-only -> kept whole.
+HOLDOUT_DATASETS = ("ADNI", "ABIDE", "OASIS")
 
 # ABIDE I native TR per site (seconds). Site = filename.split("_")[0].
 # Standard ABIDE acquisition parameters — CROSS-CHECK against the deep-research
@@ -154,27 +159,52 @@ def write_corpus_manifest(out_path, lab_root=LAB_ROOT,
     return out_path
 
 
+def _load_split_map(split_file):
+    """subject_split.json -> {dataset: {subject_id: 'train'|'val'|'test'}}."""
+    import json
+    d = json.loads(Path(split_file).read_text())
+    m = {}
+    for ds, splits in d.get("datasets", {}).items():
+        m[ds] = {s: name for name, subs in splits.items() for s in subs}
+    return m
+
+
 def entries_from_manifest(manifest_path, datasets=("HCP", "ABIDE", "OASIS", "AOMIC", "ADNI"),
-                          min_upsampled_t=0):
-    """Build (entries, name->indices) from a corpus manifest CSV, keeping only
-    rows whose dataset is requested and whose upsampled_T >= min_upsampled_t
-    (drops too-short scans so the T_fixed window never needs padding)."""
+                          min_upsampled_t=0, split_map=None, holdout_datasets=(),
+                          pretrain_splits=("train",)):
+    """Build (entries, name->indices) from a corpus manifest CSV.
+
+    Keeps rows whose dataset is requested and whose upsampled_T >= min_upsampled_t
+    (drops too-short scans). If `split_map` is given, a scan from a dataset in
+    `holdout_datasets` is kept ONLY if its subject's split is in `pretrain_splits`
+    (default: 'train') — so val+test subjects are excluded from SSL pretraining
+    (no leakage). Non-holdout datasets (e.g. HCP/AOMIC) are kept whole.
+    """
     import csv
     entries: list = []
     by_dataset: dict = {}
-    dropped = 0
+    n_short = n_holdout = 0
     with open(manifest_path) as f:
         for row in csv.DictReader(f):
-            if row["dataset"] not in datasets:
+            ds = row["dataset"]
+            if ds not in datasets:
                 continue
             if int(row["upsampled_T"]) < min_upsampled_t:
-                dropped += 1
+                n_short += 1
                 continue
-            by_dataset.setdefault(row["dataset"], []).append(len(entries))
-            entries.append({"dataset": row["dataset"], "path": row["path"],
+            if split_map and ds in holdout_datasets:
+                sp = split_map.get(ds, {}).get(row["subject_id"])
+                if sp is not None and sp not in pretrain_splits:
+                    n_holdout += 1
+                    continue
+            by_dataset.setdefault(ds, []).append(len(entries))
+            entries.append({"dataset": ds, "path": row["path"],
                             "subject_id": row["subject_id"], "tr": float(row["tr"])})
-    if dropped:
-        logger.info(f"manifest: dropped {dropped} scans with upsampled_T < {min_upsampled_t}")
+    if n_short:
+        logger.info(f"manifest: dropped {n_short} scans with upsampled_T < {min_upsampled_t}")
+    if n_holdout:
+        logger.info(f"holdout: excluded {n_holdout} val+test scans of {holdout_datasets} "
+                    f"from pretraining (no leakage)")
     return entries, by_dataset
 
 
@@ -440,6 +470,9 @@ class MixedFMRIDataset(Dataset):
         datasets: Tuple[str, ...] = ("HCP", "ABIDE", "OASIS", "AOMIC", "ADNI"),
         manifest: Optional[str] = None,             # corpus_manifest.csv; auto if present
         drop_short: bool = True,                    # drop scans whose window needs padding
+        split_file: Optional[str] = None,           # subject_split.json; auto if present
+        holdout_datasets: Tuple[str, ...] = HOLDOUT_DATASETS,
+        pretrain_splits: Tuple[str, ...] = ("train",),
         transform: Optional[Callable] = None,
         target_transform: Optional[Callable] = None,
         **_ignored,
@@ -449,15 +482,26 @@ class MixedFMRIDataset(Dataset):
         self.t_fixed = int(t_fixed)
         lab_root = root or LAB_ROOT
 
+        # Subject-level holdout: if a split file exists, exclude val+test subjects
+        # of the downstream datasets from pretraining (no leakage). Absent -> no
+        # holdout (uses all data).
+        sf = Path(split_file) if split_file else Path(lab_root) / DEFAULT_SPLIT
+        split_map = _load_split_map(sf) if sf.exists() else None
+
         # Prefer the corpus manifest (fast + carries T_native so we can drop
         # too-short scans). Falls back to globbing if no manifest is found.
         man = Path(manifest) if manifest else Path(lab_root) / DEFAULT_MANIFEST
         if man.exists():
             min_t = self.t_fixed if drop_short else 0
             self.entries, self.dataset_indices = entries_from_manifest(
-                man, datasets, min_upsampled_t=min_t
+                man, datasets, min_upsampled_t=min_t,
+                split_map=split_map,
+                holdout_datasets=holdout_datasets if split_map else (),
+                pretrain_splits=pretrain_splits,
             )
             src = f"manifest {man.name}" + (f" (drop_short<{min_t})" if drop_short else "")
+            if split_map:
+                src += f" + holdout(val+test of {list(holdout_datasets)})"
         else:
             self.entries, self.dataset_indices = build_corpus_entries(lab_root, datasets)
             src = "glob (no manifest; short scans will be stretched, not dropped)"
