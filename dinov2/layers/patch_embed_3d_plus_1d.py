@@ -163,7 +163,12 @@ class PositionEmbedding3D(nn.Module):
         """(1, N_spatial, embed_dim) — learned table or Fourier-derived."""
         if self.spatial_mode == "learned":
             return self.pos_spatial
-        return self.spatial_proj(self.fourier(self.coords)).unsqueeze(0)
+        # coords/B are float32 buffers; the model runs in fp16, so the cos/sin
+        # features are float32 while spatial_proj weights are half -> dtype
+        # mismatch. Compute Fourier in float32 (precise), then cast to the
+        # Linear's dtype.
+        feats = self.fourier(self.coords).to(self.spatial_proj[0].weight.dtype)
+        return self.spatial_proj(feats).unsqueeze(0)
 
     def combined_patch_pos(self) -> torch.Tensor:
         """(1, T_eff * N_spatial, embed_dim) — broadcast sum of the two
