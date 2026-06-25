@@ -48,7 +48,13 @@ OUTPUT_DIR="${OUTPUT_DIR:-$LAB_DIR/runs/$RUN_NAME}"
 export TMPDIR="$LAB_DIR/tmp"
 export XDG_CACHE_HOME="$LAB_DIR/cache"
 export PYTORCH_CUDA_ALLOC_CONF=expandable_segments:True
-mkdir -p "$TMPDIR" "$OUTPUT_DIR" "$TASK_DIR/logs"
+# $HOME (/sci/home) is not writable on compute nodes; Triton/xformers JIT-compile
+# CUDA kernels and cache them under ~/.triton -> PermissionError. Point HOME and
+# the JIT caches at the writable lab dir.
+export HOME="$LAB_DIR"
+export TRITON_CACHE_DIR="$LAB_DIR/cache/triton"
+export TORCHINDUCTOR_CACHE_DIR="$LAB_DIR/cache/inductor"
+mkdir -p "$TMPDIR" "$OUTPUT_DIR" "$TASK_DIR/logs" "$TRITON_CACHE_DIR" "$TORCHINDUCTOR_CACHE_DIR"
 
 LOG_OUT="$TASK_DIR/logs/${RUN_NAME}.out"
 LOG_ERR="$TASK_DIR/logs/${RUN_NAME}.err"
