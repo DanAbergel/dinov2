@@ -115,6 +115,13 @@ class FSDPCheckpointer(Checkpointer):
         with FSDP.state_dict_type(self.model, StateDictType.LOCAL_STATE_DICT):
             return super().load(*args, **kwargs)
 
+    def _load_file(self, f):
+        # PyTorch >= 2.6 defaults torch.load to weights_only=True, which rejects
+        # the numpy scalars stored in dinov2 training checkpoints (iteration
+        # count, schedules). These are our OWN trusted checkpoints, so load with
+        # weights_only=False (the pre-2.6 behavior fvcore was written for).
+        return torch.load(f, map_location=torch.device("cpu"), weights_only=False)
+
     def has_checkpoint(self) -> bool:
         """
         Returns:
