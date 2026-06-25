@@ -22,6 +22,7 @@
 # =====================================================================
 
 #SBATCH --job-name=fmri-v2
+#SBATCH --account=arieljaffe
 #SBATCH --gres=gpu:h200:1
 #SBATCH --ntasks=1
 #SBATCH --ntasks-per-node=1
