@@ -50,7 +50,7 @@ LABELS_ADNI = {
     "degradation_3y": "degradation_binary_3years",
     "Sex": "Sex_Binary",
 }
-LABELS_ABIDE = {"Autism": "autism", "Sex": "sex_bin"}   # built in build_table_abide
+LABELS_ABIDE = {"Autism": "autism", "Age": "age_bin", "Sex": "sex_bin"}  # built in build_table_abide
 
 
 # ---------------- encoder ----------------
@@ -146,10 +146,20 @@ def build_table_abide():
         if dx is None:
             continue
         sex = _to_float(ph.get("SEX"))                    # 1=male, 2=female
+        age = _to_float(ph.get("AGE_AT_SCAN"))
         row = {"autism": 1.0 if dx == 1 else 0.0,
-               "sex_bin": (1.0 if sex == 1 else 0.0) if sex is not None else float("nan")}
+               "sex_bin": (1.0 if sex == 1 else 0.0) if sex is not None else float("nan"),
+               "_age": age}
         table.append({"path": Path(r["path"]), "subject": sid, "split": sp,
                       "tr": float(r["tr"]), "row": row})
+    # Binary age = split at the TRAIN median (threshold from train only -> no leak).
+    train_ages = [t["row"]["_age"] for t in table
+                  if t["split"] == "train" and t["row"]["_age"] is not None]
+    med = float(np.median(train_ages)) if train_ages else None
+    for t in table:
+        a = t["row"]["_age"]
+        t["row"]["age_bin"] = (float("nan") if a is None or med is None
+                               else (1.0 if a >= med else 0.0))
     return table, LABELS_ABIDE
 
 
