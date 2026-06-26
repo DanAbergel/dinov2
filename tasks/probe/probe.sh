@@ -31,10 +31,11 @@ VENV_DIR="$LAB_DIR/torch_env"
 
 RUN="${RUN:-fmri_v2_baseline}"
 CKPT="${CKPT:-model_final.rank_0.pth}"
+DATASET="${DATASET:-ADNI}"
 RUN_DIR="$LAB_DIR/runs/$RUN"
 
 mkdir -p "$TASK_DIR/logs"
-LOG="$TASK_DIR/logs/probe_${RUN}.out"
+LOG="$TASK_DIR/logs/probe_${RUN}_${DATASET}.out"
 exec >"$LOG" 2>&1
 
 export TMPDIR="$LAB_DIR/tmp"
@@ -47,6 +48,6 @@ source "$VENV_DIR/bin/activate"
 export PYTHONPATH="$OFFICIAL_DIR:${PYTHONPATH:-}"
 export PYTHONUNBUFFERED=1                  # live progress in the log
 
-echo "Probe   run=$RUN ckpt=$CKPT   Node: $(hostname)   Date: $(date)"
-srun python -u tasks/probe/probe.py --run-dir "$RUN_DIR" --checkpoint "$CKPT"
+echo "Probe   run=$RUN dataset=$DATASET ckpt=$CKPT   Node: $(hostname)   Date: $(date)"
+srun python -u tasks/probe/probe.py --run-dir "$RUN_DIR" --dataset "$DATASET" --checkpoint "$CKPT"
 echo "Done: $(date)"
