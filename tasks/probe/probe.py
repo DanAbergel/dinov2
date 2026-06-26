@@ -68,22 +68,26 @@ def load_teacher(run_dir, checkpoint):
     return teacher.to(DEVICE).eval(), embed_dim
 
 
+# Native window (in ADNI frames) spanning T_FIXED * TARGET_TR seconds. We crop
+# this small native window FIRST, then resample 65->270, matching training. The
+# old "resample the whole 140->583 scan" made resample_poly use a ~5800-tap FIR
+# over 109350 voxels -> minutes per scan. Cropping first keeps up/down small.
+NATIVE_WIN = max(1, round(T_FIXED * TARGET_TR / ADNI_TR))     # ~65
+NATIVE_STRIDE = max(1, NATIVE_WIN // 2)
+
+
 @torch.no_grad()
 def scan_embedding(teacher, path):
     scan = _load_mmap(path).float()                  # (T, X, Y, Z)
     if scan.ndim == 4:
         scan = scan.unsqueeze(1)                     # (T, 1, X, Y, Z)
     T = scan.shape[0]
-    up = round(T * ADNI_TR / TARGET_TR)              # -> TR 0.72s
-    scan = _temporal_resample(scan.clone(), up)
-    scan = _zscore_per_frame(scan)
     embs = []
-    for s in range(0, max(up - T_FIXED + 1, 1), STRIDE):
-        w = scan[s:s + T_FIXED]
-        if w.shape[0] < T_FIXED:                     # pad last short window
-            pad = T_FIXED - w.shape[0]
-            w = torch.cat([w, w[-1:].expand(pad, *w.shape[1:])], 0)
-        x = w.unsqueeze(0).to(DEVICE)                # (1, T_FIXED, 1, X, Y, Z)
+    for s in range(0, max(T - NATIVE_WIN + 1, 1), NATIVE_STRIDE):
+        clip = scan[s:s + NATIVE_WIN].clone()        # small native window
+        clip = _temporal_resample(clip, T_FIXED)     # 65 -> 270 @ 0.72s (cheap)
+        clip = _zscore_per_frame(clip)
+        x = clip.unsqueeze(0).to(DEVICE)             # (1, T_FIXED, 1, X, Y, Z)
         out = teacher(x, is_training=True)
         embs.append(out["x_norm_clstoken"].squeeze(0).float().cpu())
     return torch.stack(embs).mean(0).numpy()
@@ -154,16 +158,26 @@ def main():
     ap.add_argument("--checkpoint", default="model_final.rank_0.pth")
     args = ap.parse_args()
 
-    print(f"Device: {DEVICE}")
+    print(f"Device: {DEVICE}  cuda_available={torch.cuda.is_available()}", flush=True)
+    print(f"native_win={NATIVE_WIN} stride={NATIVE_STRIDE} -> T_FIXED={T_FIXED}", flush=True)
     teacher, embed_dim = load_teacher(args.run_dir, args.checkpoint)
-    print(f"embed_dim={embed_dim}")
+    print(f"embed_dim={embed_dim}", flush=True)
 
     table = build_table()
-    print(f"ADNI scans with split+file: {len(table)}")
+    print(f"ADNI scans with split+file: {len(table)}", flush=True)
 
-    X = np.stack([scan_embedding(teacher, t["path"]) for t in table])
+    import time
+    t0 = time.time()
+    embs = []
+    for i, t in enumerate(table):
+        embs.append(scan_embedding(teacher, t["path"]))
+        if (i + 1) % 50 == 0 or i == len(table) - 1:
+            dt = time.time() - t0
+            print(f"  embeddings {i+1}/{len(table)}  ({dt:.0f}s, {dt/(i+1)*1000:.0f} ms/scan)",
+                  flush=True)
+    X = np.stack(embs)
     splits = np.array([t["split"] for t in table])
-    print(f"embeddings: {X.shape}")
+    print(f"embeddings: {X.shape}", flush=True)
 
     run_name = Path(args.run_dir).name
     print(f"\n{'='*64}\n  PROBE  {run_name}  ({args.checkpoint})\n{'='*64}")

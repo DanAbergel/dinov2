@@ -45,7 +45,8 @@ mkdir -p "$TMPDIR" "$TRITON_CACHE_DIR"
 
 source "$VENV_DIR/bin/activate"
 export PYTHONPATH="$OFFICIAL_DIR:${PYTHONPATH:-}"
+export PYTHONUNBUFFERED=1                  # live progress in the log
 
 echo "Probe   run=$RUN ckpt=$CKPT   Node: $(hostname)   Date: $(date)"
-srun python tasks/probe/probe.py --run-dir "$RUN_DIR" --checkpoint "$CKPT"
+srun python -u tasks/probe/probe.py --run-dir "$RUN_DIR" --checkpoint "$CKPT"
 echo "Done: $(date)"
