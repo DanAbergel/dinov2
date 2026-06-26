@@ -40,10 +40,14 @@ DEVICE = "cuda" if torch.cuda.is_available() else "cpu"
 C_GRID = [0.01, 0.1, 1.0, 10.0]
 
 LABELS_ADNI = {
+    # SOTA-comparable diagnostic classification (proxy from Global CDR, since
+    # Sagi's manifest has no clinical DX): NC=CDR 0, MCI=CDR 0.5, AD=CDR>=1.
+    "NC_vs_MCI": "nc_vs_mci",          # most-reported ADNI task across SOTA
+    "AD_vs_HC": "ad_vs_hc",
+    "CDR": "CDR_Binary",
     "degradation_1y": "degradation_binary_1year",
     "degradation_2y": "degradation_binary_2years",
     "degradation_3y": "degradation_binary_3years",
-    "CDR": "CDR_Binary",
     "Sex": "Sex_Binary",
 }
 LABELS_ABIDE = {"Autism": "autism", "Sex": "sex_bin"}   # built in build_table_abide
@@ -115,6 +119,11 @@ def build_table_adni():
         sp = sub2split.get(sid)
         if sp is None or not p.exists():
             continue
+        # Derived diagnostic labels from Global CDR (NC=0, MCI=0.5, AD>=1).
+        cdr = _to_float(r.get("Global CDR"))
+        r["nc_vs_mci"] = (0.0 if cdr == 0 else 1.0 if cdr == 0.5 else float("nan"))
+        r["ad_vs_hc"] = (0.0 if cdr == 0 else
+                         1.0 if (cdr is not None and cdr >= 1) else float("nan"))
         table.append({"path": p, "subject": sid, "split": sp, "tr": 3.0, "row": r})
     return table, LABELS_ADNI
 
