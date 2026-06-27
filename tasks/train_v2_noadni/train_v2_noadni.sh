@@ -61,8 +61,11 @@ source "$VENV/bin/activate"
 export PYTHONPATH="$OFFICIAL_DIR:${PYTHONPATH:-}"
 export PYTHONUNBUFFERED=1
 
-# Bake in: exclude ALL ADNI + freeze policy C.
+# Bake in: exclude ALL ADNI + freeze policy C + an EVEN quota without ADNI
+# (HCP4/ABIDE4/OASIS4/AOMIC2 = 14, divisible by batch_size=2; default 13 isn't).
+# grad_accum 7 -> effective batch 14 = one proportional block.
 EXTRA="train.dataset_path=Mixed:exclude=ADNI optim.freeze_pretrained=fmri_only"
+EXTRA="$EXTRA train.proportional_quota={\"HCP\":4,\"ABIDE\":4,\"OASIS\":4,\"AOMIC\":2} optim.grad_accum_steps=7"
 if [ "${SMOKE:-0}" = "1" ]; then
     EXTRA="$EXTRA optim.epochs=1 train.OFFICIAL_EPOCH_LENGTH=10 evaluation.eval_period_iterations=0"
 fi

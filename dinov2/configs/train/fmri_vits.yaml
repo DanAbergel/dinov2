@@ -16,6 +16,7 @@ train:
   fmri_augmentation: true             # fMRI token grid (T_eff, N_spatial) + fMRI augmentation branch
   fmri_masking_only: true             # full-image crops + per-token random masking (meeting 2026-06-14 §2)
   proportional_sampler: true          # per-batch dataset quota HCP4/ABIDE4/OASIS4/ADNI3/AOMIC1 (=16)
+  proportional_quota: null            # null -> default quota; override e.g. when a dataset is excluded
   seed: 42
 
 student:
