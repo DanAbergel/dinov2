@@ -59,7 +59,8 @@ def _parse_dataset_str(dataset_str: str):
 
     for token in tokens[1:]:
         key, value = token.split("=")
-        assert key in ("root", "extra", "split", "mode", "wildcard")
+        # FMRI: "exclude" / "t_fixed" let "Mixed:exclude=ADNI" reach MixedFMRIDataset.
+        assert key in ("root", "extra", "split", "mode", "wildcard", "exclude", "t_fixed")
         kwargs[key] = value
 
     if name == "ImageNet":
