@@ -21,7 +21,8 @@ import numpy as np
 import torch
 from omegaconf import OmegaConf
 from sklearn.linear_model import LogisticRegression
-from sklearn.metrics import roc_auc_score
+from sklearn.metrics import accuracy_score, roc_auc_score
+from sklearn.model_selection import StratifiedGroupKFold
 from sklearn.preprocessing import StandardScaler
 
 from dinov2.models import build_model_from_cfg
@@ -185,9 +186,39 @@ def probe_label(X, y, splits, name):
             best_val, best_c = auc, C
 
     clf = LogisticRegression(C=best_c, max_iter=2000, class_weight="balanced").fit(Xtr, y[tr])
-    test_auc = roc_auc_score(y[te], clf.predict_proba(Xte)[:, 1])
+    proba = clf.predict_proba(Xte)[:, 1]
+    test_auc = roc_auc_score(y[te], proba)
+    test_acc = accuracy_score(y[te], (proba >= 0.5).astype(int))
     return {"C": best_c, "val_auc": float(best_val), "test_auc": float(test_auc),
-            "n_train": int(tr.sum()), "n_test": int(te.sum()), "pos_test": int(y[te].sum())}
+            "test_acc": float(test_acc), "n_train": int(tr.sum()),
+            "n_test": int(te.sum()), "pos_test": int(y[te].sum())}
+
+
+def probe_kfold(X, y, groups, n_splits=5):
+    """Subject-aware k-fold CV: every subject is a test sample once. Use this when
+    the encoder saw NONE of these subjects in pretraining (e.g. ADNI fully excluded)
+    -> stable estimate over the full cohort, comparable to SOTA test sizes. Fixed
+    C=1 (no val tuning), report mean +/- std of AUC and Accuracy across folds."""
+    m = ~np.isnan(y)
+    X, y, groups = X[m], y[m], groups[m]
+    if len(np.unique(y)) < 2 or len(set(groups)) < n_splits:
+        return None
+    cv = StratifiedGroupKFold(n_splits=n_splits, shuffle=True, random_state=0)
+    aucs, accs = [], []
+    for tr, te in cv.split(X, y.astype(int), groups):
+        if len(np.unique(y[te])) < 2:
+            continue
+        sc = StandardScaler().fit(X[tr])
+        clf = LogisticRegression(C=1.0, max_iter=2000, class_weight="balanced")
+        clf.fit(sc.transform(X[tr]), y[tr])
+        proba = clf.predict_proba(sc.transform(X[te]))[:, 1]
+        aucs.append(roc_auc_score(y[te], proba))
+        accs.append(accuracy_score(y[te], (proba >= 0.5).astype(int)))
+    if not aucs:
+        return None
+    return {"auc_mean": float(np.mean(aucs)), "auc_std": float(np.std(aucs)),
+            "acc_mean": float(np.mean(accs)), "acc_std": float(np.std(accs)),
+            "n": int(len(y)), "pos": int(y.sum()), "folds": len(aucs)}
 
 
 def main():
@@ -195,6 +226,10 @@ def main():
     ap.add_argument("--run-dir", required=True)
     ap.add_argument("--dataset", default="ADNI", choices=["ADNI", "ABIDE"])
     ap.add_argument("--checkpoint", default="model_final.rank_0.pth")
+    ap.add_argument("--kfold", type=int, default=0,
+                    help="If >0, subject-aware k-fold CV over the whole cohort "
+                         "(use only when this dataset was FULLY excluded from "
+                         "pretraining). Else fixed train/val/test split.")
     args = ap.parse_args()
 
     print(f"Device: {DEVICE}  cuda_available={torch.cuda.is_available()}", flush=True)
@@ -218,21 +253,39 @@ def main():
     splits = np.array([t["split"] for t in table])
 
     run_name = Path(args.run_dir).name
-    print(f"\n{'='*64}\n  PROBE  {run_name}  {args.dataset}  ({args.checkpoint})\n{'='*64}")
-    print(f"  {'label':16} {'C':>5} {'val_auc':>8} {'TEST_AUC':>9}  {'n_tr/n_te':>10} pos_te")
+    mode = f"{args.kfold}-fold CV (full cohort)" if args.kfold else "fixed split (val-select)"
+    print(f"\n{'='*66}\n  PROBE  {run_name}  {args.dataset}  [{mode}]\n{'='*66}")
     results = {}
-    for name, col in LABELS.items():
-        y = np.array([_to_float(t["row"].get(col)) for t in table], dtype=float)
-        r = probe_label(X, y, splits, name)
-        results[name] = r
-        if r:
-            print(f"  {name:16} {r['C']:>5} {r['val_auc']:>8.3f} {r['test_auc']:>9.3f}"
-                  f"  {r['n_train']:>4}/{r['n_test']:<4} {r['pos_test']}", flush=True)
-        else:
-            print(f"  {name:16} (skipped — too few samples / one class)", flush=True)
 
-    out = Path(args.run_dir) / f"probe_{args.dataset.lower()}.json"
-    out.write_text(json.dumps({"run": run_name, "dataset": args.dataset,
+    if args.kfold:
+        groups = np.array([t["subject"] for t in table])
+        print(f"  {'label':16} {'AUC (mean±std)':>18} {'Acc (mean±std)':>18}  {'n':>5} pos")
+        for name, col in LABELS.items():
+            y = np.array([_to_float(t["row"].get(col)) for t in table], dtype=float)
+            r = probe_kfold(X, y, groups, n_splits=args.kfold)
+            results[name] = r
+            if r:
+                print(f"  {name:16} {r['auc_mean']:.3f}±{r['auc_std']:.3f}      "
+                      f"{r['acc_mean']:.3f}±{r['acc_std']:.3f}      {r['n']:>5} {r['pos']}",
+                      flush=True)
+            else:
+                print(f"  {name:16} (skipped)", flush=True)
+    else:
+        print(f"  {'label':16} {'C':>5} {'val_auc':>8} {'TEST_AUC':>9} {'test_acc':>9}  {'n_tr/n_te':>10} pos")
+        for name, col in LABELS.items():
+            y = np.array([_to_float(t["row"].get(col)) for t in table], dtype=float)
+            r = probe_label(X, y, splits, name)
+            results[name] = r
+            if r:
+                print(f"  {name:16} {r['C']:>5} {r['val_auc']:>8.3f} {r['test_auc']:>9.3f}"
+                      f" {r['test_acc']:>9.3f}  {r['n_train']:>4}/{r['n_test']:<4} {r['pos_test']}",
+                      flush=True)
+            else:
+                print(f"  {name:16} (skipped — too few samples / one class)", flush=True)
+
+    suffix = f"_kfold{args.kfold}" if args.kfold else ""
+    out = Path(args.run_dir) / f"probe_{args.dataset.lower()}{suffix}.json"
+    out.write_text(json.dumps({"run": run_name, "dataset": args.dataset, "mode": mode,
                                "checkpoint": args.checkpoint, "results": results}, indent=2))
     print(f"\nSaved {out}", flush=True)
 

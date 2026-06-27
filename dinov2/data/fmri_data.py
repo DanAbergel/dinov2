@@ -468,6 +468,7 @@ class MixedFMRIDataset(Dataset):
         t_fixed: int = DEFAULT_T_FIXED,
         temporal_crop: Optional[int] = None,        # legacy alias for t_fixed
         datasets: Tuple[str, ...] = ("HCP", "ABIDE", "OASIS", "AOMIC", "ADNI"),
+        exclude: Optional[str] = None,              # drop these whole datasets (e.g. "ADNI")
         manifest: Optional[str] = None,             # corpus_manifest.csv; auto if present
         drop_short: bool = True,                    # drop scans whose window needs padding
         split_file: Optional[str] = None,           # subject_split.json; auto if present
@@ -481,6 +482,13 @@ class MixedFMRIDataset(Dataset):
             t_fixed = temporal_crop
         self.t_fixed = int(t_fixed)
         lab_root = root or LAB_ROOT
+
+        # Drop whole datasets from pretraining (e.g. exclude=ADNI so a clean
+        # k-fold downstream probe can use the FULL ADNI cohort, encoder unseen).
+        if exclude:
+            ex = {d.strip() for d in str(exclude).replace("-", ",").split(",")}
+            datasets = tuple(d for d in datasets if d not in ex)
+            logger.info(f"MixedFMRIDataset: excluding whole datasets {ex} from pretraining")
 
         # Subject-level holdout: if a split file exists, exclude val+test subjects
         # of the downstream datasets from pretraining (no leakage). Absent -> no
