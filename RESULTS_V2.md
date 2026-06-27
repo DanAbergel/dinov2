@@ -84,59 +84,84 @@ positives = 135). AUC, leakage-free.
 
 ### ABIDE — val AUC / **TEST AUC**
 
-| Run | Autism (val / **test**) | Sex (val / **test**) |
-|-----------|:-----------------------:|:--------------------:|
-| baseline (B) | 0.573 / 0.668 | 0.611 / 0.624 |
-| fourier      | 0.579 / 0.458 | 0.576 / 0.512 |
-| **freezeC (C)** | **0.634 / 0.603** | 0.622 / 0.474 |
-| highlr       | 0.599 / 0.524 | 0.678 / 0.617 |
+Each cell is **val AUC / TEST AUC / TEST Acc**. The reported config per task is
+the one with the best VAL AUC (leakage-free selection).
 
-### Reading (selection on VAL)
+| Run | Autism | Age | Sex |
+|-----------|:-----------------:|:-----------------:|:-----------------:|
+| baseline (B) | 0.573 / 0.67 / 0.61 | 0.843 / 0.86 / 0.79 | 0.611 / 0.62 / 0.60 |
+| fourier      | 0.579 / 0.46 / 0.48 | 0.780 / 0.75 / 0.70 | 0.576 / 0.51 / 0.62 |
+| **freezeC (C)** | **0.634 / 0.60 / 0.55** | **0.890 / 0.82 / 0.76** | 0.622 / 0.47 / 0.69 |
+| highlr       | 0.599 / 0.52 / 0.49 | 0.833 / 0.87 / 0.81 | **0.678 / 0.62 / 0.65** |
 
-- **Autism — best on val = freezeC (val 0.634 → test 0.603).** The val AUC is
-  clearly above chance, so the signal is real and the selection is meaningful;
-  freezeC's test (0.603) is reliable (val ≈ test). The baseline's higher test
-  (0.668) comes with a near-chance val (0.573) and is not trustworthy.
-- **Sex — best on val = highlr (val 0.678 → test 0.617).**
-- **freezeC (policy C) is the best config on Autism**, consistent with the ADNI
-  probe and with the earlier HCP-only freeze ablation — i.e. freezing the whole
-  transformer and learning only the fMRI input adapter is the most robust policy.
+### Val-selected result per task
 
-### Take-away
+| Task | Best config (val) | TEST AUC / Acc |
+|------|-------------------|:--------------:|
+| **Autism** | freezeC (val 0.634) | **0.60 / 0.55** |
+| **Age** | freezeC (val 0.890) | **0.82 / 0.76** |
+| **Sex** | highlr (val 0.678) | **0.62 / 0.65** |
 
-Real, leakage-free autism signal (val ≈ 0.63, clearly above chance). freezeC is
-the strongest and most consistent pretraining configuration.
+- **freezeC (policy C) is the best config** on the two clinical/demographic tasks
+  (Autism, Age) — consistent with the earlier HCP-only freeze ablation. Freezing
+  the whole transformer and learning only the fMRI input adapter is the most
+  robust policy.
+- Baseline shows higher *test* on Autism (0.67) but with a near-chance *val*
+  (0.573) → not trustworthy. We report the val-selected config (freezeC).
 
 \newpage
 
-# 4. Comparison to SOTA — ABIDE Autism
+# 4. Comparison to SOTA
 
-From `SOTA_COMPARISON_EN.pdf`, the models that report **ABIDE Autism**:
+### ABIDE Autism (AUC) — vs graph/connectome models
 
-| Model | Type | ABIDE Autism | Pretraining scale |
-|-------------|----------------------|:------------------:|:-----------------:|
-| BNT | supervised (no SSL) | AUROC **80.2 %** | none |
-| BrainGFM | graph foundation model | AUC **71.2** (ABIDE II) | 27 datasets, 25k subj |
-| LCM | connectome FM (leakage-free CV) | F1 **72.5** | ~10k scans |
-| **Ours (freezeC)** | **volumetric FM** | **AUC 60.3** (ABIDE I) | ~3.7k scans |
+| Model | Type | ABIDE Autism |
+|-------------|----------------------|:------------------:|
+| BNT | supervised (no SSL) | AUROC 0.80 |
+| LCM | connectome FM (leakage-free CV) | F1 0.73 |
+| BrainGFM | graph FM (25k subj) | AUC 0.71 (ABIDE II) |
+| **Ours (freezeC)** | **volumetric FM (~3.7k)** | **AUC 0.60** (ABIDE I) |
 
-**Honest reading:**
+We are **below** the models that report ABIDE Autism. These are graph/connectome
+models with much larger pretraining; no volumetric peer reports ABIDE Autism.
 
-- We are **below** all models that report ABIDE Autism. BNT is a supervised
-  task-specific model (different category); BrainGFM and LCM are graph/connectome
-  models with much larger and more diverse pretraining.
-- Crucially, **our architectural peers (volumetric models: SLIM-Brain, SwiFT)
-  report ABIDE _Age_, not Autism** (SLIM-Brain 64.4 % acc, SwiFT 62.2 % acc). An
-  apples-to-apples comparison therefore requires running **ABIDE Age** (TODO).
-- Our scale (~3.7k pretraining scans) is comparable to SLIM-Brain (4 129
-  sessions), so the gap is one of method maturity (10 epochs, no tuning, single
-  split), not corpus size.
+### ABIDE Age (Acc) — vs our volumetric peers
 
-# 5. Caveats and next steps
+| Model | Type | ABIDE Age (Acc) |
+|-------------|----------------------|:------------------:|
+| SwiFT | volumetric FM | 62.2 % |
+| SLIM-Brain | volumetric FM (4.1k) | 64.4 % |
+| **Ours (freezeC)** | **volumetric FM (~3.7k)** | **76 %** |
 
-- **Single split** (test n = 155): high variance. Headline numbers require
+We are **above** our direct architectural peers (SLIM-Brain, SwiFT) on ABIDE Age.
+Caveat: our age binarization (split at the median) may differ from theirs, and
+age is an easy target; this is a positive but not a strictly identical-protocol
+comparison.
+
+### Reading
+
+The foundation model learns strong **demographic** structure (Age 0.82 AUC /
+0.76 Acc, above peers) but the harder **clinical** task (Autism 0.60 AUC) is
+below the larger SOTA models. At a pretraining scale comparable to SLIM-Brain
+(~3.7k vs 4.1k), the Autism gap is one of method maturity (10 epochs, no tuning,
+single split), not corpus size.
+
+# 5. ADNI — not yet comparable (in progress)
+
+Sagi's ADNI cohort is small (215 subjects). With a 70/15/15 split the test set is
+~32 subjects (37–61 scans/label) — too small: the fixed-split probe **overfits the
+val** (e.g. NC/MCI val 0.81 → test 0.52), so neither val nor test is reliable.
+**Exception: ADNI Sex** (n≈125, val 0.76 → test 0.79, consistent) — a solid sanity
+result confirming the embeddings carry real signal.
+
+**Fix in progress:** a freezeC run with **ADNI fully excluded from pretraining**
+(`train_v2_noadni`), then a subject-aware **k-fold probe over the full 215-subject
+ADNI cohort** (encoder unseen) → a stable, SOTA-scale ADNI NC/MCI number
+(vs Brain-JEPA 0.77, BNT 0.79 acc).
+
+# 6. Caveats and next steps
+
+- **Single split** (ABIDE test n = 155): high variance → headline numbers need
   **mean ± std over 3–5 subject-level seeds**.
-- **ABIDE Age** probe (apples-to-apples vs SLIM-Brain / SwiFT) — TODO.
-- **ADNI** results to be added (degradation 1/2/3y and CDR were near chance on
-  val; Sex ≈ 0.83 AUC confirms the embeddings carry real signal).
-- **Closing the SOTA gap:** longer pretraining, learning-rate tuning, architecture.
+- **ADNI k-fold** (full cohort, leakage-free) — running.
+- **Closing the Autism gap:** longer pretraining, LR tuning, architecture.
