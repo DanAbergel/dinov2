@@ -50,6 +50,7 @@ LABELS_ADNI = {
     "degradation_2y": "degradation_binary_2years",
     "degradation_3y": "degradation_binary_3years",
     "Sex": "Sex_Binary",
+    "Age": "age_bin",                  # binary at median (demographic sanity)
 }
 LABELS_ABIDE = {"Autism": "autism", "Age": "age_bin", "Sex": "sex_bin"}  # built in build_table_abide
 
@@ -111,6 +112,17 @@ def _split_map(ds):
     return {s: name for name, subs in split.items() for s in subs}
 
 
+def _add_age_bin(table, age_field):
+    """Add row['age_bin'] = 1 if age >= global median else 0 (NaN if missing).
+    Global median (one scalar) works in both fixed-split and k-fold modes."""
+    ages = [_to_float(t["row"].get(age_field)) for t in table]
+    valid = [a for a in ages if a is not None]
+    med = float(np.median(valid)) if valid else None
+    for t, a in zip(table, ages):
+        t["row"]["age_bin"] = (float("nan") if a is None or med is None
+                               else (1.0 if a >= med else 0.0))
+
+
 def build_table_adni():
     sub2split = _split_map("ADNI")
     table = []
@@ -126,6 +138,7 @@ def build_table_adni():
         r["ad_vs_hc"] = (0.0 if cdr == 0 else
                          1.0 if (cdr is not None and cdr >= 1) else float("nan"))
         table.append({"path": p, "subject": sid, "split": sp, "tr": 3.0, "row": r})
+    _add_age_bin(table, "Age")         # binary age at global median
     return table, LABELS_ADNI
 
 
@@ -147,20 +160,12 @@ def build_table_abide():
         if dx is None:
             continue
         sex = _to_float(ph.get("SEX"))                    # 1=male, 2=female
-        age = _to_float(ph.get("AGE_AT_SCAN"))
         row = {"autism": 1.0 if dx == 1 else 0.0,
                "sex_bin": (1.0 if sex == 1 else 0.0) if sex is not None else float("nan"),
-               "_age": age}
+               "AGE_AT_SCAN": ph.get("AGE_AT_SCAN")}
         table.append({"path": Path(r["path"]), "subject": sid, "split": sp,
                       "tr": float(r["tr"]), "row": row})
-    # Binary age = split at the TRAIN median (threshold from train only -> no leak).
-    train_ages = [t["row"]["_age"] for t in table
-                  if t["split"] == "train" and t["row"]["_age"] is not None]
-    med = float(np.median(train_ages)) if train_ages else None
-    for t in table:
-        a = t["row"]["_age"]
-        t["row"]["age_bin"] = (float("nan") if a is None or med is None
-                               else (1.0 if a >= med else 0.0))
+    _add_age_bin(table, "AGE_AT_SCAN")     # binary age at global median
     return table, LABELS_ABIDE
 
 
