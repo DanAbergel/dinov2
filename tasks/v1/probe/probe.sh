@@ -1,0 +1,60 @@
+#!/bin/bash
+# =====================================================================
+# Leakage-free linear probe on ADNI for one trained run.
+#
+# Loads the run's teacher encoder, extracts ADNI embeddings, fits LogReg on
+# TRAIN / selects C on VAL / reports TEST AUC (subjects from subject_split.json;
+# val+test were held out of pretraining). Writes <run-dir>/probe_adni.json.
+#
+# Usage:
+#   RUN=base    DATASET=ABIDE sbatch -A arieljaffe tasks/v1/probe/probe.sh
+#   RUN=base    DATASET=ADNI  sbatch -A arieljaffe tasks/v1/probe/probe.sh
+#   RUN=fourier DATASET=ABIDE sbatch -A arieljaffe tasks/v1/probe/probe.sh
+# (ADNI uses the leakage-free fixed train/val/test split — its val+test were
+#  held out of pretraining. KFOLD>0 is only valid if the dataset is FULLY
+#  excluded from pretraining, which is NOT the case in v1.)
+# =====================================================================
+
+#SBATCH --job-name=probe
+#SBATCH --account=arieljaffe
+#SBATCH --gres=gpu:l40s:1
+#SBATCH --ntasks=1
+#SBATCH --cpus-per-task=4
+#SBATCH --mem=32G
+#SBATCH --time=02:00:00
+#SBATCH --output=/dev/null
+#SBATCH --error=/dev/null
+#SBATCH --chdir=/sci/labs/arieljaffe/dan.abergel1/repos/FAIR_official
+
+set -euo pipefail
+
+LAB_DIR="/sci/labs/arieljaffe/dan.abergel1"
+OFFICIAL_DIR="$LAB_DIR/repos/FAIR_official"
+TASK_DIR="$OFFICIAL_DIR/tasks/v1/probe"
+VENV_DIR="$LAB_DIR/torch_env"
+
+RUN="${RUN:-base}"
+CKPT="${CKPT:-model_final.rank_0.pth}"
+DATASET="${DATASET:-ADNI}"
+KFOLD="${KFOLD:-0}"                         # >0 -> subject-aware k-fold (dataset must be excluded from pretraining)
+RUN_DIR="$LAB_DIR/runs/v1/$RUN"
+
+mkdir -p "$TASK_DIR/logs"
+SUFFIX=""; [ "$KFOLD" != "0" ] && SUFFIX="_kfold${KFOLD}"
+LOG="$TASK_DIR/logs/probe_${RUN}_${DATASET}${SUFFIX}.out"
+exec >"$LOG" 2>&1
+
+export TMPDIR="$LAB_DIR/tmp"
+export HOME="$LAB_DIR"
+export XDG_CACHE_HOME="$LAB_DIR/cache"
+export TRITON_CACHE_DIR="$LAB_DIR/cache/triton"
+mkdir -p "$TMPDIR" "$TRITON_CACHE_DIR"
+
+source "$VENV_DIR/bin/activate"
+export PYTHONPATH="$OFFICIAL_DIR:${PYTHONPATH:-}"
+export PYTHONUNBUFFERED=1                  # live progress in the log
+
+echo "Probe   run=$RUN dataset=$DATASET kfold=$KFOLD ckpt=$CKPT   Node: $(hostname)   Date: $(date)"
+srun python -u tasks/v1/probe/probe.py --run-dir "$RUN_DIR" --dataset "$DATASET" \
+    --checkpoint "$CKPT" --kfold "$KFOLD"
+echo "Done: $(date)"
