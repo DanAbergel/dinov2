@@ -21,7 +21,7 @@ import numpy as np
 import torch
 from omegaconf import OmegaConf
 from sklearn.linear_model import LogisticRegression
-from sklearn.metrics import accuracy_score, roc_auc_score
+from sklearn.metrics import accuracy_score, f1_score, roc_auc_score
 from sklearn.model_selection import StratifiedGroupKFold
 from sklearn.preprocessing import StandardScaler
 
@@ -192,11 +192,12 @@ def probe_label(X, y, splits, name):
 
     clf = LogisticRegression(C=best_c, max_iter=2000, class_weight="balanced").fit(Xtr, y[tr])
     proba = clf.predict_proba(Xte)[:, 1]
-    test_auc = roc_auc_score(y[te], proba)
-    test_acc = accuracy_score(y[te], (proba >= 0.5).astype(int))
-    return {"C": best_c, "val_auc": float(best_val), "test_auc": float(test_auc),
-            "test_acc": float(test_acc), "n_train": int(tr.sum()),
-            "n_test": int(te.sum()), "pos_test": int(y[te].sum())}
+    pred = (proba >= 0.5).astype(int)
+    return {"C": best_c, "val_auc": float(best_val),
+            "test_auc": float(roc_auc_score(y[te], proba)),
+            "test_acc": float(accuracy_score(y[te], pred)),
+            "test_f1": float(f1_score(y[te], pred, zero_division=0)),
+            "n_train": int(tr.sum()), "n_test": int(te.sum()), "pos_test": int(y[te].sum())}
 
 
 def probe_kfold(X, y, groups, n_splits=5):
@@ -209,7 +210,7 @@ def probe_kfold(X, y, groups, n_splits=5):
     if len(np.unique(y)) < 2 or len(set(groups)) < n_splits:
         return None
     cv = StratifiedGroupKFold(n_splits=n_splits, shuffle=True, random_state=0)
-    aucs, accs = [], []
+    aucs, accs, f1s = [], [], []
     for tr, te in cv.split(X, y.astype(int), groups):
         if len(np.unique(y[te])) < 2:
             continue
@@ -217,12 +218,15 @@ def probe_kfold(X, y, groups, n_splits=5):
         clf = LogisticRegression(C=1.0, max_iter=2000, class_weight="balanced")
         clf.fit(sc.transform(X[tr]), y[tr])
         proba = clf.predict_proba(sc.transform(X[te]))[:, 1]
+        pred = (proba >= 0.5).astype(int)
         aucs.append(roc_auc_score(y[te], proba))
-        accs.append(accuracy_score(y[te], (proba >= 0.5).astype(int)))
+        accs.append(accuracy_score(y[te], pred))
+        f1s.append(f1_score(y[te], pred, zero_division=0))
     if not aucs:
         return None
     return {"auc_mean": float(np.mean(aucs)), "auc_std": float(np.std(aucs)),
             "acc_mean": float(np.mean(accs)), "acc_std": float(np.std(accs)),
+            "f1_mean": float(np.mean(f1s)), "f1_std": float(np.std(f1s)),
             "n": int(len(y)), "pos": int(y.sum()), "folds": len(aucs)}
 
 
@@ -246,15 +250,25 @@ def main():
     if not table:
         raise RuntimeError(f"No {args.dataset} scans matched (labels/split missing?)")
 
-    t0 = time.time()
-    embs = []
-    for i, t in enumerate(table):
-        embs.append(scan_embedding(teacher, t["path"], t["tr"]))
-        if (i + 1) % 100 == 0 or i == len(table) - 1:
-            dt = time.time() - t0
-            print(f"  embeddings {i+1}/{len(table)}  ({dt:.0f}s, {dt/(i+1)*1000:.0f} ms/scan)",
-                  flush=True)
-    X = np.stack(embs)
+    # Cache embeddings per (dataset, checkpoint): extraction is the slow step, so
+    # re-running for a new metric (F1, ...) is then instant.
+    ck = args.checkpoint.replace(".", "_")
+    cache = Path(args.run_dir) / f"emb_{args.dataset}_{ck}.npz"
+    if cache.exists() and int(np.load(cache)["X"].shape[0]) == len(table):
+        X = np.load(cache)["X"]
+        print(f"loaded cached embeddings {X.shape} from {cache.name}", flush=True)
+    else:
+        t0 = time.time()
+        embs = []
+        for i, t in enumerate(table):
+            embs.append(scan_embedding(teacher, t["path"], t["tr"]))
+            if (i + 1) % 100 == 0 or i == len(table) - 1:
+                dt = time.time() - t0
+                print(f"  embeddings {i+1}/{len(table)}  ({dt:.0f}s, "
+                      f"{dt/(i+1)*1000:.0f} ms/scan)", flush=True)
+        X = np.stack(embs)
+        np.savez(cache, X=X)
+        print(f"cached embeddings -> {cache.name}", flush=True)
     splits = np.array([t["split"] for t in table])
 
     run_name = Path(args.run_dir).name
@@ -270,20 +284,21 @@ def main():
             r = probe_kfold(X, y, groups, n_splits=args.kfold)
             results[name] = r
             if r:
-                print(f"  {name:16} {r['auc_mean']:.3f}±{r['auc_std']:.3f}      "
-                      f"{r['acc_mean']:.3f}±{r['acc_std']:.3f}      {r['n']:>5} {r['pos']}",
+                print(f"  {name:16} AUC {r['auc_mean']:.3f}±{r['auc_std']:.3f}  "
+                      f"Acc {r['acc_mean']:.3f}±{r['acc_std']:.3f}  "
+                      f"F1 {r['f1_mean']:.3f}±{r['f1_std']:.3f}  n={r['n']} pos={r['pos']}",
                       flush=True)
             else:
                 print(f"  {name:16} (skipped)", flush=True)
     else:
-        print(f"  {'label':16} {'C':>5} {'val_auc':>8} {'TEST_AUC':>9} {'test_acc':>9}  {'n_tr/n_te':>10} pos")
+        print(f"  {'label':16} {'C':>5} {'val':>6} {'TEST_auc':>9} {'acc':>6} {'F1':>6}  {'n_te':>5} pos")
         for name, col in LABELS.items():
             y = np.array([_to_float(t["row"].get(col)) for t in table], dtype=float)
             r = probe_label(X, y, splits, name)
             results[name] = r
             if r:
-                print(f"  {name:16} {r['C']:>5} {r['val_auc']:>8.3f} {r['test_auc']:>9.3f}"
-                      f" {r['test_acc']:>9.3f}  {r['n_train']:>4}/{r['n_test']:<4} {r['pos_test']}",
+                print(f"  {name:16} {r['C']:>5} {r['val_auc']:>6.2f} {r['test_auc']:>9.2f}"
+                      f" {r['test_acc']:>6.2f} {r['test_f1']:>6.2f}  {r['n_test']:>5} {r['pos_test']}",
                       flush=True)
             else:
                 print(f"  {name:16} (skipped — too few samples / one class)", flush=True)

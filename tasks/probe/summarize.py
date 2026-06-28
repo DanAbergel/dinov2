@@ -40,19 +40,18 @@ def main():
         labels = list(dict.fromkeys(l for d in data.values() for l in d))
 
         if kfold:
-            print(f"  {'task':14}{'AUC':>14}{'Acc':>14}   SOTA")
+            print(f"  {'task':14}{'AUC':>13}{'Acc':>13}{'F1':>13}   SOTA")
             for lab in labels:
-                # only one run (the no-ADNI) typically; show it
                 for r, res in data.items():
                     v = res.get(lab)
                     if v and "auc_mean" in v:
-                        print(f"  {lab:14}{v['auc_mean']:.2f}±{v['auc_std']:.2f}   "
-                              f"{v['acc_mean']:.2f}±{v['acc_std']:.2f}   {SOTA.get(lab,'')}")
+                        print(f"  {lab:14}{v['auc_mean']:.2f}±{v['auc_std']:.2f}  "
+                              f"{v['acc_mean']:.2f}±{v['acc_std']:.2f}  "
+                              f"{v.get('f1_mean',0):.2f}±{v.get('f1_std',0):.2f}   {SOTA.get(lab,'')}")
             continue
 
-        print(f"  {'task':14}{'best(val)':>14}{'val':>6}{'TEST_auc':>9}{'acc':>6}   SOTA")
+        print(f"  {'task':14}{'best(val)':>14}{'val':>6}{'AUC':>6}{'Acc':>6}{'F1':>6}   SOTA")
         for lab in labels:
-            # pick config with best VAL auc
             best, bestv = None, -1
             for r, res in data.items():
                 v = res.get(lab)
@@ -61,8 +60,8 @@ def main():
             if not best:
                 continue
             r, v = best
-            print(f"  {lab:14}{r:>14}{v['val_auc']:>6.2f}{v['test_auc']:>9.2f}"
-                  f"{v.get('test_acc',0):>6.2f}   {SOTA.get(lab,'')}")
+            print(f"  {lab:14}{r:>14}{v['val_auc']:>6.2f}{v['test_auc']:>6.2f}"
+                  f"{v.get('test_acc',0):>6.2f}{v.get('test_f1',0):>6.2f}   {SOTA.get(lab,'')}")
 
 
 if __name__ == "__main__":
