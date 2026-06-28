@@ -42,7 +42,7 @@ CONFIG="$OFFICIAL_DIR/dinov2/configs/train/fmri_vits.yaml"
 
 # --- cluster-specific (override on the command line) ---------------------
 VENV="${VENV:-$LAB_DIR/torch_env}"                 # dinov2 training env
-RUN_NAME="${RUN_NAME:-fmri_v2_baseline}"
+RUN_NAME="${RUN_NAME:-${RUN:-fmri_v2_baseline}}"   # accept RUN or RUN_NAME
 OUTPUT_DIR="${OUTPUT_DIR:-$LAB_DIR/runs/$RUN_NAME}"
 
 export TMPDIR="$LAB_DIR/tmp"
