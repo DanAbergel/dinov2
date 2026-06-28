@@ -1,14 +1,19 @@
-"""Leakage-free linear probe (ADNI or ABIDE) for a trained fMRI run.
+"""Leakage-free linear probe (ADNI / ABIDE / HCP) for a trained fMRI run.
 
 Loads the run's teacher encoder, extracts ONE embedding per scan (mean CLS over
 sliding windows resampled from the scan's native TR to 0.72s), then for each
-label fits LogReg on TRAIN subjects, selects C on VAL, evaluates on TEST.
-Subjects come from subject_split.json — val/test were held out of pretraining
-(no leakage).
+principal SOTA axis:
+  - TRAIN = 70% subjects, TEST = the held-out 30% (val+test merged).
+  - the LogReg regularisation C is chosen by SUBJECT-AWARE cross-validation on the
+    TRAIN portion only (no separate val set needed; the 30% test stays untouched).
+  - report TEST AUC / Accuracy / F1 (binary, positive class — matches SOTA).
+Subjects come from subject_split.json; the 30% test was held out of pretraining
+(HOLDOUT_DATASETS), so the encoder never saw it -> no leakage.
 
 Usage (SLURM job, needs GPU):
-    python probe.py --run-dir .../runs/fmri_v2_baseline --dataset ADNI
-    python probe.py --run-dir .../runs/fmri_v2_baseline --dataset ABIDE
+    python probe.py --run-dir .../runs/v1/base --dataset ADNI
+    python probe.py --run-dir .../runs/v1/base --dataset ABIDE
+    python probe.py --run-dir .../runs/v1/base --dataset HCP
 """
 
 import argparse
@@ -32,27 +37,26 @@ from dinov2.data.fmri_data import (
 )
 
 LAB = Path(LAB_ROOT)
+REPO_ROOT = Path(__file__).resolve().parents[3]     # tasks/v1/probe/probe.py -> repo root
 ADNI_DIR = LAB / "ADNI_data" / "downsampled"
 ADNI_MANIFEST = ADNI_DIR / "adni_manifest.csv"
 ABIDE_PHENO = LAB / "ABIDE_data" / "abide_phenotypic.csv"
+HCP_CSV = REPO_ROOT / "data" / "HCP_YA_subjects.csv"  # Subject,Gender,Age_in_Yrs,...
 CORPUS_MANIFEST = LAB / DEFAULT_MANIFEST
 T_FIXED = 270
 DEVICE = "cuda" if torch.cuda.is_available() else "cpu"
 C_GRID = [0.01, 0.1, 1.0, 10.0]
 
+# Principal SOTA axes only (degradation/CDR are novel-no-SOTA -> dropped from the
+# headline; the columns stay computed in the table so they can be re-added later).
 LABELS_ADNI = {
-    # SOTA-comparable diagnostic classification (proxy from Global CDR, since
-    # Sagi's manifest has no clinical DX): NC=CDR 0, MCI=CDR 0.5, AD=CDR>=1.
-    "NC_vs_MCI": "nc_vs_mci",          # most-reported ADNI task across SOTA
-    "AD_vs_HC": "ad_vs_hc",
-    "CDR": "CDR_Binary",
-    "degradation_1y": "degradation_binary_1year",
-    "degradation_2y": "degradation_binary_2years",
-    "degradation_3y": "degradation_binary_3years",
-    "Sex": "Sex_Binary",
-    "Age": "age_bin",                  # binary at median (demographic sanity)
+    # Diagnostic classification, proxy from Global CDR (Sagi's manifest has no
+    # clinical DX): NC=CDR 0, MCI=CDR 0.5, AD=CDR>=1.
+    "NC_vs_MCI": "nc_vs_mci",          # vs Brain-JEPA 0.77 / BNT 0.79 acc
+    "AD_vs_HC": "ad_vs_hc",            # vs BrainGFM 0.80 AUC / LCM 0.85 F1
 }
-LABELS_ABIDE = {"Autism": "autism", "Age": "age_bin", "Sex": "sex_bin"}  # built in build_table_abide
+LABELS_ABIDE = {"Autism": "autism", "Age": "age_bin", "Sex": "sex_bin"}
+LABELS_HCP = {"Sex": "sex_bin", "Age": "age_bin"}   # Sex = SOTA axis (SLIM 0.91 / LCM 0.73 F1)
 
 
 # ---------------- encoder ----------------
@@ -169,35 +173,92 @@ def build_table_abide():
     return table, LABELS_ABIDE
 
 
+def build_table_hcp():
+    """HCP-YA: Sex (Gender M/F) is the SOTA axis (SLIM-Brain 0.91, LCM 0.73 F1);
+    Age (Age_in_Yrs) binarised at the median as a demographic sanity check."""
+    sub2split = _split_map("HCP")
+    meta = {str(r["Subject"]).strip(): r for r in csv.DictReader(open(HCP_CSV))}
+    table, matched = [], 0
+    for r in csv.DictReader(open(CORPUS_MANIFEST)):
+        if r["dataset"] != "HCP":
+            continue
+        sid = r["subject_id"]
+        sp = sub2split.get(sid)
+        if sp is None:
+            continue
+        # HCP CSV "Subject" is a 6-digit id; manifest subject_id may carry a suffix.
+        digits = "".join(ch for ch in sid if ch.isdigit())[:6]
+        m = meta.get(sid) or meta.get(digits)
+        if m is None:
+            continue
+        g = (m.get("Gender") or "").strip()
+        row = {"sex_bin": 1.0 if g == "M" else 0.0 if g == "F" else float("nan"),
+               "Age_in_Yrs": m.get("Age_in_Yrs")}
+        table.append({"path": Path(r["path"]), "subject": sid, "split": sp,
+                      "tr": float(r["tr"]), "row": row})
+        matched += 1
+    print(f"HCP: matched {matched} scans to Sex/Age labels", flush=True)
+    _add_age_bin(table, "Age_in_Yrs")
+    return table, LABELS_HCP
+
+
 # ---------------- probe ----------------
 
-def probe_label(X, y, splits, name):
-    tr, va, te = (splits == "train"), (splits == "val"), (splits == "test")
-    m = ~np.isnan(y)
-    tr, va, te = tr & m, va & m, te & m
-    if tr.sum() < 10 or te.sum() < 5 or va.sum() < 5:
-        return None
-    if len(np.unique(y[tr])) < 2 or len(np.unique(y[te])) < 2 or len(np.unique(y[va])) < 2:
-        return None
-
-    sc = StandardScaler().fit(X[tr])
-    Xtr, Xva, Xte = sc.transform(X[tr]), sc.transform(X[va]), sc.transform(X[te])
-
-    best_c, best_val = None, -1
+def _select_C_cv(X, y, groups):
+    """Choose C by SUBJECT-AWARE cross-validation on the TRAIN set only.
+    No separate val set is needed: the CV builds temporary validation folds from
+    the train subjects (grouped, so a subject is never in both CV-train and
+    CV-val). The 30% test set is never touched here. Selection criterion = mean
+    CV AUC. Falls back to C=1 if the train set is too small to split."""
+    yb = y.astype(int)
+    grp_per_class = {c: len(set(groups[yb == c])) for c in np.unique(yb)}
+    if min(grp_per_class.values()) < 2:
+        return 1.0
+    n_splits = max(2, min(5, min(grp_per_class.values())))
+    cv = StratifiedGroupKFold(n_splits=n_splits, shuffle=True, random_state=0)
+    best_c, best = 1.0, -1.0
     for C in C_GRID:
-        clf = LogisticRegression(C=C, max_iter=2000, class_weight="balanced").fit(Xtr, y[tr])
-        auc = roc_auc_score(y[va], clf.predict_proba(Xva)[:, 1])
-        if auc > best_val:
-            best_val, best_c = auc, C
+        aucs = []
+        try:
+            for tr, va in cv.split(X, yb, groups):
+                if len(np.unique(yb[tr])) < 2 or len(np.unique(yb[va])) < 2:
+                    continue
+                sc = StandardScaler().fit(X[tr])
+                clf = LogisticRegression(C=C, max_iter=2000,
+                                         class_weight="balanced").fit(sc.transform(X[tr]), y[tr])
+                aucs.append(roc_auc_score(y[va], clf.predict_proba(sc.transform(X[va]))[:, 1]))
+        except ValueError:
+            continue
+        if aucs and np.mean(aucs) > best:
+            best, best_c = float(np.mean(aucs)), C
+    return best_c
 
-    clf = LogisticRegression(C=best_c, max_iter=2000, class_weight="balanced").fit(Xtr, y[tr])
-    proba = clf.predict_proba(Xte)[:, 1]
+
+def probe_label(X, y, splits, groups, name):
+    """70:30 split. TRAIN = 'train' subjects (in pretraining is fine); TEST = the
+    held-out 30% ('val'+'test', excluded from pretraining). C chosen by CV on
+    TRAIN. Report TEST AUC/Acc/F1 (F1 binary = positive class, matches SOTA)."""
+    tr = (splits == "train")
+    te = (splits == "val") | (splits == "test")     # 70:30 — merge val+test as held-out test
+    m = ~np.isnan(y)
+    tr, te = tr & m, te & m
+    if tr.sum() < 10 or te.sum() < 10:
+        return None
+    if len(np.unique(y[tr])) < 2 or len(np.unique(y[te])) < 2:
+        return None
+
+    best_c = _select_C_cv(X[tr], y[tr], groups[tr])
+    sc = StandardScaler().fit(X[tr])
+    clf = LogisticRegression(C=best_c, max_iter=2000,
+                             class_weight="balanced").fit(sc.transform(X[tr]), y[tr])
+    proba = clf.predict_proba(sc.transform(X[te]))[:, 1]
     pred = (proba >= 0.5).astype(int)
-    return {"C": best_c, "val_auc": float(best_val),
+    return {"C": best_c,
             "test_auc": float(roc_auc_score(y[te], proba)),
             "test_acc": float(accuracy_score(y[te], pred)),
             "test_f1": float(f1_score(y[te], pred, zero_division=0)),
-            "n_train": int(tr.sum()), "n_test": int(te.sum()), "pos_test": int(y[te].sum())}
+            "n_train": int(tr.sum()), "n_test": int(te.sum()),
+            "n_test_subj": int(len(set(groups[te]))), "pos_test": int(y[te].sum())}
 
 
 def probe_kfold(X, y, groups, n_splits=5):
@@ -233,7 +294,7 @@ def probe_kfold(X, y, groups, n_splits=5):
 def main():
     ap = argparse.ArgumentParser()
     ap.add_argument("--run-dir", required=True)
-    ap.add_argument("--dataset", default="ADNI", choices=["ADNI", "ABIDE"])
+    ap.add_argument("--dataset", default="ADNI", choices=["ADNI", "ABIDE", "HCP"])
     ap.add_argument("--checkpoint", default="model_final.rank_0.pth")
     ap.add_argument("--kfold", type=int, default=0,
                     help="If >0, subject-aware k-fold CV over the whole cohort "
@@ -245,7 +306,8 @@ def main():
     teacher, embed_dim = load_teacher(args.run_dir, args.checkpoint)
     print(f"embed_dim={embed_dim}", flush=True)
 
-    table, LABELS = build_table_adni() if args.dataset == "ADNI" else build_table_abide()
+    table, LABELS = ({"ADNI": build_table_adni, "ABIDE": build_table_abide,
+                      "HCP": build_table_hcp}[args.dataset])()
     print(f"{args.dataset} scans with split+label: {len(table)}", flush=True)
     if not table:
         raise RuntimeError(f"No {args.dataset} scans matched (labels/split missing?)")
@@ -291,15 +353,17 @@ def main():
             else:
                 print(f"  {name:16} (skipped)", flush=True)
     else:
-        print(f"  {'label':16} {'C':>5} {'val':>6} {'TEST_auc':>9} {'acc':>6} {'F1':>6}  {'n_te':>5} pos")
+        groups = np.array([t["subject"] for t in table])
+        print(f"  {'label':16} {'C':>5} {'TEST_auc':>9} {'acc':>6} {'F1':>6}  "
+              f"{'n_te':>5} {'subj':>5} pos")
         for name, col in LABELS.items():
             y = np.array([_to_float(t["row"].get(col)) for t in table], dtype=float)
-            r = probe_label(X, y, splits, name)
+            r = probe_label(X, y, splits, groups, name)
             results[name] = r
             if r:
-                print(f"  {name:16} {r['C']:>5} {r['val_auc']:>6.2f} {r['test_auc']:>9.2f}"
-                      f" {r['test_acc']:>6.2f} {r['test_f1']:>6.2f}  {r['n_test']:>5} {r['pos_test']}",
-                      flush=True)
+                print(f"  {name:16} {r['C']:>5} {r['test_auc']:>9.2f}"
+                      f" {r['test_acc']:>6.2f} {r['test_f1']:>6.2f}  {r['n_test']:>5} "
+                      f"{r['n_test_subj']:>5} {r['pos_test']}", flush=True)
             else:
                 print(f"  {name:16} (skipped — too few samples / one class)", flush=True)
 

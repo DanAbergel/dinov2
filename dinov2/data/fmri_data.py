@@ -69,9 +69,10 @@ DEFAULT_T_FIXED = 270
 DEFAULT_MANIFEST = "corpus_manifest.csv"   # under LAB_ROOT; auto-used if present
 DEFAULT_SPLIT = "subject_split.json"       # under LAB_ROOT; auto-used if present
 # Downstream datasets: their val+test SUBJECTS are excluded from SSL pretraining
-# (no leakage), so probes evaluate on subjects the encoder never saw. HCP/AOMIC
-# are pretraining-only -> kept whole.
-HOLDOUT_DATASETS = ("ADNI", "ABIDE", "OASIS")
+# (no leakage), so probes evaluate on subjects the encoder never saw. HCP is now a
+# downstream dataset too (Sex probe vs SLIM-Brain/LCM) -> held out. AOMIC stays
+# pretraining-only (no probe planned) -> kept whole.
+HOLDOUT_DATASETS = ("ADNI", "ABIDE", "OASIS", "HCP")
 
 # ABIDE I native TR per site (seconds). Site = filename.split("_")[0].
 # Standard ABIDE acquisition parameters — CROSS-CHECK against the deep-research

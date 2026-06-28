@@ -1,8 +1,8 @@
-"""Aggregate probe_*.json across runs into SOTA-comparison tables.
+"""Aggregate probe_*.json across the v1 runs into a SOTA-comparison table.
 
-For each (dataset, task) it picks the config with the best VAL AUC (the correct
-leakage-free selection) and prints its TEST AUC/Acc next to the SOTA reference.
-k-fold results (full-cohort) are shown as mean±std.
+One row per (axis, metric) where the metric is THE ONE THE SOTA REPORTS for that
+task (AUROC for ABIDE-Autism/BNT, F1 for LCM, Acc for ADNI/Brain-JEPA, ...), so
+every comparison is apples-to-apples. Columns = our runs (base, fourier).
 
 Usage:
     python tasks/v1/probe/summarize.py
@@ -13,54 +13,47 @@ import os
 
 LAB = "/sci/labs/arieljaffe/dan.abergel1"
 RUNS = ["base", "fourier"]
-FILES = [("ABIDE", "probe_abide.json", False),
-         ("ADNI (fixed split, leakage-free)", "probe_adni.json", False)]
 
-# SOTA reference per task (from SOTA_COMPARISON_EN.pdf)
-SOTA = {
-    "Autism":   "BrainGFM 0.71 AUC / LCM 0.73 F1 / BNT 0.80",
-    "Age":      "SLIM-Brain 0.64 / SwiFT 0.62 (acc)",
-    "Sex":      "LCM 0.87 F1",
-    "NC_vs_MCI": "Brain-JEPA 0.77 / BNT 0.79 (acc)",
-    "AD_vs_HC": "BrainGFM 0.85 / LCM 0.85 (AUC/F1)",
-}
+# (dataset, probe-label, metric key in json, axis label, metric name, SOTA ref)
+AXES = [
+    ("ABIDE", "Autism",    "test_auc", "ABIDE · Autism", "AUROC", "BNT 0.80 / BrainGFM 0.71"),
+    ("ABIDE", "Autism",    "test_f1",  "ABIDE · Autism", "F1",    "LCM 0.73"),
+    ("ABIDE", "Age",       "test_acc", "ABIDE · Age",    "Acc",   "SLIM 0.64 / SwiFT 0.62"),
+    ("ABIDE", "Sex",       "test_f1",  "ABIDE · Sex",    "F1",    "LCM 0.87"),
+    ("ADNI",  "NC_vs_MCI", "test_acc", "ADNI · NC/MCI",  "Acc",   "Brain-JEPA 0.77 / BNT 0.79"),
+    ("ADNI",  "NC_vs_MCI", "test_f1",  "ADNI · NC/MCI",  "F1",    "Brain-JEPA 0.86"),
+    ("ADNI",  "AD_vs_HC",  "test_auc", "ADNI · AD/HC",   "AUC",   "BrainGFM 0.80"),
+    ("ADNI",  "AD_vs_HC",  "test_acc", "ADNI · AD/HC",   "Acc",   "BrainGFM 0.85"),
+    ("ADNI",  "AD_vs_HC",  "test_f1",  "ADNI · AD/HC",   "F1",    "LCM 0.85"),
+    ("HCP",   "Sex",       "test_acc", "HCP · Sex",      "Acc",   "SLIM 0.91"),
+    ("HCP",   "Sex",       "test_f1",  "HCP · Sex",      "F1",    "SLIM 0.91 / LCM 0.73"),
+]
+
+
+def load(run, dataset):
+    p = f"{LAB}/runs/v1/{run}/probe_{dataset.lower()}.json"
+    if not os.path.exists(p):
+        return {}
+    return json.load(open(p)).get("results", {})
+
+
+def cell(results, label, metric):
+    r = (results.get(label) or {})
+    v = r.get(metric)
+    return f"{v:.2f}" if isinstance(v, (int, float)) else "  -"
 
 
 def main():
-    for title, fn, kfold in FILES:
-        data = {}
-        for r in RUNS:
-            p = f"{LAB}/runs/v1/{r}/{fn}"
-            if os.path.exists(p):
-                data[r] = json.load(open(p)).get("results", {})
-        if not data:
-            continue
-        print(f"\n===== {title} =====")
-        labels = list(dict.fromkeys(l for d in data.values() for l in d))
-
-        if kfold:
-            print(f"  {'task':14}{'AUC':>13}{'Acc':>13}{'F1':>13}   SOTA")
-            for lab in labels:
-                for r, res in data.items():
-                    v = res.get(lab)
-                    if v and "auc_mean" in v:
-                        print(f"  {lab:14}{v['auc_mean']:.2f}±{v['auc_std']:.2f}  "
-                              f"{v['acc_mean']:.2f}±{v['acc_std']:.2f}  "
-                              f"{v.get('f1_mean',0):.2f}±{v.get('f1_std',0):.2f}   {SOTA.get(lab,'')}")
-            continue
-
-        print(f"  {'task':14}{'best(val)':>14}{'val':>6}{'AUC':>6}{'Acc':>6}{'F1':>6}   SOTA")
-        for lab in labels:
-            best, bestv = None, -1
-            for r, res in data.items():
-                v = res.get(lab)
-                if v and v.get("val_auc", -1) > bestv:
-                    bestv, best = v["val_auc"], (r, v)
-            if not best:
-                continue
-            r, v = best
-            print(f"  {lab:14}{r:>14}{v['val_auc']:>6.2f}{v['test_auc']:>6.2f}"
-                  f"{v.get('test_acc',0):>6.2f}{v.get('test_f1',0):>6.2f}   {SOTA.get(lab,'')}")
+    cache = {(run, ds): load(run, ds) for run in RUNS
+             for ds in {a[0] for a in AXES}}
+    hdr = f"  {'axis':16}{'metric':>7}" + "".join(f"{r:>9}" for r in RUNS) + "   SOTA (same metric)"
+    print("\n===== v1 — SOTA-matched comparison (test = held-out 30%) =====")
+    print(hdr)
+    print("  " + "-" * (len(hdr) - 2))
+    for ds, label, metric, axis, mname, sota in AXES:
+        cells = "".join(f"{cell(cache[(r, ds)], label, metric):>9}" for r in RUNS)
+        print(f"  {axis:16}{mname:>7}{cells}   {sota}")
+    print("\n  (test_acc/f1/auc are on the 30% held-out subjects; C chosen by CV on train.)")
 
 
 if __name__ == "__main__":

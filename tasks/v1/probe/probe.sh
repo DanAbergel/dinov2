@@ -9,10 +9,11 @@
 # Usage:
 #   RUN=base    DATASET=ABIDE sbatch -A arieljaffe tasks/v1/probe/probe.sh
 #   RUN=base    DATASET=ADNI  sbatch -A arieljaffe tasks/v1/probe/probe.sh
-#   RUN=fourier DATASET=ABIDE sbatch -A arieljaffe tasks/v1/probe/probe.sh
-# (ADNI uses the leakage-free fixed train/val/test split — its val+test were
-#  held out of pretraining. KFOLD>0 is only valid if the dataset is FULLY
-#  excluded from pretraining, which is NOT the case in v1.)
+#   RUN=base    DATASET=HCP   sbatch -A arieljaffe tasks/v1/probe/probe.sh
+#   RUN=fourier DATASET=ABIDE sbatch -A arieljaffe tasks/v1/probe/probe.sh   (etc.)
+# 70:30 split: TRAIN=70% subjects, TEST=held-out 30% (val+test, excluded from
+# pretraining). C chosen by subject-aware CV on TRAIN. ABIDE/ADNI/HCP are all in
+# HOLDOUT_DATASETS -> leakage-free. (KFOLD>0 needs a FULLY-excluded dataset; unused in v1.)
 # =====================================================================
 
 #SBATCH --job-name=probe
