@@ -1,167 +1,284 @@
 ---
-title: "Multi-source DINOv2 fMRI foundation model — V2 results"
-date: "2026-06-26"
+title: "Multi-source DINOv2 fMRI foundation model — v1 results"
+date: "2026-06-29"
 geometry: margin=2cm
 fontsize: 10pt
 ---
 
-# Multi-source fMRI foundation model — V2 results
+# Multi-source fMRI foundation model — v1 results
 
-This document reports the first leakage-free results of the V2 multi-source
-DINOv2 fMRI foundation model, and compares them to the SOTA reviewed in
-`SOTA_COMPARISON_EN.pdf`. It starts with the shared setup, then the four
-pretraining ablations, then the downstream results (ABIDE first).
+This document reports the first complete, leakage-free results of the multi-source
+DINOv2 fMRI foundation model. It is organised in four parts:
 
-\vspace{0.4cm}
+1. **What the 2026-06-14 meeting asked, and how each point was implemented**
+   (including where the implementation deviated from the written plan, and why).
+2. The **two ablations** that were run (base vs Fourier).
+3. The **evaluation protocol** (leakage-free holdout, 70:30 split, cross-validation).
+4. The **per-task results next to every SOTA that reports the same benchmark.**
 
-# 1. Setup (shared by all runs)
+\vspace{0.3cm}
 
-**Corpus (4 627 scans, 5 sources):** HCP-YA 1 084, ABIDE I 1 102, OASIS-3 1 197,
-AOMIC PIOP 434, ADNI 812. All scans are `(T, 45, 54, 45)` volumes.
+## Executive summary (two messages)
 
-**Temporal harmonization:** every scan is resampled online from its native TR to
-a common **TR = 0.72 s** (`scipy.signal.resample_poly`), then a fixed window of
-**T_fixed = 270 frames** (≈ 194 s) is cropped. Per-scan native TR: HCP 0.72,
-ABIDE per-site, OASIS 2.2, AOMIC 0.75/2.0, ADNI 3.0.
-
-**Architecture:** official DINOv2 (student–teacher self-distillation + iBOT
-masked-patch), ViT-S/14 with 4 register tokens, initialised from the ImageNet
-DINOv2 checkpoint (transformer blocks only; the 3D patch-embed + positional
-encoding are fMRI-specific and random-init). fMRI patchify = `PatchEmbed3DPlus1D`
-(hierarchical 3D-spatial + 1D-temporal); token grid 27 × 150 = 4 050.
-
-**Augmentation:** masking-only — all crops are the full volume (no spatial zoom,
-not meaningful for a fixed brain), with MAE-style per-token random masking
-(replacing BeiT block masking, which is spatially incoherent on the flattened
-token grid).
-
-**Batching:** `ProportionalBatchSampler` — every batch of 16 has a fixed
-composition (HCP 4 / ABIDE 4 / OASIS 4 / ADNI 3 / AOMIC 1). 10 epochs.
-
-**Leakage-free split:** subjects are split 70/15/15 (train/val/test) per dataset.
-The val+test subjects of the downstream datasets (ADNI, ABIDE, OASIS) are
-**excluded from SSL pretraining** (921 scans held out), so the encoder never sees
-the evaluation subjects — comparable to Brain-JEPA / SLIM-Brain protocols.
-
-**Probe protocol:** one embedding per scan = mean CLS token over sliding
-T_fixed windows. For each label: LogReg fit on TRAIN subjects, regularisation `C`
-selected on VAL (AUC), final AUC reported on TEST. **Selection is on VAL only;
-TEST is touched once.** A `val_auc` near 0.5 means the selection failed → the
-corresponding `test_auc` is not trustworthy (chance-level variance).
+- GOOD:  **Demographic / global structure is strong.** On **ABIDE Age** we reach
+  **0.80 accuracy, above** the volumetric peers (SLIM-Brain 0.64, SwiFT 0.62);
+  on **HCP Sex** we reach **0.81 acc / 0.79 F1, above LCM** (0.73 F1).
+- WEAK:  **Fine clinical signal is near chance.** Autism (ABIDE) and early Alzheimer
+  (ADNI NC/MCI, AD/HC) stay around 0.5–0.64, **below** the graph/connectome SOTA.
+- The **Fourier** positional encoding **does not help** (base >= Fourier on every
+  axis that carries signal) -> the retained model is **base**.
 
 \newpage
 
-# 2. The four pretraining ablations
+# 1. From the meeting plan to the implementation
 
-All four share the setup above; each changes **one factor** vs the baseline
-(one-factor-at-a-time design).
+The 2026-06-14 meeting (`MEETING_SUMMARY_2026-06-14`) defined four work items.
+Below is what was asked and what was actually built — two items were implemented
+**differently** from the written plan, for concrete technical reasons.
 
-| Run | Spatial pos | Freeze policy | Base LR | Isolates |
-|-----------|-------------|------------------------|---------|----------------------|
-| **baseline** | learned table | **B** — train patch-embed + blocks 9–11 + norm + heads (blocks 0–8 frozen) | 3e-4 | reference |
-| **fourier** | **Fourier features** of 3D coords | B | 3e-4 | effect of Fourier positional encoding |
-| **highlr** | learned table | B | **1e-3** | effect of a higher learning rate |
-| **freezeC** | learned table | **C** — train patch-embed + heads only (all 12 transformer blocks frozen) | 3e-4 | effect of the freeze policy (C vs B) |
+## 1.1 Multi-source pretraining corpus
 
-**Freeze policies** (which DINOv2-initialised weights adapt to fMRI):
+**Asked:** extend HCP-YA-only pretraining with aging cohorts (HCP-Aging, OASIS-3,
+AOMIC), ~3.4k sessions, to close the age gap with the ADNI downstream target.
 
-- **B (`fmri_plus_last_3`)** — freeze transformer blocks 0–8; the patch-embed,
-  the last 3 blocks (9–11) and the final norm are trainable (~23.3 M params).
-- **C (`fmri_only`)** — freeze the entire transformer (blocks 0–11); only the new
-  3D patch-embed is trainable (~11.5 M params). The DINOv2 features are kept
-  intact and only an fMRI input adapter is learned.
+**Built:** a **5-source corpus of 4 627 scans**, all resampled to `(T, 45, 54, 45)`:
 
-(A full-finetune / no-freeze run, "A", is not in this first batch; an earlier
-HCP-only ablation found C > A > B, see `FREEZE_ABLATION_RESULTS.pdf`.)
+| Source | Scans | Role |
+|--------|:-----:|------|
+| HCP-YA | 1 084 | young healthy baseline |
+| ABIDE I | 1 102 | autism + demographic benchmark |
+| OASIS-3 | 1 197 | aging + AD |
+| AOMIC PIOP1/2 | 434 | scanner diversity |
+| ADNI | 812 | Alzheimer downstream target |
+
+> **Deviation:** HCP-Aging access (NDA-controlled, 1–3 months) was not ready, so
+> **ABIDE I and ADNI** were used instead — they also give us the canonical fMRI
+> benchmarks (ABIDE autism, ADNI NC/MCI). Scale (~4.6k) matches the SLIM-Brain
+> target.
+
+## 1.2 Mixing scans of different length / different TR
+
+**Asked (written plan):** pad every scan along time to the longest $T = 1200$
+(HCP-YA), zero-padding the end; respect a padding mask in the loss.
+
+**Built — a different solution (Ariel's later decision):** padding to 1200 would
+have meant **60–85% zeros** for most datasets, which the masking objective cannot
+learn from. Instead we do **online temporal harmonisation**:
+
+- every scan is resampled from its native TR to a common **TR = 0.72 s** using
+  `scipy.signal.resample_poly` (we crop the native window **first**, then resample
+  — this keeps the polyphase filter cheap);
+- then a fixed window of **$T_{\text{fixed}} = 270$ frames** (~ 194 s) is taken.
+
+This resolves the meeting's **open question 2 (TR heterogeneity)** by option 1
+(resample to a common TR): one token now spans the **same physical duration**
+across all datasets. Native TRs: HCP 0.72, ABIDE per-site, OASIS 2.2, AOMIC
+0.75/2.0, ADNI 3.0.
+
+**Patchify** (unchanged `PatchEmbed3DPlus1D`): hierarchical 3D-spatial + 1D-temporal,
+`temporal_kernel = 10` => $T_{\text{eff}} = 27$, token grid $27 \times 150 = 4050$.
+
+## 1.3 Augmentation: masking-only
+
+**Asked:** replace DINOv2 multi-crop (spatial sub-volumes + BeiT block masking) by
+**1 global + 3 local** full-image crops with **per-token Gaussian masking**, because
+(a) cropping a sub-volume of a fixed brain is not semantically meaningful, and
+(b) BeiT block masking is spatially incoherent on the flattened token grid.
+
+**Built — the masking part, pragmatically:** all crops are the **full volume**
+(no spatial zoom) with **per-token random masking** (`RandomTokenMaskingGenerator`,
+ratio sampled in [0.10, 0.50]), which replaces BeiT block masking as asked. We
+**kept DINOv2's proven 2-global + 3-local self-distillation loss intact** rather
+than rewriting it to the literal "1 global + 3 local" — the literal form would
+require rewriting `forward_backward` and was judged too risky for a first
+iteration. So: **full-image crops + MAE-style per-token masking, original loss.**
+
+## 1.4 Fourier features for spatial position (the §3 ablation)
+
+**Asked:** replace the learned spatial positional table (`pos_spatial`, 150x384,
+no geometric structure) by **Fourier features of the 3D patch coordinates**
+(Option B), so that patches close in 3D get measurably similar encodings.
+
+**Built — exactly as specified:** in `dinov2/layers/patch_embed_3d_plus_1d.py`,
+
+```python
+class FourierFeatures3D(nn.Module):      # gamma(v) = [cos(2pi Bv), sin(2pi Bv)]
+    def __init__(self, num_freqs=32, sigma=10.0):
+        B = torch.randn(num_freqs, 3) * sigma
+        self.register_buffer('B', B)     # fixed Gaussian frequencies
+```
+
+followed by a 2-layer MLP to `embed_dim`. **`num_freqs = 32`, `sigma = 10`, `B`
+fixed** (the meeting's open question "fixed vs learnable B" -> fixed for v1). Only
+the **spatial** position is replaced; the temporal and CLS positions stay learned.
+Toggled by `student.fmri_fourier_pos`. This is the single factor isolated by the
+Fourier ablation.
+
+## 1.5 Transfer learning + freeze policy
+
+The transformer is **initialised from the ImageNet DINOv2 checkpoint** (ViT-S/14,
+4 register tokens); only the fMRI-specific 3D patchify + positional encoding are
+random-init. We use freeze policy **B (`fmri_plus_last_3`)**: transformer blocks
+0–8 are frozen, and the patchify + blocks 9–11 + final norm + heads are trained
+(~23.3 M trainable params). Both ablations use policy B.
+
+## 1.6 Leakage (meeting open question 1) — resolved
+
+The meeting left "can we pretrain on the full data without leakage" open. **Resolved
+(2026-06-28, confirmed by Yoni):** exclude the **downstream test subjects from SSL
+pretraining**. `HOLDOUT_DATASETS = (ADNI, ABIDE, OASIS, HCP)` — the held-out 30% of
+each is removed from pretraining, so the encoder never sees an evaluation subject.
+This matches the LCM / Brain-JEPA practice. (Full SOTA-exact alignment would
+pretrain on a disjoint UK Biobank — planned for v2 once access is granted.)
 
 \newpage
 
-# 3. Downstream results — ABIDE
+# 2. The two ablations
 
-ABIDE is the canonical fMRI foundation-model benchmark. Probe on the held-out
-ABIDE test subjects (n_train = 724, n_test = 155; Autism positives = 71, Sex
-positives = 135). AUC, leakage-free.
+Both runs share everything in Section 1 and differ by **one factor only**
+(one-factor-at-a-time design): the spatial positional encoding.
 
-### ABIDE — val AUC / **TEST AUC**
+| Run | Spatial position | Freeze | Init | Epochs |
+|-----|------------------|--------|------|:------:|
+| **base** | learned table | B (`fmri_plus_last_3`) | DINOv2 ImageNet | 10 |
+| **fourier** | **Fourier features** of 3D coords | B | DINOv2 ImageNet | 10 |
 
-Each cell is **val AUC / TEST AUC / TEST Acc**. The reported config per task is
-the one with the best VAL AUC (leakage-free selection).
-
-| Run | Autism | Age | Sex |
-|-----------|:-----------------:|:-----------------:|:-----------------:|
-| baseline (B) | 0.573 / 0.67 / 0.61 | 0.843 / 0.86 / 0.79 | 0.611 / 0.62 / 0.60 |
-| fourier      | 0.579 / 0.46 / 0.48 | 0.780 / 0.75 / 0.70 | 0.576 / 0.51 / 0.62 |
-| **freezeC (C)** | **0.634 / 0.60 / 0.55** | **0.890 / 0.82 / 0.76** | 0.622 / 0.47 / 0.69 |
-| highlr       | 0.599 / 0.52 / 0.49 | 0.833 / 0.87 / 0.81 | **0.678 / 0.62 / 0.65** |
-
-### Val-selected result per task
-
-| Task | Best config (val) | TEST AUC / Acc |
-|------|-------------------|:--------------:|
-| **Autism** | freezeC (val 0.634) | **0.60 / 0.55** |
-| **Age** | freezeC (val 0.890) | **0.82 / 0.76** |
-| **Sex** | highlr (val 0.678) | **0.62 / 0.65** |
-
-- **freezeC (policy C) is the best config** on the two clinical/demographic tasks
-  (Autism, Age) — consistent with the earlier HCP-only freeze ablation. Freezing
-  the whole transformer and learning only the fMRI input adapter is the most
-  robust policy.
-- Baseline shows higher *test* on Autism (0.67) but with a near-chance *val*
-  (0.573) → not trustworthy. We report the val-selected config (freezeC).
+Each run: ~23 000 iterations, effective batch 16 (micro-batch 2 x grad-accum 8),
+proportional sampling across the 5 sources, single GPU (~3.5 h).
 
 \newpage
 
-# 4. Comparison to SOTA
+# 3. Evaluation protocol
 
-### ABIDE Autism (AUC) — vs graph/connectome models
+**Embedding.** For each scan: one embedding = mean CLS token over sliding
+$T_{\text{fixed}}$ windows (resampled to 0.72 s), from the **teacher** encoder.
 
-| Model | Type | ABIDE Autism |
-|-------------|----------------------|:------------------:|
-| BNT | supervised (no SSL) | AUROC 0.80 |
-| LCM | connectome FM (leakage-free CV) | F1 0.73 |
-| BrainGFM | graph FM (25k subj) | AUC 0.71 (ABIDE II) |
-| **Ours (freezeC)** | **volumetric FM (~3.7k)** | **AUC 0.60** (ABIDE I) |
+**Split — 70:30, subject-level.** Subjects (not scans) are split 70/30: a subject's
+scans are near-duplicates, so a scan-level split would leak identity. **TRAIN = 70 %
+of subjects; TEST = the held-out 30 %** (these were excluded from pretraining).
 
-We are **below** the models that report ABIDE Autism. These are graph/connectome
-models with much larger pretraining; no volumetric peer reports ABIDE Autism.
+**Choosing the classifier — cross-validation on TRAIN, no separate val set.** The
+probe is an L2-regularised logistic regression; its regularisation `C` is selected
+by **subject-aware k-fold cross-validation on the TRAIN portion only** (folds are
+grouped by subject). The 30 % test set is **never** touched during selection. This
+is more robust than a fixed small val set and mirrors the LCM cross-validation
+protocol.
 
-### ABIDE Age (Acc) — vs our volumetric peers
+**Metrics — matched to each SOTA.** Most SOTA papers report **Accuracy and F1, not
+AUC**. We therefore report, **per task, the metric the competitor reports**: AUROC
+for ABIDE-Autism (vs BNT), F1 for the LCM comparisons, Accuracy for ABIDE-Age and
+ADNI-NC/MCI (vs SLIM-Brain / Brain-JEPA), etc. F1 is binary (positive class), as in
+the SOTA.
 
-| Model | Type | ABIDE Age (Acc) |
-|-------------|----------------------|:------------------:|
-| SwiFT | volumetric FM | 62.2 % |
-| SLIM-Brain | volumetric FM (4.1k) | 64.4 % |
-| **Ours (freezeC)** | **volumetric FM (~3.7k)** | **76 %** |
+> **Honesty note.** A near-chance task can still show an inflated F1 under class
+> imbalance + `class_weight=balanced` (e.g. ADNI NC/MCI F1 0.66 while Acc 0.55) —
+> for those we read the **Accuracy / AUC** as the truthful number.
 
-We are **above** our direct architectural peers (SLIM-Brain, SwiFT) on ABIDE Age.
-Caveat: our age binarization (split at the median) may differ from theirs, and
-age is an easy target; this is a positive but not a strictly identical-protocol
-comparison.
+\newpage
 
-### Reading
+# 4. Results per task vs SOTA
 
-The foundation model learns strong **demographic** structure (Age 0.82 AUC /
-0.76 Acc, above peers) but the harder **clinical** task (Autism 0.60 AUC) is
-below the larger SOTA models. At a pretraining scale comparable to SLIM-Brain
-(~3.7k vs 4.1k), the Autism gap is one of method maturity (10 epochs, no tuning,
-single split), not corpus size.
+Each block lists **every SOTA that reports the same benchmark**, with **its own
+metric**, next to our two runs. Bold = our best run on that line.
 
-# 5. ADNI — not yet comparable (in progress)
+## ABIDE — Autism (psychiatric, the canonical fMRI-FM benchmark)
 
-Sagi's ADNI cohort is small (215 subjects). With a 70/15/15 split the test set is
-~32 subjects (37–61 scans/label) — too small: the fixed-split probe **overfits the
-val** (e.g. NC/MCI val 0.81 → test 0.52), so neither val nor test is reliable.
-**Exception: ADNI Sex** (n≈125, val 0.76 → test 0.79, consistent) — a solid sanity
-result confirming the embeddings carry real signal.
+| Model | Type | Metric | Score |
+|-------|------|--------|:-----:|
+| BNT | supervised connectome | AUROC | 0.80 |
+| BrainGFM | graph FM (25k subj) | AUC | 0.71 (ABIDE II) |
+| LCM | connectome FM | F1 | 0.73 |
+| **Ours base** | volumetric FM (~4.6k) | AUROC / F1 | **0.53 / 0.50** |
+| Ours fourier | volumetric FM | AUROC / F1 | 0.50 / 0.52 |
 
-**Fix in progress:** a freezeC run with **ADNI fully excluded from pretraining**
-(`train_v2_noadni`), then a subject-aware **k-fold probe over the full 215-subject
-ADNI cohort** (encoder unseen) → a stable, SOTA-scale ADNI NC/MCI number
-(vs Brain-JEPA 0.77, BNT 0.79 acc).
+-> **Near chance, well below SOTA.** No volumetric peer reports ABIDE Autism; the
+models that do are larger graph/connectome models.
 
-# 6. Caveats and next steps
+## ABIDE — Age (demographic)
 
-- **Single split** (ABIDE test n = 155): high variance → headline numbers need
-  **mean ± std over 3–5 subject-level seeds**.
-- **ADNI k-fold** (full cohort, leakage-free) — running.
-- **Closing the Autism gap:** longer pretraining, LR tuning, architecture.
+| Model | Type | Metric | Score |
+|-------|------|--------|:-----:|
+| SwiFT | volumetric FM | Acc | 0.622 |
+| SLIM-Brain | volumetric FM (4.1k) | Acc | 0.644 |
+| **Ours base** | volumetric FM (~4.6k) | Acc | **0.80** |
+| Ours fourier | volumetric FM | Acc | 0.71 |
+
+-> **Above our direct volumetric peers.** (Caveat: our age binarisation is at the
+median; theirs may differ — positive but not strictly identical protocol.)
+
+## ABIDE — Sex (sanity)
+
+| Model | Metric | Score |
+|-------|--------|:-----:|
+| LCM | F1 | 0.873 |
+| **Ours base / fourier** | F1 | **0.82 / 0.82** |
+
+-> Close to LCM. (ABIDE Sex is class-imbalanced, so we read F1 as the SOTA does.)
+
+## ADNI — NC vs MCI (early Alzheimer, the main clinical duel)
+
+| Model | Type | Metric | Score |
+|-------|------|--------|:-----:|
+| BNT | supervised | Acc | 0.789 |
+| Brain-JEPA | UKB-pretrained FM | Acc / F1 | 0.768 / 0.863 |
+| SLIM-Brain | volumetric FM | Acc / F1 | 0.691 / 0.690 |
+| SwiFT | volumetric FM | Acc | 0.645 |
+| **Ours base** | volumetric FM | Acc / F1 | **0.55 / 0.66** |
+| Ours fourier | volumetric FM | Acc / F1 | 0.54 / 0.65 |
+
+-> **Near chance (Acc 0.55).** The F1 0.66 is inflated by imbalance — the Accuracy
+is the honest number.
+
+## ADNI — AD vs HC (full Alzheimer)
+
+| Model | Type | Metric | Score |
+|-------|------|--------|:-----:|
+| OViTAD | supervised 2D ViT | F1 | 0.99 (n=31 test) |
+| BrainGFM | graph FM | AUC / Acc | 0.803 / 0.851 |
+| LCM | connectome FM | F1 | 0.853 |
+| Ours base | volumetric FM | AUC / Acc / F1 | 0.64 / 0.54 / 0.50 |
+| **Ours fourier** | volumetric FM | AUC / Acc / F1 | 0.64 / **0.61 / 0.54** |
+
+-> **Modest (AUC 0.64), below SOTA.**
+
+## HCP — Sex (demographic)
+
+| Model | Type | Metric | Score |
+|-------|------|--------|:-----:|
+| SLIM-Brain | volumetric FM | Acc / F1 | 0.911 / 0.911 |
+| LCM (HCP-YA) | connectome FM | F1 | 0.722 |
+| **Ours base** | volumetric FM | Acc / F1 | **0.81 / 0.79** |
+| Ours fourier | volumetric FM | Acc / F1 | 0.79 / 0.77 |
+
+-> **Above LCM (F1 0.79 vs 0.72), below SLIM-Brain.**
+
+\newpage
+
+# 5. Reading
+
+The foundation model learns **global / demographic** brain structure well — it
+**beats the volumetric SOTA on ABIDE Age and beats LCM on HCP Sex** — but the
+**fine clinical signal** (autism, early Alzheimer) stays near chance, below the
+graph/connectome models. This is consistent with the training behaviour we
+diagnosed: with a mostly-frozen backbone, masking-only augmentation and 10 epochs,
+the encoder captures coarse structure but not subtle diagnostic patterns.
+
+**Fourier vs learned position:** Fourier **did not help** — base is >= Fourier on
+every axis that carries signal (notably Age 0.80 vs 0.71, HCP Sex 0.81 vs 0.79).
+The clean ablation conclusion: **keep the learned positional table.**
+
+# 6. Limitations and v2
+
+- **Single 70:30 split** — headline numbers should get **mean +/- std over 3–5
+  subject-level seeds** for publication.
+- **Clinical gap** — the autism / Alzheimer gap is the target of v2.
+- **v2 direction (decided):** to be **directly comparable to Brain-JEPA / BrainLM**,
+  pretrain on a **large disjoint corpus (UK Biobank)** and evaluate on the small
+  datasets fully held out by construction. UK Biobank access (DUA) is being
+  applied for (2–6 months); v1 is the interim deliverable.
+
+# Cited SOTA
+
+Brain-JEPA (NeurIPS 2024), BrainLM (ICLR 2024), SLIM-Brain (preprint 2025),
+BrainGFM (preprint 2025), LCM (AAAI 2026), BNT (NeurIPS 2022), SwiFT (NeurIPS 2023),
+OViTAD (Brain Sciences 2023). Full details in `SOTA_COMPARISON_EN`.
