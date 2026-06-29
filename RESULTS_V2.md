@@ -95,24 +95,46 @@ iteration. So: **full-image crops + MAE-style per-token masking, original loss.*
 
 ## 1.4 Fourier features for spatial position (the §3 ablation)
 
-**Asked:** replace the learned spatial positional table (`pos_spatial`, 150x384,
-no geometric structure) by **Fourier features of the 3D patch coordinates**
-(Option B), so that patches close in 3D get measurably similar encodings.
+**What the model needs.** Each of the 150 spatial patches must be told *where it
+sits* in the brain so the transformer can use spatial relationships. By default
+this is a **learned lookup table** (`pos_spatial`, 150x384): 150 vectors learned
+from scratch, with **no built-in geometry** — nothing tells the model that patch
+(0,0,0) is a neighbour of (0,0,1).
 
-**Built — exactly as specified:** in `dinov2/layers/patch_embed_3d_plus_1d.py`,
+**What Fourier features do (Tancik et al., NeurIPS 2020).** A plain network fed raw
+coordinates suffers *spectral bias*: it cannot tell apart inputs that are **close
+together** — it blurs nearby positions into the same output. Fourier features fix
+this by mapping a coordinate through **cos/sin at many frequencies**: two nearby
+positions then produce **clearly different** signatures (at high frequency) while
+staying correlated (at low frequency). In short, they let the network **resolve
+fine spatial distances** that raw coordinates cannot express.
+
+**Built — exactly as the meeting's Option B,** in
+`dinov2/layers/patch_embed_3d_plus_1d.py`. The encoding is computed in **three
+steps** that replace the learned table:
+
+1. **Coordinate** — give each of the 150 patches its 3D position in `[-1, 1]`
+   (`_make_grid_coords`, in the same order the patchify flattens the tokens).
+2. **Fourier map** — `gamma(v) = [cos(2*pi*Bv), sin(2*pi*Bv)]`: turn the 3 numbers
+   into 64 (32 cosines + 32 sines), where `B` is a fixed random frequency matrix.
+3. **MLP** — a 2-layer MLP maps the 64 features to `embed_dim = 384`, the per-token
+   size, and this is added to each token as its spatial position.
 
 ```python
-class FourierFeatures3D(nn.Module):      # gamma(v) = [cos(2pi Bv), sin(2pi Bv)]
+class FourierFeatures3D(nn.Module):       # step 2
     def __init__(self, num_freqs=32, sigma=10.0):
-        B = torch.randn(num_freqs, 3) * sigma
-        self.register_buffer('B', B)     # fixed Gaussian frequencies
+        self.register_buffer('B', torch.randn(num_freqs, 3) * sigma)  # FIXED freqs
+    def forward(self, pos):                # (150,3) -> (150,64)
+        proj = 2*math.pi * pos @ self.B.t()
+        return torch.cat([torch.cos(proj), torch.sin(proj)], dim=-1)
 ```
 
-followed by a 2-layer MLP to `embed_dim`. **`num_freqs = 32`, `sigma = 10`, `B`
-fixed** (the meeting's open question "fixed vs learnable B" -> fixed for v1). Only
-the **spatial** position is replaced; the temporal and CLS positions stay learned.
-Toggled by `student.fmri_fourier_pos`. This is the single factor isolated by the
-Fourier ablation.
+A single switch (`get_spatial()`) returns either the learned table (**base**) or
+this Fourier chain (**fourier**) — that switch is the only difference between the
+two runs. Hyperparameters: **`num_freqs = 32`, `sigma = 10`, `B` fixed** (the
+meeting's "fixed vs learnable B" -> fixed for v1). Only the **spatial** position is
+replaced; temporal and CLS positions stay learned. Toggled by
+`student.fmri_fourier_pos` (`FOURIER=1`).
 
 ## 1.5 Transfer learning + freeze policy
 
@@ -265,7 +287,15 @@ the encoder captures coarse structure but not subtle diagnostic patterns.
 
 **Fourier vs learned position:** Fourier **did not help** — base is >= Fourier on
 every axis that carries signal (notably Age 0.80 vs 0.71, HCP Sex 0.81 vs 0.79).
-The clean ablation conclusion: **keep the learned positional table.**
+**Why this makes sense:** Fourier features pay off when coordinates are **dense and
+continuous** (e.g. NeRF), so the network must resolve points only a tiny distance
+apart. Our token grid is the opposite — only **150 discrete patches**, spaced ~18 mm
+apart and well separated. The "distinguish closely-spaced positions" problem Fourier
+is designed for is **barely present here**, and a 150-entry learned table already has
+ample capacity to place those few positions. Fourier would become relevant at a
+**finer resolution** (smaller patches, far more positions, or continuous voxel
+coordinates) — a v2 lever. The clean ablation conclusion for v1: **keep the learned
+positional table.**
 
 # 6. Limitations and v2
 
