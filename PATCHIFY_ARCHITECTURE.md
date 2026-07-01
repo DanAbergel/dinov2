@@ -1,6 +1,6 @@
 ---
 title: "Patchify architecture — PatchEmbed3DPlus1D"
-date: "2026-06-14"
+date: "2026-07-02"
 geometry: margin=1.5cm
 fontsize: 9pt
 header-includes:
@@ -67,7 +67,12 @@ header-includes:
 
 \vspace{0.1cm}
 
-## Full encoder (HCP-YA setup, T = 1200, temporal_kernel = 20)
+## Full encoder (current multi-source setup, T = 270, temporal_kernel = 10)
+
+*The corpus is resampled online to TR = 0.72 s and cropped to $T_\text{fixed} = 270$ frames.
+`temporal_kernel` is a config knob (the earlier HCP-YA-only setup used T = 1200,
+`temporal_kernel` = 20); with `temporal_kernel` = 10 the total temporal downsample is
+$\times 10$ and $T_\text{eff} = 270/10 = 27$. Note `down_1` temporal stride = `temporal_kernel` / 2.*
 
 \begin{center}
 \begin{tikzpicture}[
@@ -78,28 +83,28 @@ header-includes:
   shapelbl/.style={text=cNote, font=\scriptsize\itshape, right=0.2cm},
 ]
 \node[box, fill=cInput] (in) {\textbf{INPUT scan}};
-\node[shapelbl] at (in.east) {(B, 1200, 1, 45, 54, 45)};
+\node[shapelbl] at (in.east) {(B, 270, 1, 45, 54, 45)};
 
 \node[box, fill=cConv, below=of in] (cin) {\textbf{conv\_in} \quad Conv3Plus1d 1{$\to$}32, spatial $S{=}3$};
-\node[shapelbl] at (cin.east) {(B, 32, 1200, 15, 18, 15)};
+\node[shapelbl] at (cin.east) {(B, 32, 270, 15, 18, 15)};
 
 \node[box, fill=cRes, below=of cin] (b0) {\textbf{block\_0} \quad ResBlock3Plus1d (32{$\to$}32)};
 \node[shapelbl] at (b0.east) {same shape};
 
 \node[box, fill=cDown, below=of b0] (d0) {\textbf{down\_0} \quad Conv3Plus1d 32{$\to$}64, spatial $S{=}3$, temporal $S{=}2$};
-\node[shapelbl] at (d0.east) {(B, 64, 600, 5, 6, 5)};
+\node[shapelbl] at (d0.east) {(B, 64, 135, 5, 6, 5)};
 
 \node[box, fill=cRes, below=of d0] (b1) {\textbf{block\_1} \quad ResBlock3Plus1d (64{$\to$}64)};
 \node[shapelbl] at (b1.east) {same shape};
 
-\node[box, fill=cDown, below=of b1] (d1) {\textbf{down\_1} \quad Conv3Plus1d 64{$\to$}384, temporal $S{=}10$};
-\node[shapelbl] at (d1.east) {(B, 384, 60, 5, 6, 5)};
+\node[box, fill=cDown, below=of b1] (d1) {\textbf{down\_1} \quad Conv3Plus1d 64{$\to$}384, temporal $S{=}5$};
+\node[shapelbl] at (d1.east) {(B, 384, 27, 5, 6, 5)};
 
 \node[box, fill=cRes, below=of d1] (b2) {\textbf{block\_2} \quad ResBlock3Plus1d (384{$\to$}384)};
 \node[shapelbl] at (b2.east) {same shape};
 
 \node[box, fill=cOut, below=of b2] (out) {\textbf{OUTPUT tokens} \quad rearrange + factorised pos embed};
-\node[shapelbl] at (out.east) {(B, 9000, 384)};
+\node[shapelbl] at (out.east) {(B, 4050, 384)};
 
 \draw[arrow] (in) -- (cin); \draw[arrow] (cin) -- (b0); \draw[arrow] (b0) -- (d0);
 \draw[arrow] (d0) -- (b1); \draw[arrow] (b1) -- (d1); \draw[arrow] (d1) -- (b2);
@@ -117,12 +122,12 @@ header-includes:
 | `block_0`                 | 2 Conv3Plus1d (32{$\to$}32) + 2 GroupNorm     | 61 696       |
 | `down_0`                  | 1 Conv3Plus1d (32{$\to$}64)                   | 67 712       |
 | `block_1`                 | 2 Conv3Plus1d (64{$\to$}64) + 2 GroupNorm     | 246 272      |
-| `down_1`                  | 1 Conv3Plus1d (64{$\to$}384)                  | 2 138 880    |
+| `down_1`                  | 1 Conv3Plus1d (64{$\to$}384), $K_t{=}5$        | 1 401 600    |
 | `block_2`                 | 2 Conv3Plus1d (384{$\to$}384) + 2 GroupNorm   | 8 850 432    |
-| `PositionEmbedding3D`     | `pos_temporal` + `pos_spatial` + `pos_cls`    | 81 024       |
-| **TOTAL**                 |                                               | **11 450 016**  |
+| `PositionEmbedding3D`     | `pos_temporal` + `pos_spatial` + `pos_cls`    | 68 352       |
+| **TOTAL**                 |                                               | **10 700 064**  |
 
-**Token grid output** : $T_\text{eff} = 60$, $N_\text{spatial} = 5 \cdot 6 \cdot 5 = 150$, total **9 000 tokens** of dim 384.
+**Token grid output** : $T_\text{eff} = 27$, $N_\text{spatial} = 5 \cdot 6 \cdot 5 = 150$, total **4 050 tokens** of dim 384.
 
 \vspace{0.3cm}
 
@@ -178,16 +183,17 @@ Conv3Plus1d × 2 :
                                                      246 272
 ```
 
-### 5. `down_1` = Conv3Plus1d(64 $\to$ 384, $K_s{=}3$, $K_t{=}10$)
+### 5. `down_1` = Conv3Plus1d(64 $\to$ 384, $K_s{=}3$, $K_t{=}5$)
+*($K_t$ = `temporal_kernel` / 2 = 5 in the current config; it was 10 in the HCP-YA T=1200 setup.)*
 ```
 spatial    Conv3d(64, 384, k=3)  : 64 × 384 × 3³ + 384  =   663 936
-temporal   Conv1d(384,384, k=10) : 384× 384 × 10 + 384  = 1 474 944
+temporal   Conv1d(384,384, k=5)  : 384× 384 × 5  + 384  =   737 664
                                                           ─────────
-                                                          2 138 880
+                                                          1 401 600
 ```
 
 ### 6. `block_2` = ResBlock3Plus1d(384) = 2× Conv3Plus1d(384 $\to$ 384) + 2× GroupNorm(8, 384)
-\textbf{The dominant layer — 77\% of the total.}
+\textbf{The dominant layer — 83\% of the total (this is the block point 2 proposes to remove).}
 
 ```
 GroupNorm × 2          : 2 × (2 × 384)           =     1 536
@@ -200,18 +206,18 @@ Conv3Plus1d × 2 :
                                                    8 850 432
 ```
 
-### 7. `PositionEmbedding3D` (HCP-YA : $T_\text{eff}{=}60$, $N_\text{spatial}{=}150$, dim ${=}384$)
+### 7. `PositionEmbedding3D` (current : $T_\text{eff}{=}27$, $N_\text{spatial}{=}150$, dim ${=}384$)
 ```
-pos_temporal     :  60 × 384         =    23 040
+pos_temporal     :  27 × 384         =    10 368
 pos_spatial      : 150 × 384         =    57 600
 pos_cls          :   1 × 384         =       384
                                        ──────────
-                                          81 024
+                                          68 352
 ```
 
 \vspace{0.2cm}
 
-\textbf{Grand total:} 4 000 + 61 696 + 67 712 + 246 272 + 2 138 880 + 8 850 432 + 81 024 = \textbf{11 450 016 params}.
+\textbf{Grand total:} 4 000 + 61 696 + 67 712 + 246 272 + 1 401 600 + 8 850 432 + 68 352 = \textbf{10 700 064 params}.
 
 ## Differences vs MovieGen TAE `TemporalEncoder`
 
