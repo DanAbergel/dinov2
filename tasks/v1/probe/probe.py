@@ -28,6 +28,7 @@ from omegaconf import OmegaConf
 from sklearn.linear_model import LogisticRegression
 from sklearn.metrics import accuracy_score, f1_score, roc_auc_score
 from sklearn.model_selection import StratifiedGroupKFold
+from sklearn.neural_network import MLPClassifier
 from sklearn.preprocessing import StandardScaler
 
 from dinov2.models import build_model_from_cfg
@@ -45,7 +46,9 @@ HCP_CSV = REPO_ROOT / "data" / "HCP_YA_subjects.csv"  # Subject,Gender,Age_in_Yr
 CORPUS_MANIFEST = LAB / DEFAULT_MANIFEST
 T_FIXED = 270
 DEVICE = "cuda" if torch.cuda.is_available() else "cpu"
-C_GRID = [0.01, 0.1, 1.0, 10.0]
+C_GRID = [0.01, 0.1, 1.0, 10.0]              # linear (LogReg) inverse-reg
+ALPHA_GRID = [1e-4, 1e-3, 1e-2, 1e-1]        # MLP L2 regularisation
+MLP_HIDDEN = (256, 128)                       # 2 hidden layers ("MLP, multiple layers")
 
 # Principal SOTA axes only (degradation/CDR are novel-no-SOTA -> dropped from the
 # headline; the columns stay computed in the table so they can be re-added later).
@@ -204,40 +207,53 @@ def build_table_hcp():
 
 # ---------------- probe ----------------
 
-def _select_C_cv(X, y, groups):
-    """Choose C by SUBJECT-AWARE cross-validation on the TRAIN set only.
-    No separate val set is needed: the CV builds temporary validation folds from
-    the train subjects (grouped, so a subject is never in both CV-train and
-    CV-val). The 30% test set is never touched here. Selection criterion = mean
-    CV AUC. Falls back to C=1 if the train set is too small to split."""
+def _make_clf(head, hp):
+    """A fresh classifier on the FROZEN embeddings.
+    head='linear' -> LogReg (C=hp, class-balanced); head='mlp' -> 2-hidden-layer
+    MLP (alpha=hp). This is the point-3 ablation axis: linear probe vs MLP head,
+    both on a frozen encoder (the encoder is NOT fine-tuned — that is point 4)."""
+    if head == "mlp":
+        return MLPClassifier(hidden_layer_sizes=MLP_HIDDEN, activation="relu",
+                             alpha=hp, max_iter=500, early_stopping=True,
+                             n_iter_no_change=15, random_state=0)
+    return LogisticRegression(C=hp, max_iter=2000, class_weight="balanced")
+
+
+def _select_hp_cv(X, y, groups, head):
+    """Choose the head's regularisation (C for linear, alpha for MLP) by
+    SUBJECT-AWARE cross-validation on the TRAIN set only. The CV builds temporary
+    validation folds from the train subjects (grouped), so the 30% test is never
+    touched. Selection criterion = mean CV AUC. Falls back to a default if the
+    train set is too small to split."""
+    grid = ALPHA_GRID if head == "mlp" else C_GRID
+    default = 1e-3 if head == "mlp" else 1.0
     yb = y.astype(int)
     grp_per_class = {c: len(set(groups[yb == c])) for c in np.unique(yb)}
     if min(grp_per_class.values()) < 2:
-        return 1.0
+        return default
     n_splits = max(2, min(5, min(grp_per_class.values())))
     cv = StratifiedGroupKFold(n_splits=n_splits, shuffle=True, random_state=0)
-    best_c, best = 1.0, -1.0
-    for C in C_GRID:
+    best_hp, best = default, -1.0
+    for hp in grid:
         aucs = []
         try:
             for tr, va in cv.split(X, yb, groups):
                 if len(np.unique(yb[tr])) < 2 or len(np.unique(yb[va])) < 2:
                     continue
                 sc = StandardScaler().fit(X[tr])
-                clf = LogisticRegression(C=C, max_iter=2000,
-                                         class_weight="balanced").fit(sc.transform(X[tr]), y[tr])
+                clf = _make_clf(head, hp).fit(sc.transform(X[tr]), y[tr])
                 aucs.append(roc_auc_score(y[va], clf.predict_proba(sc.transform(X[va]))[:, 1]))
         except ValueError:
             continue
         if aucs and np.mean(aucs) > best:
-            best, best_c = float(np.mean(aucs)), C
-    return best_c
+            best, best_hp = float(np.mean(aucs)), hp
+    return best_hp
 
 
-def probe_label(X, y, splits, groups, name):
+def probe_label(X, y, splits, groups, name, head="linear"):
     """70:30 split. TRAIN = 'train' subjects (in pretraining is fine); TEST = the
-    held-out 30% ('val'+'test', excluded from pretraining). C chosen by CV on
-    TRAIN. Report TEST AUC/Acc/F1 (F1 binary = positive class, matches SOTA)."""
+    held-out 30% ('val'+'test', excluded from pretraining). Head hyperparam chosen
+    by CV on TRAIN. Report TEST AUC/Acc/F1 (F1 binary = positive class, matches SOTA)."""
     tr = (splits == "train")
     te = (splits == "val") | (splits == "test")     # 70:30 — merge val+test as held-out test
     m = ~np.isnan(y)
@@ -247,13 +263,12 @@ def probe_label(X, y, splits, groups, name):
     if len(np.unique(y[tr])) < 2 or len(np.unique(y[te])) < 2:
         return None
 
-    best_c = _select_C_cv(X[tr], y[tr], groups[tr])
+    best_hp = _select_hp_cv(X[tr], y[tr], groups[tr], head)
     sc = StandardScaler().fit(X[tr])
-    clf = LogisticRegression(C=best_c, max_iter=2000,
-                             class_weight="balanced").fit(sc.transform(X[tr]), y[tr])
+    clf = _make_clf(head, best_hp).fit(sc.transform(X[tr]), y[tr])
     proba = clf.predict_proba(sc.transform(X[te]))[:, 1]
     pred = (proba >= 0.5).astype(int)
-    return {"C": best_c,
+    return {"head": head, "hp": float(best_hp),
             "test_auc": float(roc_auc_score(y[te], proba)),
             "test_acc": float(accuracy_score(y[te], pred)),
             "test_f1": float(f1_score(y[te], pred, zero_division=0)),
@@ -295,6 +310,9 @@ def main():
     ap = argparse.ArgumentParser()
     ap.add_argument("--run-dir", required=True)
     ap.add_argument("--dataset", default="ADNI", choices=["ADNI", "ABIDE", "HCP"])
+    ap.add_argument("--head", default="linear", choices=["linear", "mlp"],
+                    help="probe head on the frozen encoder (point-3 ablation): "
+                         "linear=LogReg, mlp=2-hidden-layer MLP.")
     ap.add_argument("--checkpoint", default="model_final.rank_0.pth")
     ap.add_argument("--kfold", type=int, default=0,
                     help="If >0, subject-aware k-fold CV over the whole cohort "
@@ -354,23 +372,27 @@ def main():
                 print(f"  {name:16} (skipped)", flush=True)
     else:
         groups = np.array([t["subject"] for t in table])
-        print(f"  {'label':16} {'C':>5} {'TEST_auc':>9} {'acc':>6} {'F1':>6}  "
+        print(f"  head={args.head}")
+        print(f"  {'label':16} {'hp':>8} {'TEST_auc':>9} {'acc':>6} {'F1':>6}  "
               f"{'n_te':>5} {'subj':>5} pos")
         for name, col in LABELS.items():
             y = np.array([_to_float(t["row"].get(col)) for t in table], dtype=float)
-            r = probe_label(X, y, splits, groups, name)
+            r = probe_label(X, y, splits, groups, name, head=args.head)
             results[name] = r
             if r:
-                print(f"  {name:16} {r['C']:>5} {r['test_auc']:>9.2f}"
+                print(f"  {name:16} {r['hp']:>8.4g} {r['test_auc']:>9.2f}"
                       f" {r['test_acc']:>6.2f} {r['test_f1']:>6.2f}  {r['n_test']:>5} "
                       f"{r['n_test_subj']:>5} {r['pos_test']}", flush=True)
             else:
                 print(f"  {name:16} (skipped — too few samples / one class)", flush=True)
 
+    # linear -> probe_<ds>.json (default); mlp -> probe_<ds>_mlp.json (point-3 ablation)
+    head_suffix = "" if args.head == "linear" else f"_{args.head}"
     suffix = f"_kfold{args.kfold}" if args.kfold else ""
-    out = Path(args.run_dir) / f"probe_{args.dataset.lower()}{suffix}.json"
+    out = Path(args.run_dir) / f"probe_{args.dataset.lower()}{head_suffix}{suffix}.json"
     out.write_text(json.dumps({"run": run_name, "dataset": args.dataset, "mode": mode,
-                               "checkpoint": args.checkpoint, "results": results}, indent=2))
+                               "head": args.head, "checkpoint": args.checkpoint,
+                               "results": results}, indent=2))
     print(f"\nSaved {out}", flush=True)
 
 
