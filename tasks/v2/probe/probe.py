@@ -373,6 +373,9 @@ def main():
                     help="probe head on the frozen encoder (point-3 ablation): "
                          "linear=LogReg, mlp=2-hidden-layer MLP.")
     ap.add_argument("--checkpoint", default="model_final.rank_0.pth")
+    ap.add_argument("--out", default=None,
+                    help="explicit output json path (write directly there, e.g. into "
+                         "the versioned task folder); else <run-dir>/probe_<ds>...json")
     ap.add_argument("--kfold", type=int, default=0,
                     help="If >0, subject-aware k-fold CV over the whole cohort "
                          "(use only when this dataset was FULLY excluded from "
@@ -446,9 +449,13 @@ def main():
                 print(f"  {name:16} (skipped — too few samples / one class)", flush=True)
 
     # linear -> probe_<ds>.json (default); mlp -> probe_<ds>_mlp.json (point-3 ablation)
-    head_suffix = "" if args.head == "linear" else f"_{args.head}"
-    suffix = f"_kfold{args.kfold}" if args.kfold else ""
-    out = Path(args.run_dir) / f"probe_{args.dataset.lower()}{head_suffix}{suffix}.json"
+    if args.out:
+        out = Path(args.out)
+        out.parent.mkdir(parents=True, exist_ok=True)
+    else:
+        head_suffix = "" if args.head == "linear" else f"_{args.head}"
+        suffix = f"_kfold{args.kfold}" if args.kfold else ""
+        out = Path(args.run_dir) / f"probe_{args.dataset.lower()}{head_suffix}{suffix}.json"
     out.write_text(json.dumps({"run": run_name, "dataset": args.dataset, "mode": mode,
                                "head": args.head, "checkpoint": args.checkpoint,
                                "results": results}, indent=2))

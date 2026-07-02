@@ -124,13 +124,12 @@ if [ "${SMOKE:-0}" != "1" ] && [ "${PROBE:-1}" = "1" ]; then
     for D in ABIDE ADNI HCP; do
         echo ""
         echo "==== auto linear-probe: $D  ($(date)) ===="
-        srun python -u "$OFFICIAL_DIR/tasks/v2/probe/probe.py" \
-            --run-dir "$OUTPUT_DIR" --dataset "$D" --head linear || \
-            echo "  probe $D FAILED (continuing)"
-        # copy the result JSON into the VERSIONED task folder (not just runs/)
         ds=$(echo "$D" | tr 'A-Z' 'a-z')
-        [ -f "$OUTPUT_DIR/probe_${ds}.json" ] && \
-            cp "$OUTPUT_DIR/probe_${ds}.json" "$RES_DIR/probe_${RUN_NAME}_${ds}.json"
+        # write the result JSON DIRECTLY into the versioned task folder (--out)
+        srun python -u "$OFFICIAL_DIR/tasks/v2/probe/probe.py" \
+            --run-dir "$OUTPUT_DIR" --dataset "$D" --head linear \
+            --out "$RES_DIR/probe_${RUN_NAME}_${ds}.json" || \
+            echo "  probe $D FAILED (continuing)"
     done
     echo ""
     echo "Probes done: $(date)"
