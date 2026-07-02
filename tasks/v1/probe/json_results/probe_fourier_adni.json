@@ -1,0 +1,28 @@
+{
+  "run": "fourier",
+  "dataset": "ADNI",
+  "mode": "fixed split (val-select)",
+  "checkpoint": "model_final.rank_0.pth",
+  "results": {
+    "NC_vs_MCI": {
+      "C": 10.0,
+      "test_auc": 0.44679186228482004,
+      "test_acc": 0.5420560747663551,
+      "test_f1": 0.6474820143884892,
+      "n_train": 297,
+      "n_test": 107,
+      "n_test_subj": 42,
+      "pos_test": 71
+    },
+    "AD_vs_HC": {
+      "C": 1.0,
+      "test_auc": 0.6428571428571428,
+      "test_acc": 0.6140350877192983,
+      "test_f1": 0.5416666666666666,
+      "n_train": 162,
+      "n_test": 57,
+      "n_test_subj": 31,
+      "pos_test": 21
+    }
+  }
+}

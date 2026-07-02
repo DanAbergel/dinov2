@@ -1,0 +1,28 @@
+{
+  "run": "fourier",
+  "dataset": "HCP",
+  "mode": "fixed split (val-select)",
+  "checkpoint": "model_final.rank_0.pth",
+  "results": {
+    "Sex": {
+      "C": 0.1,
+      "test_auc": 0.8954406130268199,
+      "test_acc": 0.7907692307692308,
+      "test_f1": 0.7687074829931972,
+      "n_train": 759,
+      "n_test": 325,
+      "n_test_subj": 325,
+      "pos_test": 145
+    },
+    "Age": {
+      "C": 0.1,
+      "test_auc": 0.6505502846299811,
+      "test_acc": 0.6,
+      "test_f1": 0.6176470588235294,
+      "n_train": 759,
+      "n_test": 325,
+      "n_test_subj": 325,
+      "pos_test": 170
+    }
+  }
+}

@@ -1,0 +1,31 @@
+{
+  "run": "pool",
+  "dataset": "HCP",
+  "mode": "fixed split (val-select)",
+  "head": "linear",
+  "checkpoint": "model_final.rank_0.pth",
+  "results": {
+    "Sex": {
+      "head": "linear",
+      "hp": 10.0,
+      "test_auc": 0.885095785440613,
+      "test_acc": 0.803076923076923,
+      "test_f1": 0.7894736842105263,
+      "n_train": 759,
+      "n_test": 325,
+      "n_test_subj": 325,
+      "pos_test": 145
+    },
+    "Age": {
+      "head": "linear",
+      "hp": 1.0,
+      "test_auc": 0.6162049335863378,
+      "test_acc": 0.56,
+      "test_f1": 0.5626911314984709,
+      "n_train": 759,
+      "n_test": 325,
+      "n_test_subj": 325,
+      "pos_test": 170
+    }
+  }
+}
