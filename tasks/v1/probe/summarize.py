@@ -15,7 +15,7 @@ import json
 import os
 
 LAB = "/sci/labs/arieljaffe/dan.abergel1"
-RUNS = ["base", "fourier"]
+RUNS = ["base", "fourier", "noblock2", "pool"]   # Phase-A pretraining ablation
 
 # (dataset, probe-label, metric key in json, axis label, metric name, SOTA ref)
 AXES = [
