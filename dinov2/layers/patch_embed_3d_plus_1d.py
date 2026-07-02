@@ -199,7 +199,8 @@ class PatchEmbed3DPlus1D(nn.Module):
         fourier_num_freqs: int = 32,
         fourier_sigma: float = 10.0,
         remove_block2: bool = False,      # point 2: drop the final ResBlock (~83% of params)
-        temporal_pool: bool = False,      # point 2: temporal downsample by AvgPool, not strided conv
+        pool_downsample: bool = False,    # point 2: ALL downsampling (spatial AND temporal)
+                                          # by stride-1 conv + AvgPool, not strided conv
     ) -> None:
         super().__init__()
         self.img_size = tuple(img_size)
@@ -208,7 +209,7 @@ class PatchEmbed3DPlus1D(nn.Module):
         self.embed_dim = embed_dim
         self.temporal_size = temporal_size
         self.temporal_kernel = temporal_kernel
-        self.temporal_pool = temporal_pool
+        self.pool_downsample = pool_downsample
 
         # ----- 3 hierarchical levels with Conv3Plus1d throughout ----------
         # Strides per level transition (spatial, temporal):
@@ -221,16 +222,21 @@ class PatchEmbed3DPlus1D(nn.Module):
         #   T=140 -> down_0 -> 70 -> down_1 -> 10 (= T_eff)
         # Token grid: 10 x 150 = 1500 per crop. Much smaller than T=1200 -> 9000.
 
-        # Initial projection AND first spatial downsample.
-        self.conv_in = Conv3Plus1d(in_chans, 32, K_s=3, S_s=3, P_s=0, K_t=3, S_t=1, P_t=1)
+        # Initial projection + first spatial /3. Strided conv (default) OR stride-1
+        # conv keeping full res (+ AvgPool /3 in forward) when pool_downsample.
+        self.conv_in = Conv3Plus1d(in_chans, 32,
+                                   K_s=3, S_s=(1 if pool_downsample else 3),
+                                   P_s=(1 if pool_downsample else 0),
+                                   K_t=3, S_t=1, P_t=1)
 
         # Level 0 (at /3 spatial, full temporal; 32 ch).
         self.block_0 = _ResBlock3Plus1d(32)
-        # Downsample to /9 spatial total; 32 -> 64 ch. Temporal /2 either by a
-        # strided conv (default) or by AvgPool (temporal_pool -> conv stays stride-1).
+        # Downsample: spatial /3 (total /9) and temporal /2. Either strided conv
+        # (default) or stride-1 conv + AvgPool (pool_downsample) on BOTH axes.
         self.down_0 = Conv3Plus1d(32, 64,
-                                  K_s=3, S_s=3, P_s=0,
-                                  K_t=3, S_t=(1 if temporal_pool else 2), P_t=1)
+                                  K_s=3, S_s=(1 if pool_downsample else 3),
+                                  P_s=(1 if pool_downsample else 0),
+                                  K_t=3, S_t=(1 if pool_downsample else 2), P_t=1)
 
         # Level 1 (at /9 spatial, /2 temporal; 64 ch).
         self.block_1 = _ResBlock3Plus1d(64)
@@ -245,15 +251,17 @@ class PatchEmbed3DPlus1D(nn.Module):
         # previously down_1 K_t was hardcoded, so probing an old checkpoint
         # with a different kernel raised a state_dict size mismatch.
         down_1_kt = temporal_kernel // 2
-        if temporal_pool:
+        if pool_downsample:
             # stride-1 conv (preserve T), temporal /down_1_kt done by AvgPool below.
             self.down_1 = Conv3Plus1d(64, embed_dim, K_s=3, S_s=1, P_s=1,
                                       K_t=3, S_t=1, P_t=1)
         else:
             self.down_1 = Conv3Plus1d(64, embed_dim, K_s=3, S_s=1, P_s=1,
                                       K_t=down_1_kt, S_t=down_1_kt, P_t=0)
-        # temporal AvgPool factors (used only if temporal_pool): 2 then down_1_kt,
-        # product = temporal_kernel, so T_eff is unchanged vs the strided path.
+        # AvgPool factors (only used if pool_downsample). Spatial: /3 after conv_in
+        # and /3 after down_0 (patch_size 9 = 3x3). Temporal: /2 after down_0,
+        # /down_1_kt after down_1 (product = temporal_kernel). Token grid unchanged.
+        self.spool_k = 3
         self.pool0_k, self.pool1_k = 2, down_1_kt
 
         # Level 2 (target resolution = token grid: (T_eff, gx, gy, gz)).
@@ -284,17 +292,30 @@ class PatchEmbed3DPlus1D(nn.Module):
         x = F.avg_pool1d(x, kernel_size=k, stride=k).squeeze(1)         # (N, T//k)
         return rearrange(x, '(b c x y z) t -> b c t x y z', b=B, c=C, x=X, y=Y, z=Z)
 
+    @staticmethod
+    def _spool(x: torch.Tensor, k: int) -> torch.Tensor:
+        """Average-pool the 3 spatial axes (X,Y,Z) of (B,C,T,X,Y,Z) by factor k."""
+        B, C, T, X, Y, Z = x.shape
+        x = rearrange(x, 'b c t x y z -> (b c t) x y z').unsqueeze(1)   # (N,1,X,Y,Z)
+        x = F.avg_pool3d(x, kernel_size=k, stride=k).squeeze(1)         # (N, X/k, Y/k, Z/k)
+        return rearrange(x, '(b c t) x y z -> b c t x y z', b=B, c=C, t=T)
+
     def _encoder_forward(self, x: torch.Tensor) -> torch.Tensor:
         """Single pass through the hierarchical encoder. Wrapped by checkpoint
-        in `forward` when in training mode."""
+        in `forward` when in training mode. In pool_downsample mode, every strided
+        downsample is done here as AvgPool instead (spatial after conv_in and down_0,
+        temporal after down_0 and down_1)."""
         x = self.conv_in(x)
+        if self.pool_downsample:
+            x = self._spool(x, self.spool_k)              # spatial /3
         x = self.block_0(x)
         x = self.down_0(x)
-        if self.temporal_pool:
+        if self.pool_downsample:
+            x = self._spool(x, self.spool_k)          # spatial /3 by AvgPool
             x = self._tpool(x, self.pool0_k)          # temporal /2 by AvgPool
         x = self.block_1(x)
         x = self.down_1(x)
-        if self.temporal_pool:
+        if self.pool_downsample:
             x = self._tpool(x, self.pool1_k)          # temporal /down_1_kt by AvgPool
         if self.block_2 is not None:
             x = self.block_2(x)

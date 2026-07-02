@@ -15,13 +15,12 @@ import json
 import os
 
 LAB = "/sci/labs/arieljaffe/dan.abergel1"
-RUNS = ["base", "fourier", "noblock2", "pool_only", "pool"]   # Phase-A ablation
-# Clean one-factor-vs-base matrix: fourier=Fourier only, noblock2=remove_block2 only,
-# pool_only=temporal_pool only. pool=both factors (kept for reference).
-# base/fourier/noblock2/pool were launched from the pre-split tasks/v1 -> runs/v1;
-# pool_only is launched later from tasks/v2 -> runs/v2.
-RUN_VERSION = {"base": "v1", "fourier": "v1", "noblock2": "v1", "pool": "v1",
-               "pool_only": "v2"}
+RUNS = ["base", "fourier", "noblock2", "pool"]   # Phase-A ablation, ONE factor vs base
+# Clean one-factor-vs-base matrix: fourier=Fourier pos only, noblock2=remove_block2
+# only, pool=all-downsampling-by-AvgPool only (block_2 kept).
+# All 4 runs are (re-)trained from tasks/v2 -> runs/v2 (uniform: same pipeline,
+# real ADNI labels, auto-committed JSON).
+RUN_VERSION = {"base": "v2", "fourier": "v2", "noblock2": "v2", "pool": "v2"}
 
 # (dataset, probe-label, metric key in json, axis label, metric name, SOTA ref)
 AXES = [

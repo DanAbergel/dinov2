@@ -23,8 +23,8 @@
 # Pretraining ablation runs (one factor each):
 #   RUN=base                 sbatch -A arieljaffe tasks/v2/train/train.sh   # reference
 #   RUN=fourier  FOURIER=1   sbatch -A arieljaffe tasks/v2/train/train.sh   # Fourier spatial pos
-#   RUN=noblock2 NOBLOCK2=1  sbatch -A arieljaffe tasks/v2/train/train.sh   # point 2: drop block_2
-#   RUN=pool     NOBLOCK2=1 POOL=1 sbatch -A arieljaffe tasks/v2/train/train.sh  # point 2: + temporal AvgPool
+#   RUN=noblock2 NOBLOCK2=1  sbatch -A arieljaffe tasks/v2/train/train.sh   # point 2: drop block_2 (1 factor)
+#   RUN=pool     POOL=1      sbatch -A arieljaffe tasks/v2/train/train.sh   # point 2: all downsampling by AvgPool (1 factor)
 # =====================================================================
 
 #SBATCH --job-name=fmri-v2
@@ -83,11 +83,13 @@ fi
 [ -n "${BATCH_PER_GPU:-}" ] && EXTRA="$EXTRA train.batch_size_per_gpu=${BATCH_PER_GPU}"
 [ -n "${GRAD_ACCUM:-}" ]    && EXTRA="$EXTRA optim.grad_accum_steps=${GRAD_ACCUM}"
 # FOURIER=1 -> Fourier spatial positional encoding instead of the learned table.
-# NOBLOCK2=1 / POOL=1 -> the point-2 architecture ablations (drop block_2 /
+# NOBLOCK2=1 / POOL=1 -> the point-2 architecture ablations, ONE factor each vs base:
+#   NOBLOCK2 = drop block_2 ; POOL = all downsampling by AvgPool (spatial+temporal).
+# (legacy comment) drop block_2 /
 # temporal AvgPool instead of strided conv). Pair each with a distinct RUN_NAME.
 [ "${FOURIER:-0}" = "1" ]   && EXTRA="$EXTRA student.fmri_fourier_pos=true"
 [ "${NOBLOCK2:-0}" = "1" ]  && EXTRA="$EXTRA student.fmri_remove_block2=true"
-[ "${POOL:-0}" = "1" ]      && EXTRA="$EXTRA student.fmri_temporal_pool=true"
+[ "${POOL:-0}" = "1" ]      && EXTRA="$EXTRA student.fmri_pool_downsample=true"
 # OVERRIDES -> any extra dinov2 config overrides, space-separated, e.g.
 #   OVERRIDES="optim.base_lr=1e-3 optim.freeze_pretrained=fmri_only"
 [ -n "${OVERRIDES:-}" ]     && EXTRA="$EXTRA ${OVERRIDES}"
@@ -121,7 +123,9 @@ echo "Training done: $(date)"
 if [ "${SMOKE:-0}" != "1" ] && [ "${PROBE:-1}" = "1" ]; then
     RES_DIR="$OFFICIAL_DIR/tasks/v2/probe/json_results"
     mkdir -p "$RES_DIR"
-    for D in ABIDE ADNI HCP; do
+    # ABIDE (broad) + the Brain-JEPA benchmarks we can do: ADNI (NC/MCI, AD/HC,
+    # Amyloid), HCP (Sex), OASIS (AD Conversion — needs oasis_labels.csv, else NaN).
+    for D in ABIDE ADNI HCP OASIS; do
         echo ""
         echo "==== auto linear-probe: $D  ($(date)) ===="
         ds=$(echo "$D" | tr 'A-Z' 'a-z')
