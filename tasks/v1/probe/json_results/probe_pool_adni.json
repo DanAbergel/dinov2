@@ -1,0 +1,31 @@
+{
+  "run": "pool",
+  "dataset": "ADNI",
+  "mode": "fixed split (val-select)",
+  "head": "linear",
+  "checkpoint": "model_final.rank_0.pth",
+  "results": {
+    "NC_vs_MCI": {
+      "head": "linear",
+      "hp": 0.1,
+      "test_auc": 0.48043818466353677,
+      "test_acc": 0.5327102803738317,
+      "test_f1": 0.6031746031746031,
+      "n_train": 297,
+      "n_test": 107,
+      "n_test_subj": 42,
+      "pos_test": 71
+    },
+    "AD_vs_HC": {
+      "head": "linear",
+      "hp": 0.1,
+      "test_auc": 0.5806878306878307,
+      "test_acc": 0.5614035087719298,
+      "test_f1": 0.4897959183673469,
+      "n_train": 162,
+      "n_test": 57,
+      "n_test_subj": 31,
+      "pos_test": 21
+    }
+  }
+}
