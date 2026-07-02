@@ -48,7 +48,9 @@ T_FIXED = 270
 DEVICE = "cuda" if torch.cuda.is_available() else "cpu"
 C_GRID = [0.01, 0.1, 1.0, 10.0]              # linear (LogReg) inverse-reg
 ALPHA_GRID = [1e-4, 1e-3, 1e-2, 1e-1]        # MLP L2 regularisation
-MLP_HIDDEN = (256, 128)                       # 2 hidden layers ("MLP, multiple layers")
+# point-3 ablation: several MLP architectures (depth + width). The best
+# (arch, alpha) is chosen by subject-aware CV on TRAIN (never on the test set).
+MLP_ARCHS = [(128,), (256,), (256, 128), (512, 256), (512, 256, 128)]
 
 # Principal SOTA axes only (degradation/CDR are novel-no-SOTA -> dropped from the
 # headline; the columns stay computed in the table so they can be re-added later).
@@ -268,12 +270,13 @@ def build_table_oasis():
 
 def _make_clf(head, hp):
     """A fresh classifier on the FROZEN embeddings.
-    head='linear' -> LogReg (C=hp, class-balanced); head='mlp' -> 2-hidden-layer
-    MLP (alpha=hp). This is the point-3 ablation axis: linear probe vs MLP head,
-    both on a frozen encoder (the encoder is NOT fine-tuned — that is point 4)."""
+    head='linear' -> LogReg (hp=C, class-balanced); head='mlp' -> MLP with
+    hp=(hidden_layer_sizes, alpha). Point-3 ablation: linear vs MLP head, several
+    MLP archs, on a frozen encoder (the encoder is NOT fine-tuned — that is point 4)."""
     if head == "mlp":
-        return MLPClassifier(hidden_layer_sizes=MLP_HIDDEN, activation="relu",
-                             alpha=hp, max_iter=500, early_stopping=True,
+        arch, alpha = hp
+        return MLPClassifier(hidden_layer_sizes=arch, activation="relu",
+                             alpha=alpha, max_iter=500, early_stopping=True,
                              n_iter_no_change=15, random_state=0)
     return LogisticRegression(C=hp, max_iter=2000, class_weight="balanced")
 
@@ -284,8 +287,9 @@ def _select_hp_cv(X, y, groups, head):
     validation folds from the train subjects (grouped), so the 30% test is never
     touched. Selection criterion = mean CV AUC. Falls back to a default if the
     train set is too small to split."""
-    grid = ALPHA_GRID if head == "mlp" else C_GRID
-    default = 1e-3 if head == "mlp" else 1.0
+    grid = ([(a, al) for a in MLP_ARCHS for al in ALPHA_GRID] if head == "mlp"
+            else C_GRID)
+    default = ((256, 128), 1e-3) if head == "mlp" else 1.0
     yb = y.astype(int)
     grp_per_class = {c: len(set(groups[yb == c])) for c in np.unique(yb)}
     if min(grp_per_class.values()) < 2:
@@ -435,14 +439,16 @@ def main():
     else:
         groups = np.array([t["subject"] for t in table])
         print(f"  head={args.head}")
-        print(f"  {'label':16} {'hp':>8} {'TEST_auc':>9} {'acc':>6} {'F1':>6}  "
+        print(f"  {'label':16} {'best_hp':>18} {'TEST_auc':>9} {'acc':>6} {'F1':>6}  "
               f"{'n_te':>5} {'subj':>5} pos")
         for name, col in LABELS.items():
             y = np.array([_to_float(t["row"].get(col)) for t in table], dtype=float)
             r = probe_label(X, y, splits, groups, name, head=args.head)
             results[name] = r
             if r:
-                print(f"  {name:16} {r['hp']:>8.4g} {r['test_auc']:>9.2f}"
+                hp = r['hp']
+                hps = f"{hp:.4g}" if isinstance(hp, (int, float)) else str(hp)
+                print(f"  {name:16} {hps:>18} {r['test_auc']:>9.2f}"
                       f" {r['test_acc']:>6.2f} {r['test_f1']:>6.2f}  {r['n_test']:>5} "
                       f"{r['n_test_subj']:>5} {r['pos_test']}", flush=True)
             else:
