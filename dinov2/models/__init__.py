@@ -68,6 +68,8 @@ def build_model_from_cfg(cfg, only_teacher=False):
             fourier_pos=cfg.student.get("fmri_fourier_pos", False),
             fourier_num_freqs=cfg.student.get("fmri_fourier_num_freqs", 32),
             fourier_sigma=cfg.student.get("fmri_fourier_sigma", 10.0),
+            remove_block2=cfg.student.get("fmri_remove_block2", False),
+            temporal_pool=cfg.student.get("fmri_temporal_pool", False),
         )
         img_size = tuple(cfg.student.fmri_img_size)
     return build_model(

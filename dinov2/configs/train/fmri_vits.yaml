@@ -50,6 +50,8 @@ student:
   fmri_fourier_pos: false             # spatial pos: false=learned table (baseline), true=Fourier features (ablation)
   fmri_fourier_num_freqs: 32
   fmri_fourier_sigma: 10.0
+  fmri_remove_block2: false           # point 2: true drops the final ResBlock (~83% of patchify params)
+  fmri_temporal_pool: false           # point 2: true = temporal downsample by AvgPool instead of strided conv
 
 teacher:
   momentum_teacher: 0.992

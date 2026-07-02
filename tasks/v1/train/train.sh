@@ -15,11 +15,16 @@
 #           Defaults to the in-repo dinov2/env_dino; override with VENV=...
 #   GRES  : GPU type/count. Defaults to gpu:l40s:1; override with GRES=...
 #
-# Smoke test FIRST (cheap, ~10 iters, catches build/shape bugs):
+# Each run TRAINS, then auto-runs the leakage-free linear probe on ABIDE/ADNI/HCP
+# (writes probe_<ds>.json in the run dir). Set PROBE=0 to skip the probe step.
+#
+# Smoke test FIRST (cheap, ~10 iters, catches build/shape bugs; no probe):
 #   SMOKE=1 sbatch -A arieljaffe tasks/v1/train/train.sh
-# Full run (the two v1 ablation runs — base + fourier):
-#   RUN=base              sbatch -A arieljaffe tasks/v1/train/train.sh
-#   RUN=fourier FOURIER=1 sbatch -A arieljaffe tasks/v1/train/train.sh
+# Pretraining ablation runs (one factor each):
+#   RUN=base                 sbatch -A arieljaffe tasks/v1/train/train.sh   # reference
+#   RUN=fourier  FOURIER=1   sbatch -A arieljaffe tasks/v1/train/train.sh   # Fourier spatial pos
+#   RUN=noblock2 NOBLOCK2=1  sbatch -A arieljaffe tasks/v1/train/train.sh   # point 2: drop block_2
+#   RUN=pool     NOBLOCK2=1 POOL=1 sbatch -A arieljaffe tasks/v1/train/train.sh  # point 2: + temporal AvgPool
 # =====================================================================
 
 #SBATCH --job-name=fmri-v2
@@ -77,9 +82,12 @@ fi
 # proportional sampler caps batch_size_per_gpu at sum(quota)=16 (must divide 16).
 [ -n "${BATCH_PER_GPU:-}" ] && EXTRA="$EXTRA train.batch_size_per_gpu=${BATCH_PER_GPU}"
 [ -n "${GRAD_ACCUM:-}" ]    && EXTRA="$EXTRA optim.grad_accum_steps=${GRAD_ACCUM}"
-# FOURIER=1 -> Fourier spatial positional encoding instead of the learned table
-# (the §3 ablation). Pair with a distinct RUN_NAME so it lands in its own dir.
+# FOURIER=1 -> Fourier spatial positional encoding instead of the learned table.
+# NOBLOCK2=1 / POOL=1 -> the point-2 architecture ablations (drop block_2 /
+# temporal AvgPool instead of strided conv). Pair each with a distinct RUN_NAME.
 [ "${FOURIER:-0}" = "1" ]   && EXTRA="$EXTRA student.fmri_fourier_pos=true"
+[ "${NOBLOCK2:-0}" = "1" ]  && EXTRA="$EXTRA student.fmri_remove_block2=true"
+[ "${POOL:-0}" = "1" ]      && EXTRA="$EXTRA student.fmri_temporal_pool=true"
 # OVERRIDES -> any extra dinov2 config overrides, space-separated, e.g.
 #   OVERRIDES="optim.base_lr=1e-3 optim.freeze_pretrained=fmri_only"
 [ -n "${OVERRIDES:-}" ]     && EXTRA="$EXTRA ${OVERRIDES}"
@@ -103,4 +111,23 @@ srun python dinov2/train/train.py \
     $EXTRA
 
 echo ""
-echo "Done: $(date)"
+echo "Training done: $(date)"
+
+# ---------------------------------------------------------------------------
+# Auto linear-probe once training finishes (skipped for SMOKE runs). Reuses the
+# same GPU/job. Extracts embeddings from the just-trained encoder and fits the
+# leakage-free linear probe (70:30, CV-on-train) on each downstream dataset,
+# writing probe_<ds>.json into the run dir. Set PROBE=0 to skip.
+if [ "${SMOKE:-0}" != "1" ] && [ "${PROBE:-1}" = "1" ]; then
+    for D in ABIDE ADNI HCP; do
+        echo ""
+        echo "==== auto linear-probe: $D  ($(date)) ===="
+        srun python -u "$OFFICIAL_DIR/tasks/v1/probe/probe.py" \
+            --run-dir "$OUTPUT_DIR" --dataset "$D" --head linear || \
+            echo "  probe $D FAILED (continuing)"
+    done
+    echo ""
+    echo "Probes done: $(date)"
+fi
+
+echo "All done: $(date)"
