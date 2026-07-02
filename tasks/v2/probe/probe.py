@@ -61,6 +61,8 @@ LABELS_ADNI = {
 }
 LABELS_ABIDE = {"Autism": "autism", "Age": "age_bin", "Sex": "sex_bin"}
 LABELS_HCP = {"Sex": "sex_bin", "Age": "age_bin"}   # Sex = SOTA axis (SLIM 0.91 / LCM 0.73 F1)
+LABELS_OASIS = {"AD_Conversion": "ad_conversion"}   # Brain-JEPA task (0.69 acc); needs oasis_labels.csv
+OASIS_LABELS = LAB / "OASIS3_data" / "oasis_labels.csv"
 
 
 # ---------------- encoder ----------------
@@ -230,6 +232,35 @@ def build_table_hcp():
     return table, LABELS_HCP
 
 
+def build_table_oasis():
+    """OASIS-3 AD Conversion (Brain-JEPA task). Needs oasis_labels.csv from
+    derive_oasis_adconv.py (CDR trajectory). Matches by the OAS3xxxx id."""
+    sub2split = _split_map("OASIS")
+    labels = {}
+    if OASIS_LABELS.exists():
+        for r in csv.DictReader(open(OASIS_LABELS)):
+            labels[r["subject_id"]] = _to_float(r.get("ad_conversion"))
+    else:
+        print(f"OASIS: {OASIS_LABELS.name} not found -> run derive_oasis_adconv.py "
+              f"(AD Conversion will be all-NaN)", flush=True)
+    table, matched = [], 0
+    for r in csv.DictReader(open(CORPUS_MANIFEST)):
+        if r["dataset"] != "OASIS":
+            continue
+        sid = r["subject_id"]
+        sp = sub2split.get(sid)
+        if sp is None:
+            continue
+        key = next((k for k in (sid, sid.split("_")[0]) if k in labels), None)
+        row = {"ad_conversion": labels.get(key, float("nan"))}
+        if key:
+            matched += 1
+        table.append({"path": Path(r["path"]), "subject": sid, "split": sp,
+                      "tr": float(r["tr"]), "row": row})
+    print(f"OASIS: {matched} scans matched to AD-Conversion labels", flush=True)
+    return table, LABELS_OASIS
+
+
 # ---------------- probe ----------------
 
 def _make_clf(head, hp):
@@ -334,7 +365,7 @@ def probe_kfold(X, y, groups, n_splits=5):
 def main():
     ap = argparse.ArgumentParser()
     ap.add_argument("--run-dir", required=True)
-    ap.add_argument("--dataset", default="ADNI", choices=["ADNI", "ABIDE", "HCP"])
+    ap.add_argument("--dataset", default="ADNI", choices=["ADNI", "ABIDE", "HCP", "OASIS"])
     ap.add_argument("--head", default="linear", choices=["linear", "mlp"],
                     help="probe head on the frozen encoder (point-3 ablation): "
                          "linear=LogReg, mlp=2-hidden-layer MLP.")
@@ -350,7 +381,7 @@ def main():
     print(f"embed_dim={embed_dim}", flush=True)
 
     table, LABELS = ({"ADNI": build_table_adni, "ABIDE": build_table_abide,
-                      "HCP": build_table_hcp}[args.dataset])()
+                      "HCP": build_table_hcp, "OASIS": build_table_oasis}[args.dataset])()
     print(f"{args.dataset} scans with split+label: {len(table)}", flush=True)
     if not table:
         raise RuntimeError(f"No {args.dataset} scans matched (labels/split missing?)")

@@ -52,7 +52,8 @@ DEVICE = "cuda" if torch.cuda.is_available() else "cpu"
 T_FIXED = probe.T_FIXED
 BUILDERS = {"ADNI": probe.build_table_adni,
             "ABIDE": probe.build_table_abide,
-            "HCP": probe.build_table_hcp}
+            "HCP": probe.build_table_hcp,
+            "OASIS": probe.build_table_oasis}
 
 
 # ---------------- data ----------------
