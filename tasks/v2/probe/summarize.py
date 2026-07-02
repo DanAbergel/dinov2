@@ -62,30 +62,46 @@ def sota_table():
         print(f"  {axis:16}{mname:>7}{cells}   {sota}")
 
 
-def head_ablation(run="base"):
-    """Point-3 ablation: linear vs MLP head, on one run."""
-    heads = ["linear", "mlp"]
-    cache = {(h, ds): load(run, ds, h) for h in heads for ds in {a[0] for a in AXES}}
-    if not any(cache[("mlp", ds)] for ds in {a[0] for a in AXES}):
-        print(f"\n(point-3 ablation: no *_mlp.json yet for run '{run}' — "
-              f"run  HEAD=mlp RUN={run} DATASET=... probe.sh)")
-        return
-    hdr = f"  {'axis':16}{'metric':>7}{'linear':>9}{'mlp':>9}   delta"
-    print(f"\n===== Point-3 ablation — linear probe vs MLP head (run={run}) =====")
+def load_ft(run, dataset, depth):
+    ver = RUN_VERSION.get(run, "v2")
+    p = f"{LAB}/runs/{ver}/{run}/finetune_{dataset.lower()}_{depth}.json"
+    if not os.path.exists(p):
+        return {}
+    return json.load(open(p)).get("results", {})
+
+
+def ft_cell(res, label, metric):
+    ms = (res.get(label) or {}).get("mean_std") or {}
+    v = ms.get(metric)
+    return f"{v[0]:.2f}" if isinstance(v, (list, tuple)) and v else "  -"
+
+
+def ladder(run="base"):
+    """Adaptation ladder (Brain-JEPA style): frozen linear -> frozen MLP ->
+    fine-tune last3 -> fine-tune all, on one run. Point 3 = the MLP step,
+    point 4 = the FT steps. FT cells show the mean over seeds."""
+    lin = {ds: load(run, ds, "linear") for ds in {a[0] for a in AXES}}
+    mlp = {ds: load(run, ds, "mlp") for ds in {a[0] for a in AXES}}
+    l3 = {ds: load_ft(run, ds, "last3") for ds in {a[0] for a in AXES}}
+    al = {ds: load_ft(run, ds, "all") for ds in {a[0] for a in AXES}}
+    hdr = (f"  {'axis':16}{'metric':>7}{'linear':>9}{'MLP':>9}{'FT-l3':>9}{'FT-all':>9}"
+           f"   SOTA (same metric)")
+    print(f"\n===== Adaptation ladder (run={run}) — frozen probe -> fine-tune =====")
     print(hdr)
     print("  " + "-" * (len(hdr) - 2))
-    for ds, label, metric, axis, mname, _ in AXES:
-        lin = (cache[("linear", ds)].get(label) or {}).get(metric)
-        mlp = (cache[("mlp", ds)].get(label) or {}).get(metric)
-        d = f"{mlp - lin:+.2f}" if isinstance(lin, (int, float)) and isinstance(mlp, (int, float)) else " -"
-        print(f"  {axis:16}{mname:>7}{cell(cache[('linear', ds)], label, metric):>9}"
-              f"{cell(cache[('mlp', ds)], label, metric):>9}   {d}")
+    for ds, label, metric, axis, mname, sota in AXES:
+        row = (f"  {axis:16}{mname:>7}"
+               f"{cell(lin[ds], label, metric):>9}{cell(mlp[ds], label, metric):>9}"
+               f"{ft_cell(l3[ds], label, metric):>9}{ft_cell(al[ds], label, metric):>9}"
+               f"   {sota}")
+        print(row)
 
 
 def main():
     sota_table()
-    head_ablation("base")
-    print("\n  (test metrics on the 30% held-out subjects; head hyperparam chosen by CV on train.)")
+    ladder("base")
+    print("\n  (frozen: test on 30% held-out, hyperparam by CV on train. "
+          "FT: mean over seeds, 15% val' carved from train for early stopping.)")
 
 
 if __name__ == "__main__":
