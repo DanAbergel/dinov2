@@ -182,8 +182,27 @@ def run_once(encoder_builder, items_tr, items_va, items_te, depth, seed,
             "val_auc": float(best_auc)}
 
 
-def finetune_label(table, col, run_dir, ckpt, depth, seeds, epochs, batch_size,
-                   lr_enc, lr_head):
+def build_from_init(config_path, init_ckpt):
+    """Encoder = DINOv2 ImageNet transformer + RANDOM patchify + RANDOM positional
+    embedding — the state right after prepare_dinov2_init, before ANY SSL. This is
+    the no-SSL fine-tuning baseline (transformer from ImageNet, everything
+    fMRI-specific from scratch). config_path = any run's merged config.yaml (for
+    the architecture); init_ckpt = checkpoints/dinov2_vits14_reg4_fmri_init.pth."""
+    from omegaconf import OmegaConf
+    from dinov2.models import build_model_from_cfg
+    cfg = OmegaConf.load(config_path)
+    _student, teacher, embed_dim = build_model_from_cfg(cfg)
+    ck = torch.load(init_ckpt, map_location="cpu", weights_only=False)
+    state = ck.get("model", ck)
+    missing, unexpected = teacher.load_state_dict(state, strict=False)
+    print(f"init: transformer loaded {len(state) - len(unexpected)} keys from ImageNet "
+          f"DINOv2; patchify + positional stay RANDOM "
+          f"(missing={len(missing)}, unexpected={len(unexpected)})", flush=True)
+    return teacher.to(DEVICE).eval(), embed_dim
+
+
+def finetune_label(table, col, make_encoder, embed_dim, depth, seeds, epochs,
+                   batch_size, lr_enc, lr_head):
     subj = np.array([t["subject"] for t in table])
     split = np.array([t["split"] for t in table])
     y = np.array([probe._to_float(t["row"].get(col)) for t in table], dtype=float)
@@ -204,14 +223,9 @@ def finetune_label(table, col, run_dir, ckpt, depth, seeds, epochs, batch_size,
     tr_items = [items_all[i] for i in np.where(tr_mask)[0] if subj[i] not in va_subj]
     va_items = [items_all[i] for i in np.where(tr_mask)[0] if subj[i] in va_subj]
 
-    def builder():
-        enc, _ = probe.load_teacher(run_dir, ckpt)
-        return enc
-
-    embed_dim = probe.load_teacher(run_dir, ckpt)[1]
     results = []
     for s in seeds:
-        results.append(run_once(builder, tr_items, va_items, te_items, depth, s,
+        results.append(run_once(make_encoder, tr_items, va_items, te_items, depth, s,
                                 epochs, batch_size, lr_enc, lr_head, embed_dim))
     agg = {k: (float(np.mean([r[k] for r in results])),
                float(np.std([r[k] for r in results]))) for k in results[0]}
@@ -220,11 +234,20 @@ def finetune_label(table, col, run_dir, ckpt, depth, seeds, epochs, batch_size,
 
 
 def main():
+    lab = str(probe.LAB)
     ap = argparse.ArgumentParser()
-    ap.add_argument("--run-dir", required=True)
+    ap.add_argument("--run-dir", default=None,
+                    help="fine-tune FROM our SSL-pretrained run's teacher. Omit if --from-init.")
+    ap.add_argument("--from-init", action="store_true",
+                    help="fine-tune from the DINOv2 ImageNet init (transformer=ImageNet, "
+                         "patchify + positional = RANDOM). The no-SSL baseline.")
+    ap.add_argument("--config", default=f"{lab}/runs/v1/base/config.yaml",
+                    help="merged config.yaml (architecture) used with --from-init")
+    ap.add_argument("--init-checkpoint", default=f"{lab}/checkpoints/dinov2_vits14_reg4_fmri_init.pth")
     ap.add_argument("--dataset", default="ADNI", choices=list(BUILDERS))
     ap.add_argument("--depth", default="last3", choices=["head", "last3", "all"])
     ap.add_argument("--checkpoint", default="model_final.rank_0.pth")
+    ap.add_argument("--out", default=None, help="explicit output json path (e.g. task folder)")
     ap.add_argument("--seeds", default="0", help="comma-separated, e.g. 0,1,2,3,4 for 5 runs")
     ap.add_argument("--epochs", type=int, default=20)
     ap.add_argument("--batch-size", type=int, default=4)
@@ -232,14 +255,25 @@ def main():
     ap.add_argument("--lr-head", type=float, default=1e-3)
     ap.add_argument("--smoke", action="store_true", help="1 seed, 1 epoch, tiny — pipeline check")
     args = ap.parse_args()
+    if not args.run_dir and not args.from_init:
+        ap.error("give --run-dir (SSL-pretrained) or --from-init (DINOv2 baseline)")
 
     seeds = [int(s) for s in args.seeds.split(",") if s.strip()]
     epochs = args.epochs
     if args.smoke:
         seeds, epochs = [0], 1
 
-    print(f"Device={DEVICE}  run={Path(args.run_dir).name}  dataset={args.dataset}  depth={args.depth}",
-          flush=True)
+    # encoder source: our SSL run, or the DINOv2 init (transformer=ImageNet, rest random)
+    if args.from_init:
+        make_encoder = lambda: build_from_init(args.config, args.init_checkpoint)[0]
+        embed_dim = build_from_init(args.config, args.init_checkpoint)[1]
+        run_name = "dinov2init"
+    else:
+        make_encoder = lambda: probe.load_teacher(args.run_dir, args.checkpoint)[0]
+        embed_dim = probe.load_teacher(args.run_dir, args.checkpoint)[1]
+        run_name = Path(args.run_dir).name
+
+    print(f"Device={DEVICE}  source={run_name}  dataset={args.dataset}  depth={args.depth}", flush=True)
     table, LABELS = BUILDERS[args.dataset]()
     print(f"{args.dataset}: {len(table)} scans with split+label", flush=True)
 
@@ -247,7 +281,7 @@ def main():
     for name, col in LABELS.items():
         print(f"\n==== fine-tune  {args.dataset} · {name}  (depth={args.depth}) ====", flush=True)
         t0 = time.time()
-        r = finetune_label(table, col, args.run_dir, args.checkpoint, args.depth,
+        r = finetune_label(table, col, make_encoder, embed_dim, args.depth,
                            seeds, epochs, args.batch_size, args.lr_encoder, args.lr_head)
         results[name] = r
         if r:
@@ -258,8 +292,13 @@ def main():
         else:
             print(f"  {name}: skipped (too few samples / one class)", flush=True)
 
-    out = Path(args.run_dir) / f"finetune_{args.dataset.lower()}_{args.depth}.json"
-    out.write_text(json.dumps({"run": Path(args.run_dir).name, "dataset": args.dataset,
+    if args.out:
+        out = Path(args.out)
+        out.parent.mkdir(parents=True, exist_ok=True)
+    else:
+        base = Path(args.run_dir) if args.run_dir else Path(".")
+        out = base / f"finetune_{run_name}_{args.dataset.lower()}_{args.depth}.json"
+    out.write_text(json.dumps({"run": run_name, "dataset": args.dataset, "from_init": args.from_init,
                                "depth": args.depth, "seeds": seeds, "results": results}, indent=2))
     print(f"\nSaved {out}", flush=True)
 
