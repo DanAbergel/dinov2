@@ -103,7 +103,10 @@ def set_trainable(encoder, depth):
     for p in encoder.parameters():
         p.requires_grad = (depth == "all")
     if depth == "last3":
-        mods = list(encoder.blocks[-3:]) + [encoder.norm]
+        # match SSL policy B: last 3 transformer blocks + final norm + the fMRI
+        # patchify. patch_embed MUST train (it is the fMRI adapter -> in --from-init
+        # it is RANDOM and would otherwise stay random -> garbage tokens).
+        mods = list(encoder.blocks[-3:]) + [encoder.norm, encoder.patch_embed]
         for m in mods:
             for p in m.parameters():
                 p.requires_grad = True
