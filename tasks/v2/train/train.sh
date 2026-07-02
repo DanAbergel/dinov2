@@ -90,6 +90,9 @@ fi
 [ "${FOURIER:-0}" = "1" ]   && EXTRA="$EXTRA student.fmri_fourier_pos=true"
 [ "${NOBLOCK2:-0}" = "1" ]  && EXTRA="$EXTRA student.fmri_remove_block2=true"
 [ "${POOL:-0}" = "1" ]      && EXTRA="$EXTRA student.fmri_pool_downsample=true"
+# UNFROZEN=1 -> freeze policy A (none): ALL transformer layers train during SSL
+# (vs base's policy B which freezes blocks 0-8). Same DINOv2 init start.
+[ "${UNFROZEN:-0}" = "1" ]  && EXTRA="$EXTRA optim.freeze_pretrained=none"
 # OVERRIDES -> any extra dinov2 config overrides, space-separated, e.g.
 #   OVERRIDES="optim.base_lr=1e-3 optim.freeze_pretrained=fmri_only"
 [ -n "${OVERRIDES:-}" ]     && EXTRA="$EXTRA ${OVERRIDES}"
