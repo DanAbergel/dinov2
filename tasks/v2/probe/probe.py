@@ -134,10 +134,13 @@ def _add_age_bin(table, age_field):
 
 
 def _load_adni_clinical():
-    """Optional real DX + amyloid from ADNIMERGE join (add_adni_labels.py).
-    subject_id -> {nc_vs_mci, ad_vs_hc, amyloid_positive} (real, overrides CDR proxy)."""
-    p = ADNI_DIR / "adni_clinical.csv"
-    if not p.exists():
+    """Optional real DX + amyloid (DXSUM DIAGNOSIS + UCBERKELEY amyloid, built by
+    add_adni_labels.py / R export). subject_id -> {nc_vs_mci, ad_vs_hc,
+    amyloid_positive} (real, overrides the CDR proxy). Looked up in ADNI_DIR or
+    the versioned repo data/ dir (so a git pull is enough — no scp needed)."""
+    p = next((c for c in (ADNI_DIR / "adni_clinical.csv",
+                          REPO_ROOT / "data" / "adni_clinical.csv") if c.exists()), None)
+    if p is None:
         return {}
     out = {}
     for r in csv.DictReader(open(p)):
