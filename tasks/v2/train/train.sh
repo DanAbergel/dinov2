@@ -119,15 +119,36 @@ echo "Training done: $(date)"
 # leakage-free linear probe (70:30, CV-on-train) on each downstream dataset,
 # writing probe_<ds>.json into the run dir. Set PROBE=0 to skip.
 if [ "${SMOKE:-0}" != "1" ] && [ "${PROBE:-1}" = "1" ]; then
+    RES_DIR="$OFFICIAL_DIR/tasks/v2/probe/json_results"
+    mkdir -p "$RES_DIR"
     for D in ABIDE ADNI HCP; do
         echo ""
         echo "==== auto linear-probe: $D  ($(date)) ===="
         srun python -u "$OFFICIAL_DIR/tasks/v2/probe/probe.py" \
             --run-dir "$OUTPUT_DIR" --dataset "$D" --head linear || \
             echo "  probe $D FAILED (continuing)"
+        # copy the result JSON into the VERSIONED task folder (not just runs/)
+        ds=$(echo "$D" | tr 'A-Z' 'a-z')
+        [ -f "$OUTPUT_DIR/probe_${ds}.json" ] && \
+            cp "$OUTPUT_DIR/probe_${ds}.json" "$RES_DIR/probe_${RUN_NAME}_${ds}.json"
     done
     echo ""
     echo "Probes done: $(date)"
+
+    # commit + push the results JSON so they land in the repo automatically.
+    # Best-effort: GPU compute nodes often have no network -> push may fail, and
+    # the commit stays local for you to push from the login node.
+    echo ""
+    echo "==== committing probe results ($(date)) ===="
+    cd "$OFFICIAL_DIR"
+    git add "$RES_DIR" 2>&1 || true
+    git commit -m "auto: probe results for ${RUN_NAME}" 2>&1 || echo "  (nothing to commit)"
+    git pull --no-rebase --no-edit 2>&1 || true
+    if git push 2>&1; then
+        echo "  results pushed OK"
+    else
+        echo "  PUSH FAILED (compute node likely has no network) -> run 'git push' from the login node"
+    fi
 fi
 
 echo "All done: $(date)"
