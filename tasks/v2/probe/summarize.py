@@ -15,12 +15,13 @@ import json
 import os
 
 LAB = "/sci/labs/arieljaffe/dan.abergel1"
-RUNS = ["base", "fourier", "noblock2", "pool"]   # Phase-A pretraining ablation
-# base/fourier are the frozen v1 baseline (runs/v1); noblock2/pool are the v2
-# architecture ablation (runs/v2). Map each run to where its checkpoints live.
-# All four Phase-A runs were launched from the pre-split tasks/v1 -> they live in
-# runs/v1 (not runs/v2). Map accordingly.
-RUN_VERSION = {"base": "v1", "fourier": "v1", "noblock2": "v1", "pool": "v1"}
+RUNS = ["base", "fourier", "noblock2", "pool_only", "pool"]   # Phase-A ablation
+# Clean one-factor-vs-base matrix: fourier=Fourier only, noblock2=remove_block2 only,
+# pool_only=temporal_pool only. pool=both factors (kept for reference).
+# base/fourier/noblock2/pool were launched from the pre-split tasks/v1 -> runs/v1;
+# pool_only is launched later from tasks/v2 -> runs/v2.
+RUN_VERSION = {"base": "v1", "fourier": "v1", "noblock2": "v1", "pool": "v1",
+               "pool_only": "v2"}
 
 # (dataset, probe-label, metric key in json, axis label, metric name, SOTA ref)
 AXES = [
