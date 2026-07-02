@@ -144,7 +144,11 @@ if [ "${SMOKE:-0}" != "1" ] && [ "${PROBE:-1}" = "1" ]; then
     echo ""
     echo "==== committing probe results ($(date)) ===="
     cd "$OFFICIAL_DIR"
-    git add "$RES_DIR" 2>&1 || true
+    # several parallel runs share ONE repo checkout -> wait out any index.lock held
+    # by another run's git op (up to ~10 min) to avoid collisions.
+    for _ in $(seq 1 60); do [ -f .git/index.lock ] && sleep 10 || break; done
+    # stage ONLY this run's own result JSONs (never `-A` -> avoids adding the venv)
+    git add "$RES_DIR"/probe_${RUN_NAME}_*.json 2>&1 || true
     git commit -m "auto: probe results for ${RUN_NAME}" 2>&1 || echo "  (nothing to commit)"
     git pull --no-rebase --no-edit 2>&1 || true
     if git push 2>&1; then

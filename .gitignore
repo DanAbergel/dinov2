@@ -16,3 +16,6 @@ outputs/**/model_*.pth
 outputs/**/model_*.rank_*.pth
 outputs/probes/features_*.npz
 .DS_Store
+dinov2/env_dino/
+.idea/
+*.DS_Store
