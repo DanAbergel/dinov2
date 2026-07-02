@@ -4,9 +4,6 @@ One row per (axis, metric) where the metric is THE ONE THE SOTA REPORTS for that
 task (AUROC for ABIDE-Autism/BNT, F1 for LCM, Acc for ADNI/Brain-JEPA, ...), so
 every comparison is apples-to-apples. Columns = our runs (base, fourier).
 
-A second table shows the point-3 ablation: linear probe vs MLP head (run=base),
-if the *_mlp.json files exist.
-
 Usage:
     python tasks/v1/probe/summarize.py
 """
@@ -15,7 +12,7 @@ import json
 import os
 
 LAB = "/sci/labs/arieljaffe/dan.abergel1"
-RUNS = ["base", "fourier", "noblock2", "pool"]   # Phase-A pretraining ablation
+RUNS = ["base", "fourier"]
 
 # (dataset, probe-label, metric key in json, axis label, metric name, SOTA ref)
 AXES = [
@@ -33,9 +30,8 @@ AXES = [
 ]
 
 
-def load(run, dataset, head="linear"):
-    suf = "" if head == "linear" else f"_{head}"
-    p = f"{LAB}/runs/v1/{run}/probe_{dataset.lower()}{suf}.json"
+def load(run, dataset):
+    p = f"{LAB}/runs/v1/{run}/probe_{dataset.lower()}.json"
     if not os.path.exists(p):
         return {}
     return json.load(open(p)).get("results", {})
@@ -47,41 +43,17 @@ def cell(results, label, metric):
     return f"{v:.2f}" if isinstance(v, (int, float)) else "  -"
 
 
-def sota_table():
-    cache = {(run, ds): load(run, ds) for run in RUNS for ds in {a[0] for a in AXES}}
+def main():
+    cache = {(run, ds): load(run, ds) for run in RUNS
+             for ds in {a[0] for a in AXES}}
     hdr = f"  {'axis':16}{'metric':>7}" + "".join(f"{r:>9}" for r in RUNS) + "   SOTA (same metric)"
-    print("\n===== v1 — SOTA-matched comparison (test = held-out 30%, linear probe) =====")
+    print("\n===== v1 — SOTA-matched comparison (test = held-out 30%) =====")
     print(hdr)
     print("  " + "-" * (len(hdr) - 2))
     for ds, label, metric, axis, mname, sota in AXES:
         cells = "".join(f"{cell(cache[(r, ds)], label, metric):>9}" for r in RUNS)
         print(f"  {axis:16}{mname:>7}{cells}   {sota}")
-
-
-def head_ablation(run="base"):
-    """Point-3 ablation: linear vs MLP head, on one run."""
-    heads = ["linear", "mlp"]
-    cache = {(h, ds): load(run, ds, h) for h in heads for ds in {a[0] for a in AXES}}
-    if not any(cache[("mlp", ds)] for ds in {a[0] for a in AXES}):
-        print(f"\n(point-3 ablation: no *_mlp.json yet for run '{run}' — "
-              f"run  HEAD=mlp RUN={run} DATASET=... probe.sh)")
-        return
-    hdr = f"  {'axis':16}{'metric':>7}{'linear':>9}{'mlp':>9}   delta"
-    print(f"\n===== Point-3 ablation — linear probe vs MLP head (run={run}) =====")
-    print(hdr)
-    print("  " + "-" * (len(hdr) - 2))
-    for ds, label, metric, axis, mname, _ in AXES:
-        lin = (cache[("linear", ds)].get(label) or {}).get(metric)
-        mlp = (cache[("mlp", ds)].get(label) or {}).get(metric)
-        d = f"{mlp - lin:+.2f}" if isinstance(lin, (int, float)) and isinstance(mlp, (int, float)) else " -"
-        print(f"  {axis:16}{mname:>7}{cell(cache[('linear', ds)], label, metric):>9}"
-              f"{cell(cache[('mlp', ds)], label, metric):>9}   {d}")
-
-
-def main():
-    sota_table()
-    head_ablation("base")
-    print("\n  (test metrics on the 30% held-out subjects; head hyperparam chosen by CV on train.)")
+    print("\n  (test_acc/f1/auc are on the 30% held-out subjects; C chosen by CV on train.)")
 
 
 if __name__ == "__main__":

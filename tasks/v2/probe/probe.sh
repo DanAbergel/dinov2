@@ -7,10 +7,12 @@
 # val+test were held out of pretraining). Writes <run-dir>/probe_adni.json.
 #
 # Usage:
-#   RUN=base    DATASET=ABIDE sbatch -A arieljaffe tasks/v1/probe/probe.sh
-#   RUN=base    DATASET=ADNI  sbatch -A arieljaffe tasks/v1/probe/probe.sh
-#   RUN=base    DATASET=HCP   sbatch -A arieljaffe tasks/v1/probe/probe.sh
-#   RUN=fourier DATASET=ABIDE sbatch -A arieljaffe tasks/v1/probe/probe.sh   (etc.)
+#   RUN=base    DATASET=ABIDE sbatch -A arieljaffe tasks/v2/probe/probe.sh
+#   RUN=base    DATASET=ADNI  sbatch -A arieljaffe tasks/v2/probe/probe.sh
+#   RUN=base    DATASET=HCP   sbatch -A arieljaffe tasks/v2/probe/probe.sh
+#   RUN=fourier DATASET=ABIDE sbatch -A arieljaffe tasks/v2/probe/probe.sh   (etc.)
+# Point-3 ablation (MLP head instead of linear, same frozen encoder):
+#   HEAD=mlp RUN=base DATASET=ADNI sbatch -A arieljaffe tasks/v2/probe/probe.sh
 # 70:30 split: TRAIN=70% subjects, TEST=held-out 30% (val+test, excluded from
 # pretraining). C chosen by subject-aware CV on TRAIN. ABIDE/ADNI/HCP are all in
 # HOLDOUT_DATASETS -> leakage-free. (KFOLD>0 needs a FULLY-excluded dataset; unused in v1.)
@@ -31,17 +33,21 @@ set -euo pipefail
 
 LAB_DIR="/sci/labs/arieljaffe/dan.abergel1"
 OFFICIAL_DIR="$LAB_DIR/repos/FAIR_official"
-TASK_DIR="$OFFICIAL_DIR/tasks/v1/probe"
+TASK_DIR="$OFFICIAL_DIR/tasks/v2/probe"
 VENV_DIR="$LAB_DIR/torch_env"
 
 RUN="${RUN:-base}"
 CKPT="${CKPT:-model_final.rank_0.pth}"
 DATASET="${DATASET:-ADNI}"
+HEAD="${HEAD:-linear}"                       # linear (LogReg) | mlp (point-3 ablation)
 KFOLD="${KFOLD:-0}"                         # >0 -> subject-aware k-fold (dataset must be excluded from pretraining)
-RUN_DIR="$LAB_DIR/runs/v1/$RUN"
+# v2 runs live in runs/v2; to probe a v1 run (base/fourier) pass RUNS_DIR=$LAB/runs/v1
+RUNS_DIR="${RUNS_DIR:-$LAB_DIR/runs/v2}"
+RUN_DIR="$RUNS_DIR/$RUN"
 
 mkdir -p "$TASK_DIR/logs"
 SUFFIX=""; [ "$KFOLD" != "0" ] && SUFFIX="_kfold${KFOLD}"
+[ "$HEAD" != "linear" ] && SUFFIX="_${HEAD}${SUFFIX}"
 LOG="$TASK_DIR/logs/probe_${RUN}_${DATASET}${SUFFIX}.out"
 exec >"$LOG" 2>&1
 
@@ -55,7 +61,7 @@ source "$VENV_DIR/bin/activate"
 export PYTHONPATH="$OFFICIAL_DIR:${PYTHONPATH:-}"
 export PYTHONUNBUFFERED=1                  # live progress in the log
 
-echo "Probe   run=$RUN dataset=$DATASET kfold=$KFOLD ckpt=$CKPT   Node: $(hostname)   Date: $(date)"
-srun python -u tasks/v1/probe/probe.py --run-dir "$RUN_DIR" --dataset "$DATASET" \
-    --checkpoint "$CKPT" --kfold "$KFOLD"
+echo "Probe   run=$RUN dataset=$DATASET head=$HEAD kfold=$KFOLD ckpt=$CKPT   Node: $(hostname)   Date: $(date)"
+srun python -u tasks/v2/probe/probe.py --run-dir "$RUN_DIR" --dataset "$DATASET" \
+    --head "$HEAD" --checkpoint "$CKPT" --kfold "$KFOLD"
 echo "Done: $(date)"
