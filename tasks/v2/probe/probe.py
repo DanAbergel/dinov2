@@ -57,6 +57,7 @@ LABELS_ADNI = {
     # clinical DX): NC=CDR 0, MCI=CDR 0.5, AD=CDR>=1.
     "NC_vs_MCI": "nc_vs_mci",          # vs Brain-JEPA 0.77 / BNT 0.79 acc
     "AD_vs_HC": "ad_vs_hc",            # vs BrainGFM 0.80 AUC / LCM 0.85 F1
+    "Amyloid": "amyloid_positive",     # Brain-JEPA task; needs adni_clinical.csv (ADNIMERGE join)
 }
 LABELS_ABIDE = {"Autism": "autism", "Age": "age_bin", "Sex": "sex_bin"}
 LABELS_HCP = {"Sex": "sex_bin", "Age": "age_bin"}   # Sex = SOTA axis (SLIM 0.91 / LCM 0.73 F1)
@@ -130,8 +131,25 @@ def _add_age_bin(table, age_field):
                                else (1.0 if a >= med else 0.0))
 
 
+def _load_adni_clinical():
+    """Optional real DX + amyloid from ADNIMERGE join (add_adni_labels.py).
+    subject_id -> {nc_vs_mci, ad_vs_hc, amyloid_positive} (real, overrides CDR proxy)."""
+    p = ADNI_DIR / "adni_clinical.csv"
+    if not p.exists():
+        return {}
+    out = {}
+    for r in csv.DictReader(open(p)):
+        out[r["subject_id"]] = {k: _to_float(r.get(k))
+                                for k in ("nc_vs_mci", "ad_vs_hc", "amyloid_positive")}
+    return out
+
+
 def build_table_adni():
     sub2split = _split_map("ADNI")
+    clinical = _load_adni_clinical()      # real DX + amyloid if available
+    if clinical:
+        print(f"ADNI: real clinical labels for {len(clinical)} subjects "
+              f"(overriding CDR proxy where present)", flush=True)
     table = []
     for r in csv.DictReader(open(ADNI_MANIFEST)):
         sid, iid = r["subject_id"], r["image_id"]
@@ -144,6 +162,13 @@ def build_table_adni():
         r["nc_vs_mci"] = (0.0 if cdr == 0 else 1.0 if cdr == 0.5 else float("nan"))
         r["ad_vs_hc"] = (0.0 if cdr == 0 else
                          1.0 if (cdr is not None and cdr >= 1) else float("nan"))
+        r["amyloid_positive"] = float("nan")
+        # override with REAL clinical labels + amyloid when the join file exists
+        c = clinical.get(sid)
+        if c:
+            for k in ("nc_vs_mci", "ad_vs_hc", "amyloid_positive"):
+                if c.get(k) is not None:
+                    r[k] = c[k]
         table.append({"path": p, "subject": sid, "split": sp, "tr": 3.0, "row": r})
     _add_age_bin(table, "Age")         # binary age at global median
     return table, LABELS_ADNI

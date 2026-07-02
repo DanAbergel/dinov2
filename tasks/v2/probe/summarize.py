@@ -31,6 +31,8 @@ AXES = [
     ("ADNI",  "AD_vs_HC",  "test_auc", "ADNI · AD/HC",   "AUC",   "BrainGFM 0.80"),
     ("ADNI",  "AD_vs_HC",  "test_acc", "ADNI · AD/HC",   "Acc",   "BrainGFM 0.85"),
     ("ADNI",  "AD_vs_HC",  "test_f1",  "ADNI · AD/HC",   "F1",    "LCM 0.85"),
+    ("ADNI",  "Amyloid",   "test_acc", "ADNI · Amyloid", "Acc",   "Brain-JEPA 0.71"),
+    ("ADNI",  "Amyloid",   "test_f1",  "ADNI · Amyloid", "F1",    "Brain-JEPA 0.76"),
     ("HCP",   "Sex",       "test_acc", "HCP · Sex",      "Acc",   "SLIM 0.91"),
     ("HCP",   "Sex",       "test_f1",  "HCP · Sex",      "F1",    "SLIM 0.91 / LCM 0.73"),
 ]
