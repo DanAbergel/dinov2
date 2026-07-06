@@ -1,0 +1,10 @@
+{
+  "run": "fourier",
+  "dataset": "OASIS",
+  "mode": "fixed split (val-select)",
+  "head": "linear",
+  "checkpoint": "model_final.rank_0.pth",
+  "results": {
+    "AD_Conversion": null
+  }
+}
