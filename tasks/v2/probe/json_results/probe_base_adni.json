@@ -1,0 +1,42 @@
+{
+  "run": "base",
+  "dataset": "ADNI",
+  "mode": "fixed split (val-select)",
+  "head": "linear",
+  "checkpoint": "model_final.rank_0.pth",
+  "results": {
+    "NC_vs_MCI": {
+      "head": "linear",
+      "hp": 10.0,
+      "test_auc": 0.5671509371187756,
+      "test_acc": 0.5707070707070707,
+      "test_f1": 0.6502057613168725,
+      "n_train": 520,
+      "n_test": 198,
+      "n_test_subj": 55,
+      "pos_test": 127
+    },
+    "AD_vs_HC": {
+      "head": "linear",
+      "hp": 0.01,
+      "test_auc": 0.48122427983539096,
+      "test_acc": 0.5193798449612403,
+      "test_f1": 0.38,
+      "n_train": 299,
+      "n_test": 129,
+      "n_test_subj": 44,
+      "pos_test": 48
+    },
+    "Amyloid": {
+      "head": "linear",
+      "hp": 0.01,
+      "test_auc": 0.6107022708158116,
+      "test_acc": 0.6171171171171171,
+      "test_f1": 0.6996466431095406,
+      "n_train": 556,
+      "n_test": 222,
+      "n_test_subj": 55,
+      "pos_test": 164
+    }
+  }
+}
