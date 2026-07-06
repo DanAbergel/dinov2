@@ -119,10 +119,11 @@ def load_teacher(run_dir, checkpoint):
 
 
 @torch.no_grad()
-def scan_embedding(teacher, path, native_tr):
-    """Mean CLS over sliding native windows (each spanning T_FIXED*0.72s),
-    resampled to T_FIXED frames at 0.72s. Cropping native FIRST keeps
-    resample_poly cheap (small up/down)."""
+def scan_embedding(teacher, path, native_tr, agg="mean"):
+    """CLS token aggregated over sliding T_FIXED windows (each spanning
+    T_FIXED*0.72s, resampled to T_FIXED @ 0.72s). Cropping native FIRST keeps
+    resample_poly cheap. agg='mean' -> mean CLS (384); agg='mean_std' ->
+    [mean ‖ population-std] over windows (768, captures temporal variability)."""
     win = max(1, round(T_FIXED * TARGET_TR / native_tr))
     stride = max(1, win // 2)
     scan = _load_mmap(path).float()                  # (T, X, Y, Z)
@@ -137,7 +138,11 @@ def scan_embedding(teacher, path, native_tr):
         x = clip.unsqueeze(0).to(DEVICE)             # (1, T_FIXED, 1, X, Y, Z)
         out = teacher(x, is_training=True)
         embs.append(out["x_norm_clstoken"].squeeze(0).float().cpu())
-    return torch.stack(embs).mean(0).numpy()
+    embs = torch.stack(embs)                          # (n_windows, 384)
+    if agg == "mean_std":
+        # unbiased=False -> std of a single window is 0 (not NaN)
+        return torch.cat([embs.mean(0), embs.std(0, unbiased=False)]).numpy()
+    return embs.mean(0).numpy()
 
 
 # ---------------- labels / split ----------------
@@ -431,13 +436,15 @@ def _make_clf(head, hp):
     return LogisticRegression(C=hp, max_iter=2000, class_weight="balanced")
 
 
-def _select_hp_cv(X, y, groups, head):
+def _select_hp_cv(X, y, groups, head, mlp_archs=None):
     """Choose the head's regularisation (C for linear, alpha for MLP) by
     SUBJECT-AWARE cross-validation on the TRAIN set only. The CV builds temporary
     validation folds from the train subjects (grouped), so the 30% test is never
     touched. Selection criterion = mean CV AUC. Falls back to a default if the
-    train set is too small to split."""
-    grid = ([(a, al) for a in MLP_ARCHS for al in ALPHA_GRID] if head == "mlp"
+    train set is too small to split. mlp_archs overrides the arch grid (for the
+    per-arch MLP ablation -> pass a single [(...)] to force one architecture)."""
+    archs = mlp_archs if mlp_archs else MLP_ARCHS
+    grid = ([(a, al) for a in archs for al in ALPHA_GRID] if head == "mlp"
             else C_GRID)
     default = ((256, 128), 1e-3) if head == "mlp" else 1.0
     yb = y.astype(int)
@@ -463,7 +470,7 @@ def _select_hp_cv(X, y, groups, head):
     return best_hp
 
 
-def probe_label(X, y, splits, groups, name, head="linear"):
+def probe_label(X, y, splits, groups, name, head="linear", mlp_archs=None):
     """70:30 split. TRAIN = 'train' subjects (in pretraining is fine); TEST = the
     held-out 30% ('val'+'test', excluded from pretraining). Head hyperparam chosen
     by CV on TRAIN. Report TEST AUC/Acc/F1 (F1 binary = positive class, matches SOTA)."""
@@ -476,7 +483,7 @@ def probe_label(X, y, splits, groups, name, head="linear"):
     if len(np.unique(y[tr])) < 2 or len(np.unique(y[te])) < 2:
         return None
 
-    best_hp = _select_hp_cv(X[tr], y[tr], groups[tr], head)
+    best_hp = _select_hp_cv(X[tr], y[tr], groups[tr], head, mlp_archs)
     sc = StandardScaler().fit(X[tr])
     clf = _make_clf(head, best_hp).fit(sc.transform(X[tr]), y[tr])
     proba = clf.predict_proba(sc.transform(X[te]))[:, 1]
@@ -614,7 +621,15 @@ def main():
                     help="If >0, subject-aware k-fold CV over the whole cohort "
                          "(use only when this dataset was FULLY excluded from "
                          "pretraining). Else fixed train/val/test split.")
+    ap.add_argument("--agg", default="mean", choices=["mean", "mean_std"],
+                    help="temporal aggregation of per-window CLS (ablation): "
+                         "mean=384-d; mean_std=[mean‖std]=768-d (adds dynamics).")
+    ap.add_argument("--mlp-arch", default=None,
+                    help="force one MLP architecture, e.g. '256,128' (per-arch "
+                         "ablation). Only with --head mlp; else the full arch grid.")
     args = ap.parse_args()
+    mlp_archs = ([tuple(int(w) for w in args.mlp_arch.split(","))]
+                 if args.mlp_arch else None)
 
     print(f"Device: {DEVICE}  cuda_available={torch.cuda.is_available()}", flush=True)
     teacher, embed_dim = load_teacher(args.run_dir, args.checkpoint)
@@ -640,7 +655,8 @@ def main():
     # HCP_COG uses the exact same scans/order as HCP -> reuse the HCP embedding
     # cache (the length check below still guards against any table mismatch).
     cache_ds = "HCP" if args.dataset == "HCP_COG" else args.dataset
-    cache = Path(args.run_dir) / f"emb_{cache_ds}_{ck}.npz"
+    agg_suffix = "" if args.agg == "mean" else f"_{args.agg}"   # keep old mean caches
+    cache = Path(args.run_dir) / f"emb_{cache_ds}_{ck}{agg_suffix}.npz"
     if cache.exists() and int(np.load(cache)["X"].shape[0]) == len(table):
         X = np.load(cache)["X"]
         print(f"loaded cached embeddings {X.shape} from {cache.name}", flush=True)
@@ -648,7 +664,7 @@ def main():
         t0 = time.time()
         embs = []
         for i, t in enumerate(table):
-            embs.append(scan_embedding(teacher, t["path"], t["tr"]))
+            embs.append(scan_embedding(teacher, t["path"], t["tr"], agg=args.agg))
             if (i + 1) % 100 == 0 or i == len(table) - 1:
                 dt = time.time() - t0
                 print(f"  embeddings {i+1}/{len(table)}  ({dt:.0f}s, "
@@ -713,7 +729,7 @@ def main():
               f"{'n_te':>5} {'subj':>5} pos")
         for name, col in LABELS.items():
             y = np.array([_to_float(t["row"].get(col)) for t in table], dtype=float)
-            r = probe_label(X, y, splits, groups, name, head=args.head)
+            r = probe_label(X, y, splits, groups, name, head=args.head, mlp_archs=mlp_archs)
             results[name] = r
             if r:
                 hp = r['hp']
