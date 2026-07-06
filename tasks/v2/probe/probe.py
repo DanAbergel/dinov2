@@ -25,9 +25,9 @@ from pathlib import Path
 import numpy as np
 import torch
 from omegaconf import OmegaConf
-from sklearn.linear_model import LogisticRegression
+from sklearn.linear_model import LogisticRegression, Ridge
 from sklearn.metrics import accuracy_score, f1_score, roc_auc_score
-from sklearn.model_selection import StratifiedGroupKFold
+from sklearn.model_selection import GroupKFold, StratifiedGroupKFold
 from sklearn.neural_network import MLPClassifier
 from sklearn.preprocessing import StandardScaler
 
@@ -85,6 +85,17 @@ LABELS_COBRE = {"Schizophrenia": "sz"}               # NeuroSTORM disease benchm
 
 NO_SPLIT_DATASETS = {"ADHD", "HCP_TASK", "COBRE"}    # not pretrained on -> force k-fold
 MULTICLASS_DATASETS = {"HCP_TASK"}
+
+# HCP cognition (NeuroSTORM/Brain-JEPA phenotype prediction) — REGRESSION on the
+# HCP subjects we pretrained on, evaluated on the held-out 30% (same split as
+# HCP Sex/Age -> no leakage). Targets = NIH-toolbox / Penn scores from HCP_CSV.
+HCP_COG_TARGETS = {"FluidIntel": "PMAT24_A_CR",       # Penn matrix — fluid intelligence
+                   "ProcSpeed": "ProcSpeed_AgeAdj",   # processing speed
+                   "WorkingMem": "ListSort_AgeAdj"}   # working memory
+LABELS_HCP_COG = {"FluidIntel": "fluidintel", "ProcSpeed": "procspeed",
+                  "WorkingMem": "workingmem"}
+REGRESSION_DATASETS = {"HCP_COG"}
+RIDGE_ALPHA_GRID = [0.1, 1.0, 10.0, 100.0, 1000.0]
 
 
 # ---------------- encoder ----------------
@@ -255,6 +266,33 @@ def build_table_hcp():
     print(f"HCP: matched {matched} scans to Sex/Age labels", flush=True)
     _add_age_bin(table, "Age_in_Yrs")
     return table, LABELS_HCP
+
+
+def build_table_hcp_cog():
+    """HCP-YA cognition (NeuroSTORM/Brain-JEPA phenotype REGRESSION). Same scans &
+    split as build_table_hcp; label = continuous cognitive scores from HCP_CSV.
+    Evaluated on the held-out 30% (excluded from pretraining) -> no leakage."""
+    sub2split = _split_map("HCP")
+    meta = {str(r["Subject"]).strip(): r for r in csv.DictReader(open(HCP_CSV))}
+    table, matched = [], 0
+    for r in csv.DictReader(open(CORPUS_MANIFEST)):
+        if r["dataset"] != "HCP":
+            continue
+        sid = r["subject_id"]
+        sp = sub2split.get(sid)
+        if sp is None:
+            continue
+        digits = "".join(ch for ch in sid if ch.isdigit())[:6]
+        m = meta.get(sid) or meta.get(digits)
+        if m is None:
+            continue
+        row = {LABELS_HCP_COG[name]: _to_float(m.get(col))
+               for name, col in HCP_COG_TARGETS.items()}
+        table.append({"path": Path(r["path"]), "subject": sid, "split": sp,
+                      "tr": float(r["tr"]), "row": row})
+        matched += 1
+    print(f"HCP_COG: matched {matched} scans to cognitive scores", flush=True)
+    return table, LABELS_HCP_COG
 
 
 def build_table_oasis():
@@ -513,11 +551,58 @@ def probe_multiclass_kfold(X, y, groups, n_splits=5):
             "n": int(len(y)), "n_classes": int(len(classes)), "folds": len(accs)}
 
 
+def _select_alpha_cv(X, y, groups, alphas=RIDGE_ALPHA_GRID):
+    """Ridge alpha by SUBJECT-AWARE GroupKFold CV on TRAIN, maximizing mean
+    Pearson r. Regression -> GroupKFold (no class stratification)."""
+    n_groups = len(set(groups))
+    if n_groups < 3:
+        return 10.0
+    cv = GroupKFold(n_splits=min(5, n_groups))
+    best_a, best = 10.0, -2.0
+    for a in alphas:
+        rs = []
+        for tr, va in cv.split(X, y, groups):
+            sc = StandardScaler().fit(X[tr])
+            reg = Ridge(alpha=a).fit(sc.transform(X[tr]), y[tr])
+            p = reg.predict(sc.transform(X[va]))
+            if np.std(p) > 0 and np.std(y[va]) > 0:
+                rs.append(float(np.corrcoef(p, y[va])[0, 1]))
+        if rs and np.mean(rs) > best:
+            best, best_a = float(np.mean(rs)), a
+    return best_a
+
+
+def probe_regression(X, y, splits, groups):
+    """70:30 split Ridge regression. TRAIN=70% subjects, TEST=held-out 30%.
+    alpha chosen by subject-aware CV on TRAIN. Report TEST Pearson r + R² + MSE
+    (r = the metric Brain-JEPA/NeuroSTORM report for cognition)."""
+    tr = (splits == "train")
+    te = (splits == "val") | (splits == "test")
+    m = ~np.isnan(y)
+    tr, te = tr & m, te & m
+    if tr.sum() < 20 or te.sum() < 10:
+        return None
+    a = _select_alpha_cv(X[tr], y[tr], groups[tr])
+    sc = StandardScaler().fit(X[tr])
+    reg = Ridge(alpha=a).fit(sc.transform(X[tr]), y[tr])
+    pred = reg.predict(sc.transform(X[te]))
+    yte = y[te]
+    r = float(np.corrcoef(pred, yte)[0, 1]) if np.std(pred) > 0 else float("nan")
+    ss_res = float(np.sum((yte - pred) ** 2))
+    ss_tot = float(np.sum((yte - yte.mean()) ** 2))
+    return {"alpha": float(a), "test_r": r,
+            "test_r2": 1.0 - ss_res / ss_tot if ss_tot > 0 else float("nan"),
+            "test_mse": float(np.mean((pred - yte) ** 2)),
+            "n_train": int(tr.sum()), "n_test": int(te.sum()),
+            "n_test_subj": int(len(set(groups[te])))}
+
+
 def main():
     ap = argparse.ArgumentParser()
     ap.add_argument("--run-dir", required=True)
     ap.add_argument("--dataset", default="ADNI",
-                    choices=["ADNI", "ABIDE", "HCP", "OASIS", "ADHD", "HCP_TASK", "COBRE"])
+                    choices=["ADNI", "ABIDE", "HCP", "OASIS", "ADHD", "HCP_TASK",
+                             "COBRE", "HCP_COG"])
     ap.add_argument("--head", default="linear", choices=["linear", "mlp"],
                     help="probe head on the frozen encoder (point-3 ablation): "
                          "linear=LogReg, mlp=2-hidden-layer MLP.")
@@ -538,7 +623,7 @@ def main():
     table, LABELS = ({"ADNI": build_table_adni, "ABIDE": build_table_abide,
                       "HCP": build_table_hcp, "OASIS": build_table_oasis,
                       "ADHD": build_table_adhd200, "HCP_TASK": build_table_hcp_task,
-                      "COBRE": build_table_cobre}[args.dataset])()
+                      "COBRE": build_table_cobre, "HCP_COG": build_table_hcp_cog}[args.dataset])()
     print(f"{args.dataset} scans with split+label: {len(table)}", flush=True)
     if not table:
         raise RuntimeError(f"No {args.dataset} scans matched (labels/split missing?)")
@@ -575,7 +660,22 @@ def main():
     print(f"\n{'='*66}\n  PROBE  {run_name}  {args.dataset}  [{mode}]\n{'='*66}")
     results = {}
 
-    if args.dataset in MULTICLASS_DATASETS:
+    if args.dataset in REGRESSION_DATASETS:
+        # HCP cognition: Ridge regression on the held-out 30%, report Pearson r.
+        groups = np.array([t["subject"] for t in table])
+        print(f"  {'target':14} {'alpha':>8} {'TEST_r':>8} {'R2':>7} {'MSE':>10}  "
+              f"{'n_te':>5} {'subj':>5}")
+        for name, col in LABELS.items():
+            y = np.array([_to_float(t["row"].get(col)) for t in table], dtype=float)
+            r = probe_regression(X, y, splits, groups)
+            results[name] = r
+            if r:
+                print(f"  {name:14} {r['alpha']:>8.4g} {r['test_r']:>8.3f} "
+                      f"{r['test_r2']:>7.3f} {r['test_mse']:>10.2f}  "
+                      f"{r['n_test']:>5} {r['n_test_subj']:>5}", flush=True)
+            else:
+                print(f"  {name:14} (skipped — too few samples)", flush=True)
+    elif args.dataset in MULTICLASS_DATASETS:
         # 7-class HCP task-state: multinomial LogReg, macro-AUC + accuracy.
         groups = np.array([t["subject"] for t in table])
         name, col = next(iter(LABELS.items()))
