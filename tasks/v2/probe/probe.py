@@ -637,7 +637,10 @@ def main():
     # Cache embeddings per (dataset, checkpoint): extraction is the slow step, so
     # re-running for a new metric (F1, ...) is then instant.
     ck = args.checkpoint.replace(".", "_")
-    cache = Path(args.run_dir) / f"emb_{args.dataset}_{ck}.npz"
+    # HCP_COG uses the exact same scans/order as HCP -> reuse the HCP embedding
+    # cache (the length check below still guards against any table mismatch).
+    cache_ds = "HCP" if args.dataset == "HCP_COG" else args.dataset
+    cache = Path(args.run_dir) / f"emb_{cache_ds}_{ck}.npz"
     if cache.exists() and int(np.load(cache)["X"].shape[0]) == len(table):
         X = np.load(cache)["X"]
         print(f"loaded cached embeddings {X.shape} from {cache.name}", flush=True)
