@@ -66,6 +66,26 @@ LABELS_HCP = {"Sex": "sex_bin", "Age": "age_bin"}   # Sex = SOTA axis (SLIM 0.91
 LABELS_OASIS = {"AD_Conversion": "ad_conversion"}   # Brain-JEPA task (0.69 acc); needs oasis_labels.csv
 OASIS_LABELS = LAB / "OASIS3_data" / "oasis_labels.csv"
 
+# --- downstream-only datasets (NOT in the pretraining corpus -> no split file;
+#     evaluated by subject-aware k-fold over the whole cohort -> no leakage) ---
+ADHD_DIR = LAB / "ADHD200_data" / "downsampled"
+ADHD_PHENO = LAB / "ADHD200_data" / "adhd200_phenotypic.csv"
+LABELS_ADHD = {"ADHD": "adhd"}                       # NeuroSTORM disease benchmark
+# per-site native TR (s) for the sliding-window resample (ADHD-200 sites differ)
+ADHD_SITE_TR = {"Peking": 2.0, "KKI": 2.5, "NYU": 2.0, "NeuroIMAGE": 1.96,
+                "OHSU": 2.5, "Pittsburgh": 1.5, "Brown": 2.5, "WashU": 2.5}
+
+HCP_TASK_MANIFEST = LAB / "HCP_task_data" / "hcp_task_labels.csv"
+HCP_TASKS = ["EMOTION", "GAMBLING", "LANGUAGE", "MOTOR", "RELATIONAL", "SOCIAL", "WM"]
+LABELS_HCP_TASK = {"TaskState": "task_id"}           # NeuroSTORM 7-class (multiclass)
+
+COBRE_DIR = LAB / "COBRE_data" / "downsampled"
+COBRE_LABELS = LAB / "COBRE_data" / "cobre_labels.csv"
+LABELS_COBRE = {"Schizophrenia": "sz"}               # NeuroSTORM disease benchmark
+
+NO_SPLIT_DATASETS = {"ADHD", "HCP_TASK", "COBRE"}    # not pretrained on -> force k-fold
+MULTICLASS_DATASETS = {"HCP_TASK"}
+
 
 # ---------------- encoder ----------------
 
@@ -266,6 +286,98 @@ def build_table_oasis():
     return table, LABELS_OASIS
 
 
+def _detect_col(header, wants):
+    """First header index whose (stripped, lowercased) name contains any of wants."""
+    low = [h.strip().lower() for h in header]
+    for want in wants:
+        for i, h in enumerate(low):
+            if want in h:
+                return i
+    return None
+
+
+def build_table_adhd200():
+    """ADHD-200 (NeuroSTORM disease): ADHD vs typically-developing control.
+    Downstream-only -> k-fold over cohort. Phenotypic DX: 0=control,
+    1/2/3=ADHD subtypes; 'pending'/blank excluded. Native TR is per-site."""
+    table = []
+    if not ADHD_PHENO.exists():
+        print(f"ADHD: {ADHD_PHENO} not found -> run download_adhd200.py", flush=True)
+        return table, LABELS_ADHD
+    rows = list(csv.reader(open(ADHD_PHENO)))
+    header = rows[0]
+    si = _detect_col(header, ["scandir", "subject"])
+    si = 0 if si is None else si
+    di = _detect_col(header, ["dx"])
+    gi = _detect_col(header, ["site"])
+    pheno = {}
+    for r in rows[1:]:
+        if di is None or si >= len(r) or di >= len(r):
+            continue
+        digits = "".join(ch for ch in r[si] if ch.isdigit())
+        dxv = _to_float(r[di])
+        if not digits or dxv is None:      # 'pending' etc. -> None -> excluded
+            continue
+        site = r[gi].strip() if gi is not None and gi < len(r) else ""
+        pheno[int(digits)] = (0.0 if dxv == 0 else 1.0, site)
+    matched = 0
+    for p in sorted(ADHD_DIR.glob("*_downsampled.pt")):
+        stem = p.name.replace("_downsampled.pt", "")            # 0010020_session_1
+        digits = "".join(ch for ch in stem.split("_session")[0] if ch.isdigit())
+        rec = pheno.get(int(digits)) if digits else None
+        if rec is None:
+            continue
+        adhd, site = rec
+        tr = next((v for k, v in ADHD_SITE_TR.items() if k.lower() in site.lower()), 2.0)
+        table.append({"path": p, "subject": stem.split("_session")[0],
+                      "split": "none", "tr": tr, "row": {"adhd": adhd}})
+        matched += 1
+    print(f"ADHD: {matched} scans matched to DX labels", flush=True)
+    return table, LABELS_ADHD
+
+
+def build_table_hcp_task():
+    """HCP-YA task-state (NeuroSTORM): 7-class (which task). Downstream-only;
+    reads the download manifest (subject,task,pe,path). Multiclass -> task_id 0..6."""
+    tid = {t: i for i, t in enumerate(HCP_TASKS)}
+    table = []
+    if not HCP_TASK_MANIFEST.exists():
+        print(f"HCP_TASK: {HCP_TASK_MANIFEST} not found -> run download_hcp_task.py", flush=True)
+        return table, LABELS_HCP_TASK
+    for r in csv.DictReader(open(HCP_TASK_MANIFEST)):
+        p = Path(r["path"])
+        t = tid.get(r["task"])
+        if t is None or not p.exists():
+            continue
+        table.append({"path": p, "subject": r["subject"], "split": "none",
+                      "tr": 0.72, "row": {"task_id": float(t)}})
+    n_subj = len({t["subject"] for t in table})
+    print(f"HCP_TASK: {len(table)} task runs ({n_subj} subjects)", flush=True)
+    return table, LABELS_HCP_TASK
+
+
+def build_table_cobre():
+    """COBRE schizophrenia vs control (NeuroSTORM disease). Downstream-only.
+    Reads cobre_labels.csv (subject_id, sz). COBRE native TR = 2.0s."""
+    table, labels = [], {}
+    if COBRE_LABELS.exists():
+        for r in csv.DictReader(open(COBRE_LABELS)):
+            labels[r["subject_id"].strip()] = _to_float(r.get("sz"))
+    else:
+        print(f"COBRE: {COBRE_LABELS} not found -> run download_cobre.py", flush=True)
+    matched = 0
+    for p in sorted(COBRE_DIR.glob("*_downsampled.pt")):
+        subj = p.name.replace("_downsampled.pt", "")
+        sz = labels.get(subj)
+        if sz is None:
+            continue
+        table.append({"path": p, "subject": subj, "split": "none",
+                      "tr": 2.0, "row": {"sz": sz}})
+        matched += 1
+    print(f"COBRE: {matched} scans matched to SZ labels", flush=True)
+    return table, LABELS_COBRE
+
+
 # ---------------- probe ----------------
 
 def _make_clf(head, hp):
@@ -369,10 +481,43 @@ def probe_kfold(X, y, groups, n_splits=5):
             "n": int(len(y)), "pos": int(y.sum()), "folds": len(aucs)}
 
 
+def probe_multiclass_kfold(X, y, groups, n_splits=5):
+    """Subject-aware k-fold multinomial LogReg for >2-class tasks (HCP task-state).
+    Reports mean±std accuracy and macro one-vs-rest AUC over folds. Fixed C=1."""
+    m = ~np.isnan(y)
+    X, y, groups = X[m], y[m], groups[m]
+    y = y.astype(int)
+    classes = np.unique(y)
+    if len(classes) < 3 or len(set(groups)) < n_splits:
+        return None
+    cv = StratifiedGroupKFold(n_splits=n_splits, shuffle=True, random_state=0)
+    accs, aucs = [], []
+    for tr, te in cv.split(X, y, groups):
+        sc = StandardScaler().fit(X[tr])
+        # lbfgs (default) handles >2 classes as multinomial automatically.
+        clf = LogisticRegression(C=1.0, max_iter=2000, class_weight="balanced")
+        clf.fit(sc.transform(X[tr]), y[tr])
+        Xte = sc.transform(X[te])
+        accs.append(accuracy_score(y[te], clf.predict(Xte)))
+        try:
+            aucs.append(roc_auc_score(y[te], clf.predict_proba(Xte),
+                                      multi_class="ovr", average="macro",
+                                      labels=clf.classes_))
+        except ValueError:
+            pass
+    if not accs:
+        return None
+    return {"acc_mean": float(np.mean(accs)), "acc_std": float(np.std(accs)),
+            "auc_mean": float(np.mean(aucs)) if aucs else None,
+            "auc_std": float(np.std(aucs)) if aucs else None,
+            "n": int(len(y)), "n_classes": int(len(classes)), "folds": len(accs)}
+
+
 def main():
     ap = argparse.ArgumentParser()
     ap.add_argument("--run-dir", required=True)
-    ap.add_argument("--dataset", default="ADNI", choices=["ADNI", "ABIDE", "HCP", "OASIS"])
+    ap.add_argument("--dataset", default="ADNI",
+                    choices=["ADNI", "ABIDE", "HCP", "OASIS", "ADHD", "HCP_TASK", "COBRE"])
     ap.add_argument("--head", default="linear", choices=["linear", "mlp"],
                     help="probe head on the frozen encoder (point-3 ablation): "
                          "linear=LogReg, mlp=2-hidden-layer MLP.")
@@ -391,10 +536,18 @@ def main():
     print(f"embed_dim={embed_dim}", flush=True)
 
     table, LABELS = ({"ADNI": build_table_adni, "ABIDE": build_table_abide,
-                      "HCP": build_table_hcp, "OASIS": build_table_oasis}[args.dataset])()
+                      "HCP": build_table_hcp, "OASIS": build_table_oasis,
+                      "ADHD": build_table_adhd200, "HCP_TASK": build_table_hcp_task,
+                      "COBRE": build_table_cobre}[args.dataset])()
     print(f"{args.dataset} scans with split+label: {len(table)}", flush=True)
     if not table:
         raise RuntimeError(f"No {args.dataset} scans matched (labels/split missing?)")
+
+    # downstream-only datasets were never in pretraining -> no 70:30 split file;
+    # evaluate by subject-aware k-fold over the whole cohort (no leakage).
+    if args.dataset in NO_SPLIT_DATASETS and not args.kfold:
+        args.kfold = 5
+        print(f"{args.dataset}: downstream-only -> forcing {args.kfold}-fold CV", flush=True)
 
     # Cache embeddings per (dataset, checkpoint): extraction is the slow step, so
     # re-running for a new metric (F1, ...) is then instant.
@@ -422,7 +575,21 @@ def main():
     print(f"\n{'='*66}\n  PROBE  {run_name}  {args.dataset}  [{mode}]\n{'='*66}")
     results = {}
 
-    if args.kfold:
+    if args.dataset in MULTICLASS_DATASETS:
+        # 7-class HCP task-state: multinomial LogReg, macro-AUC + accuracy.
+        groups = np.array([t["subject"] for t in table])
+        name, col = next(iter(LABELS.items()))
+        y = np.array([_to_float(t["row"].get(col)) for t in table], dtype=float)
+        r = probe_multiclass_kfold(X, y, groups, n_splits=args.kfold or 5)
+        results[name] = r
+        if r:
+            auc = f"{r['auc_mean']:.3f}" if r['auc_mean'] is not None else "n/a"
+            print(f"  {name:12} Acc {r['acc_mean']:.3f}±{r['acc_std']:.3f}  "
+                  f"macroAUC {auc}  ({r['n_classes']} classes, n={r['n']}, "
+                  f"{r['folds']} folds)", flush=True)
+        else:
+            print(f"  {name:12} (skipped — need >=3 classes / enough subjects)", flush=True)
+    elif args.kfold:
         groups = np.array([t["subject"] for t in table])
         print(f"  {'label':16} {'AUC (mean±std)':>18} {'Acc (mean±std)':>18}  {'n':>5} pos")
         for name, col in LABELS.items():
