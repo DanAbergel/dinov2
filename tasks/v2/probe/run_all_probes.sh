@@ -90,21 +90,17 @@ for RUN in $RUNS; do
 done
 
 echo ""
-echo "==== all probes done, committing ($(date)) ===="
+echo "==== all probes done, committing LOCALLY ($(date)) ===="
 cd "$OFFICIAL_DIR"
 git config user.name  "Dan Abergel"        2>/dev/null || true
 git config user.email "danabergel1995@gmail.com" 2>/dev/null || true
-for _ in $(seq 1 60); do [ -f .git/index.lock ] && sleep 10 || break; done
+# Shared checkout with parallel jobs: pull/push HERE breaks (races on untracked
+# files + no network). Commit LOCALLY only -> linear history, no divergence.
+for _ in $(seq 1 120); do [ -f .git/index.lock ] && sleep 10 || break; done
 git add "$RES_DIR"/probe_*.json 2>&1 || true
 git commit -m "probe: full re-run (all runs x datasets x heads) — JEPA + NeuroSTORM" 2>&1 \
     || echo "  (nothing to commit)"
-# stash any untracked results from parallel runs so the pull can fast-forward
-git stash -u 2>&1 || true
-git pull --no-rebase --no-edit 2>&1 || true
-git stash pop 2>&1 || true
-if git push 2>&1; then
-    echo "  pushed OK"
-else
-    echo "  PUSH FAILED (compute node has no network) -> run 'git push' from the login node"
-fi
+echo ""
+echo ">> Results committed LOCALLY. From the login node (moriah-gw), run ONCE:"
+echo "     cd $OFFICIAL_DIR && git pull --no-rebase --no-edit && git push"
 echo "All done: $(date)"
