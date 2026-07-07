@@ -18,7 +18,9 @@
 
 #SBATCH --job-name=probe-abl
 #SBATCH --account=arieljaffe
-#SBATCH --gres=gpu:h200:1
+#SBATCH --gres=gpu:l40s:1
+# (probe = forward-only, batch 1 -> ~7 GB, CPU/disk-bound; l40s is plenty and
+#  schedules faster. Force a bigger GPU with:  sbatch --gres=gpu:h200:1 ...)
 #SBATCH --ntasks=1
 #SBATCH --cpus-per-task=8
 #SBATCH --mem=128G
