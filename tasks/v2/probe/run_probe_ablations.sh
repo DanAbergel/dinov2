@@ -88,16 +88,20 @@ for DS in $DATASETS; do
     done
 done
 
-echo ""; echo "==== committing ($(date)) ===="
+echo ""; echo "==== committing results LOCALLY ($(date)) ===="
 cd "$OFFICIAL_DIR"
 git config user.name  "Dan Abergel"              2>/dev/null || true
 git config user.email "danabergel1995@gmail.com" 2>/dev/null || true
-for _ in $(seq 1 60); do [ -f .git/index.lock ] && sleep 10 || break; done
+# Several jobs share ONE checkout. Doing pull/push HERE is what breaks:
+#   - pull races with other jobs' untracked result files (merge aborts)
+#   - push needs network the GPU node lacks + causes remote divergence
+# So: commit LOCALLY only (linear history, no divergence). Wait out any index.lock
+# held by a parallel job, stage ONLY our own files, commit. Push ONCE from login node.
+for _ in $(seq 1 120); do [ -f .git/index.lock ] && sleep 10 || break; done
 git add "$RES_DIR"/probe_base_*_agg-*.json "$RES_DIR"/probe_base_*_mlp-*.json 2>&1 || true
 git commit -m "probe ablations on base: aggregation (mean/mean_std) + MLP archs" 2>&1 \
     || echo "  (nothing to commit)"
-git stash -u 2>&1 || true
-git pull --no-rebase --no-edit 2>&1 || true
-git stash pop 2>&1 || true
-git push 2>&1 || echo "  PUSH FAILED -> run 'git push' from the login node"
+echo ""
+echo ">> Results committed LOCALLY. From the login node (moriah-gw), run ONCE:"
+echo "     cd $OFFICIAL_DIR && git pull --no-rebase --no-edit && git push"
 echo "All done: $(date)"
