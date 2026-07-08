@@ -1,0 +1,42 @@
+{
+  "run": "base",
+  "dataset": "ABIDE",
+  "mode": "fixed split (val-select)",
+  "head": "linear",
+  "checkpoint": "model_final.rank_0.pth",
+  "results": {
+    "Autism": {
+      "head": "linear",
+      "hp": 0.01,
+      "test_auc": 0.5829049908804511,
+      "test_acc": 0.5627009646302251,
+      "test_f1": 0.5466666666666666,
+      "n_train": 724,
+      "n_test": 311,
+      "n_test_subj": 311,
+      "pos_test": 148
+    },
+    "Age": {
+      "head": "linear",
+      "hp": 0.01,
+      "test_auc": 0.8354430379746837,
+      "test_acc": 0.7588424437299035,
+      "test_f1": 0.7540983606557377,
+      "n_train": 724,
+      "n_test": 311,
+      "n_test_subj": 311,
+      "pos_test": 153
+    },
+    "Sex": {
+      "head": "linear",
+      "hp": 10.0,
+      "test_auc": 0.48160360985768824,
+      "test_acc": 0.7395498392282959,
+      "test_f1": 0.8433268858800773,
+      "n_train": 724,
+      "n_test": 311,
+      "n_test_subj": 311,
+      "pos_test": 268
+    }
+  }
+}

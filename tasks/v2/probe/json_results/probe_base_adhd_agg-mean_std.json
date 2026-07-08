@@ -1,0 +1,20 @@
+{
+  "run": "base",
+  "dataset": "ADHD",
+  "mode": "5-fold CV (full cohort)",
+  "head": "linear",
+  "checkpoint": "model_final.rank_0.pth",
+  "results": {
+    "ADHD": {
+      "auc_mean": 0.5574229691876751,
+      "auc_std": 0.10082142923049627,
+      "acc_mean": 0.6173913043478261,
+      "acc_std": 0.05768043113661565,
+      "f1_mean": 0.2865268065268065,
+      "f1_std": 0.0995800703659749,
+      "n": 115,
+      "pos": 33,
+      "folds": 5
+    }
+  }
+}

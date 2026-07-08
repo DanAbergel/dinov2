@@ -1,0 +1,18 @@
+{
+  "run": "base",
+  "dataset": "HCP_TASK",
+  "mode": "5-fold CV (full cohort)",
+  "head": "linear",
+  "checkpoint": "model_final.rank_0.pth",
+  "results": {
+    "TaskState": {
+      "acc_mean": 0.3084824986385957,
+      "acc_std": 0.004590151296561514,
+      "auc_mean": 0.6700536907115142,
+      "auc_std": 0.0031429007295882792,
+      "n": 7443,
+      "n_classes": 7,
+      "folds": 5
+    }
+  }
+}
