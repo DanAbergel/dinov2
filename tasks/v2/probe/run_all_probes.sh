@@ -99,8 +99,9 @@ git config user.email "danabergel1995@gmail.com" 2>/dev/null || true
 # Shared checkout with parallel jobs: pull/push HERE breaks (races on untracked
 # files + no network). Commit LOCALLY only -> linear history, no divergence.
 for _ in $(seq 1 120); do [ -f .git/index.lock ] && sleep 10 || break; done
-git add "$RES_DIR"/probe_*.json 2>&1 || true
-git commit -m "probe: full re-run (all runs x datasets x heads) — JEPA + NeuroSTORM" 2>&1 \
+git add "$RES_DIR"/probe_*.json \
+        "$TASK_DIR/logs/run_all_probes.out" "$TASK_DIR/logs/run_all_probes.err" 2>&1 || true
+git commit -m "probe: full re-run (all runs x datasets x heads) — JEPA + NeuroSTORM (+logs)" 2>&1 \
     || echo "  (nothing to commit)"
 echo ""
 echo ">> Results committed LOCALLY. From the login node (moriah-gw), run ONCE:"

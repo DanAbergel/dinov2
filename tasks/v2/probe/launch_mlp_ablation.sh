@@ -8,8 +8,9 @@
 #   ARCHS    (default: 128 256 256,128 512,256 512,256,128)
 #
 # Each job writes probe_<run>_<ds>_mlp-<arch>.json and does NO git.
-# After ALL jobs finish, commit + push ONCE:
-#   git add tasks/v2/probe/json_results/probe_*_mlp-*.json && git commit -m mlp && git push
+# After ALL jobs finish, commit + push ONCE (json results AND logs):
+#   git add tasks/v2/probe/json_results/probe_*_mlp-*.json tasks/v2/probe/logs/probe1_*_mlp-*
+#   git commit -m mlp && git push
 #
 # Usage:
 #   bash tasks/v2/probe/launch_mlp_ablation.sh
@@ -34,5 +35,5 @@ for DS in $DATASETS; do
 done
 echo "submitted $n MLP-ablation jobs (run=$RUN)"
 echo "watch:  squeue -u \$USER -n $(echo $DATASETS | tr ' ' ,)  # or squeue -u \$USER | grep mlp-"
-echo "when done, commit ONCE:"
-echo "  cd $(dirname "$TASK_DIR")/../.. && git add tasks/v2/probe/json_results/probe_${RUN}_*_mlp-*.json && git commit -m 'mlp ablation' && git push"
+echo "when done, commit ONCE (json + logs):"
+echo "  cd $(dirname "$TASK_DIR")/../.. && git add tasks/v2/probe/json_results/probe_${RUN}_*_mlp-*.json tasks/v2/probe/logs/probe1_${RUN}_*_mlp-* && git commit -m 'mlp ablation' && git push"

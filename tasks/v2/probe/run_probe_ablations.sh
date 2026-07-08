@@ -100,8 +100,9 @@ git config user.email "danabergel1995@gmail.com" 2>/dev/null || true
 # So: commit LOCALLY only (linear history, no divergence). Wait out any index.lock
 # held by a parallel job, stage ONLY our own files, commit. Push ONCE from login node.
 for _ in $(seq 1 120); do [ -f .git/index.lock ] && sleep 10 || break; done
-git add "$RES_DIR"/probe_base_*_agg-*.json "$RES_DIR"/probe_base_*_mlp-*.json 2>&1 || true
-git commit -m "probe ablations on base: aggregation (mean/mean_std) + MLP archs" 2>&1 \
+git add "$RES_DIR"/probe_base_*_agg-*.json "$RES_DIR"/probe_base_*_mlp-*.json \
+        "$TASK_DIR/logs/run_probe_ablations.out" "$TASK_DIR/logs/run_probe_ablations.err" 2>&1 || true
+git commit -m "probe ablations on base: aggregation (mean/mean_std) + MLP archs (+logs)" 2>&1 \
     || echo "  (nothing to commit)"
 echo ""
 echo ">> Results committed LOCALLY. From the login node (moriah-gw), run ONCE:"
