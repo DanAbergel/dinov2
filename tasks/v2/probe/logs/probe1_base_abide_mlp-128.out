@@ -1,4 +1,4 @@
-== probe_one  RUN=base DS=ABIDE HEAD=mlp AGG=mean ARCH=128  Wed Jul  8 09:39:14 IDT 2026 ==
+== probe_one  RUN=base DS=ABIDE HEAD=mlp AGG=mean ARCH=128  Wed Jul  8 12:01:14 IDT 2026 ==
 Device: cuda  cuda_available=True
 teacher: loaded 225 keys  missing=0 unexpected=0
 embed_dim=384
@@ -15,4 +15,4 @@ loaded cached embeddings (1035, 384) from emb_ABIDE_model_final_rank_0_pth.npz
   Sex                  ((128,), 0.01)      0.50   0.86   0.92    311   311 268
 
 Saved /sci/labs/arieljaffe/dan.abergel1/repos/FAIR_official/tasks/v2/probe/json_results/probe_base_abide_mlp-128.json
-done -> /sci/labs/arieljaffe/dan.abergel1/repos/FAIR_official/tasks/v2/probe/json_results/probe_base_abide_mlp-128.json  (Wed Jul  8 09:41:08 IDT 2026)
+done -> /sci/labs/arieljaffe/dan.abergel1/repos/FAIR_official/tasks/v2/probe/json_results/probe_base_abide_mlp-128.json  (Wed Jul  8 12:03:32 IDT 2026)

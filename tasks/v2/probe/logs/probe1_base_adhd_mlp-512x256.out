@@ -1,4 +1,4 @@
-== probe_one  RUN=base DS=ADHD HEAD=mlp AGG=mean ARCH=512,256  Wed Jul  8 10:45:17 IDT 2026 ==
+== probe_one  RUN=base DS=ADHD HEAD=mlp AGG=mean ARCH=512,256  Wed Jul  8 12:03:37 IDT 2026 ==
 Device: cuda  cuda_available=True
 teacher: loaded 225 keys  missing=0 unexpected=0
 embed_dim=384
@@ -14,4 +14,4 @@ loaded cached embeddings (115, 384) from emb_ADHD_model_final_rank_0_pth.npz
   ADHD             AUC 0.412±0.175  Acc 0.704±0.033  F1 0.000±0.000  n=115 pos=33
 
 Saved /sci/labs/arieljaffe/dan.abergel1/repos/FAIR_official/tasks/v2/probe/json_results/probe_base_adhd_mlp-512x256.json
-done -> /sci/labs/arieljaffe/dan.abergel1/repos/FAIR_official/tasks/v2/probe/json_results/probe_base_adhd_mlp-512x256.json  (Wed Jul  8 10:47:10 IDT 2026)
+done -> /sci/labs/arieljaffe/dan.abergel1/repos/FAIR_official/tasks/v2/probe/json_results/probe_base_adhd_mlp-512x256.json  (Wed Jul  8 12:03:56 IDT 2026)
