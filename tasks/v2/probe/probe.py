@@ -1,25 +1,31 @@
-"""Leakage-free linear probe (ADNI / ABIDE / HCP) for a trained fMRI run.
+"""Leakage-free probe for a trained fMRI run — OOP, one class per dataset.
 
-Loads the run's teacher encoder, extracts ONE embedding per scan (mean CLS over
-sliding windows resampled from the scan's native TR to 0.72s), then for each
-principal SOTA axis:
-  - TRAIN = 70% subjects, TEST = the held-out 30% (val+test merged).
-  - the LogReg regularisation C is chosen by SUBJECT-AWARE cross-validation on the
-    TRAIN portion only (no separate val set needed; the 30% test stays untouched).
-  - report TEST AUC / Accuracy / F1 (binary, positive class — matches SOTA).
-Subjects come from subject_split.json; the 30% test was held out of pretraining
-(HOLDOUT_DATASETS), so the encoder never saw it -> no leakage.
+Pipeline (see the four blocks below):
+  1. Encoder          — load the frozen teacher, extract ONE CLS embedding per scan
+  2. metrics          — one function per metric (auroc / accuracy / f1 / pearson)
+  3. evaluation       — one function per task type
+                        (binary_split / binary_kfold / multiclass_kfold / regression_split)
+  4. Dataset + Task   — one Dataset subclass per cohort; each declares its samples,
+                        its Tasks (comparison labels + metric + SOTA ref) and eval mode
 
-Usage (SLURM job, needs GPU):
+A Dataset yields `samples` (path / subject / split / native TR / labels). run_probe
+extracts (and caches) embeddings, then evaluates every Task with the protocol that
+matches (task kind × dataset eval mode). Output JSON is unchanged, so the existing
+runners (run_probe_ablations.sh, probe_one.sh, ...) keep working.
+
+Adding a dataset = subclass Dataset, list its Tasks, implement samples(). Nothing else.
+
+Usage:
     python probe.py --run-dir .../runs/v2/base --dataset ADNI
-    python probe.py --run-dir .../runs/v2/base --dataset ABIDE
-    python probe.py --run-dir .../runs/v2/base --dataset HCP
+    python probe.py --run-dir .../runs/v2/base --dataset UCLA --head mlp --agg mean_std
 """
 
 import argparse
 import csv
 import json
 import time
+from abc import ABC, abstractmethod
+from dataclasses import dataclass, field
 from pathlib import Path
 
 import numpy as np
@@ -38,120 +44,17 @@ from dinov2.data.fmri_data import (
 )
 
 LAB = Path(LAB_ROOT)
-REPO_ROOT = Path(__file__).resolve().parents[3]     # tasks/v2/probe/probe.py -> repo root
-ADNI_DIR = LAB / "ADNI_data" / "downsampled"
-ADNI_MANIFEST = ADNI_DIR / "adni_manifest.csv"
-ABIDE_PHENO = LAB / "ABIDE_data" / "abide_phenotypic.csv"
-HCP_CSV = REPO_ROOT / "data" / "HCP_YA_subjects.csv"  # Subject,Gender,Age_in_Yrs,...
+REPO_ROOT = Path(__file__).resolve().parents[3]
 CORPUS_MANIFEST = LAB / DEFAULT_MANIFEST
 T_FIXED = 270
 DEVICE = "cuda" if torch.cuda.is_available() else "cpu"
-C_GRID = [0.01, 0.1, 1.0, 10.0]              # linear (LogReg) inverse-reg
-ALPHA_GRID = [1e-4, 1e-3, 1e-2, 1e-1]        # MLP L2 regularisation
-# point-3 ablation: several MLP architectures (depth + width). The best
-# (arch, alpha) is chosen by subject-aware CV on TRAIN (never on the test set).
+
+# hyper-parameter grids (chosen by subject-aware CV on TRAIN only)
+C_GRID = [0.01, 0.1, 1.0, 10.0]                       # LogReg inverse-reg
+ALPHA_GRID = [1e-4, 1e-3, 1e-2, 1e-1]                 # MLP L2
 MLP_ARCHS = [(128,), (256,), (256, 128), (512, 256), (512, 256, 128)]
+RIDGE_ALPHA_GRID = [0.1, 1.0, 10.0, 100.0, 1000.0]   # Ridge (regression)
 
-# Principal SOTA axes only (degradation/CDR are novel-no-SOTA -> dropped from the
-# headline; the columns stay computed in the table so they can be re-added later).
-LABELS_ADNI = {
-    # Diagnostic classification, proxy from Global CDR (Sagi's manifest has no
-    # clinical DX): NC=CDR 0, MCI=CDR 0.5, AD=CDR>=1.
-    "NC_vs_MCI": "nc_vs_mci",          # vs Brain-JEPA 0.77 / BNT 0.79 acc
-    "AD_vs_HC": "ad_vs_hc",            # vs BrainGFM 0.80 AUC / LCM 0.85 F1
-    "Amyloid": "amyloid_positive",     # Brain-JEPA task; needs adni_clinical.csv (ADNIMERGE join)
-}
-LABELS_ABIDE = {"Autism": "autism", "Age": "age_bin", "Sex": "sex_bin"}
-LABELS_HCP = {"Sex": "sex_bin", "Age": "age_bin"}   # Sex = SOTA axis (SLIM 0.91 / LCM 0.73 F1)
-LABELS_OASIS = {"AD_Conversion": "ad_conversion"}   # Brain-JEPA task (0.69 acc); needs oasis_labels.csv
-OASIS_LABELS = LAB / "OASIS3_data" / "oasis_labels.csv"
-
-# --- downstream-only datasets (NOT in the pretraining corpus -> no split file;
-#     evaluated by subject-aware k-fold over the whole cohort -> no leakage) ---
-ADHD_DIR = LAB / "ADHD200_data" / "downsampled"
-ADHD_PHENO = LAB / "ADHD200_data" / "adhd200_phenotypic.csv"
-LABELS_ADHD = {"ADHD": "adhd"}                       # NeuroSTORM disease benchmark
-# per-site native TR (s) for the sliding-window resample (ADHD-200 sites differ)
-ADHD_SITE_TR = {"Peking": 2.0, "KKI": 2.5, "NYU": 2.0, "NeuroIMAGE": 1.96,
-                "OHSU": 2.5, "Pittsburgh": 1.5, "Brown": 2.5, "WashU": 2.5}
-
-HCP_TASK_MANIFEST = LAB / "HCP_task_data" / "hcp_task_labels.csv"
-HCP_TASKS = ["EMOTION", "GAMBLING", "LANGUAGE", "MOTOR", "RELATIONAL", "SOCIAL", "WM"]
-LABELS_HCP_TASK = {"TaskState": "task_id"}           # NeuroSTORM 7-class (multiclass)
-
-COBRE_DIR = LAB / "COBRE_data" / "downsampled"
-COBRE_LABELS = LAB / "COBRE_data" / "cobre_labels.csv"
-LABELS_COBRE = {"Schizophrenia": "sz"}               # NeuroSTORM disease benchmark
-
-UCLA_DIR = LAB / "UCLA_data" / "downsampled"
-UCLA_LABELS = LAB / "UCLA_data" / "ucla_participants.tsv"
-# UCLA CNP (ds000030): NeuroSTORM same-dataset. SCHZ vs CONTROL & ADHD vs CONTROL
-# (bipolar excluded from each -> NaN). Diagnosis in participants.tsv.
-LABELS_UCLA = {"Schizophrenia": "schizophrenia", "ADHD": "adhd"}
-
-NO_SPLIT_DATASETS = {"ADHD", "HCP_TASK", "COBRE", "UCLA"}   # not pretrained on -> force k-fold
-MULTICLASS_DATASETS = {"HCP_TASK"}
-
-# HCP cognition (NeuroSTORM/Brain-JEPA phenotype prediction) — REGRESSION on the
-# HCP subjects we pretrained on, evaluated on the held-out 30% (same split as
-# HCP Sex/Age -> no leakage). Targets = NIH-toolbox / Penn scores from HCP_CSV.
-HCP_COG_TARGETS = {"FluidIntel": "PMAT24_A_CR",       # Penn matrix — fluid intelligence
-                   "ProcSpeed": "ProcSpeed_AgeAdj",   # processing speed
-                   "WorkingMem": "ListSort_AgeAdj"}   # working memory
-LABELS_HCP_COG = {"FluidIntel": "fluidintel", "ProcSpeed": "procspeed",
-                  "WorkingMem": "workingmem"}
-REGRESSION_DATASETS = {"HCP_COG"}
-RIDGE_ALPHA_GRID = [0.1, 1.0, 10.0, 100.0, 1000.0]
-
-
-# ---------------- encoder ----------------
-
-def load_teacher(run_dir, checkpoint):
-    cfg = OmegaConf.load(Path(run_dir) / "config.yaml")
-    _student, teacher, embed_dim = build_model_from_cfg(cfg)
-    ckpt = torch.load(Path(run_dir) / checkpoint, map_location="cpu", weights_only=False)
-    state = ckpt.get("model", ckpt)
-    tb = {}
-    for k, v in state.items():
-        kk = k.replace("_fsdp_wrapped_module.", "")
-        if kk.startswith("teacher.backbone."):
-            tb[kk[len("teacher.backbone."):]] = v
-    if not tb:
-        raise RuntimeError(f"No teacher.backbone.* keys. Sample: {list(state)[:8]}")
-    missing, unexpected = teacher.load_state_dict(tb, strict=False)
-    print(f"teacher: loaded {len(tb)} keys  missing={len(missing)} unexpected={len(unexpected)}",
-          flush=True)
-    return teacher.to(DEVICE).eval(), embed_dim
-
-
-@torch.no_grad()
-def scan_embedding(teacher, path, native_tr, agg="mean"):
-    """CLS token aggregated over sliding T_FIXED windows (each spanning
-    T_FIXED*0.72s, resampled to T_FIXED @ 0.72s). Cropping native FIRST keeps
-    resample_poly cheap. agg='mean' -> mean CLS (384); agg='mean_std' ->
-    [mean ‖ population-std] over windows (768, captures temporal variability)."""
-    win = max(1, round(T_FIXED * TARGET_TR / native_tr))
-    stride = max(1, win // 2)
-    scan = _load_mmap(path).float()                  # (T, X, Y, Z)
-    if scan.ndim == 4:
-        scan = scan.unsqueeze(1)                     # (T, 1, X, Y, Z)
-    T = scan.shape[0]
-    embs = []
-    for s in range(0, max(T - win + 1, 1), stride):
-        clip = scan[s:s + win].clone()
-        clip = _temporal_resample(clip, T_FIXED)     # -> 270 @ 0.72s
-        clip = _zscore_per_frame(clip)
-        x = clip.unsqueeze(0).to(DEVICE)             # (1, T_FIXED, 1, X, Y, Z)
-        out = teacher(x, is_training=True)
-        embs.append(out["x_norm_clstoken"].squeeze(0).float().cpu())
-    embs = torch.stack(embs)                          # (n_windows, 384)
-    if agg == "mean_std":
-        # unbiased=False -> std of a single window is 0 (not NaN)
-        return torch.cat([embs.mean(0), embs.std(0, unbiased=False)]).numpy()
-    return embs.mean(0).numpy()
-
-
-# ---------------- labels / split ----------------
 
 def _to_float(v):
     try:
@@ -161,321 +64,118 @@ def _to_float(v):
         return None
 
 
-def _split_map(ds):
-    split = json.loads((LAB / DEFAULT_SPLIT).read_text())["datasets"][ds]
-    return {s: name for name, subs in split.items() for s in subs}
+# =====================================================================
+# 1. ENCODER — one CLS embedding per scan
+# =====================================================================
+
+class Encoder:
+    """A run's FROZEN teacher backbone. `cls_token` turns one 4D scan into a
+    single vector (mean, or mean+std, of the CLS over sliding 270-frame windows)."""
+
+    def __init__(self, run_dir, checkpoint="model_final.rank_0.pth"):
+        self.run_dir = Path(run_dir)
+        self.checkpoint = checkpoint
+        cfg = OmegaConf.load(self.run_dir / "config.yaml")
+        _student, teacher, embed_dim = build_model_from_cfg(cfg)
+        ckpt = torch.load(self.run_dir / checkpoint, map_location="cpu", weights_only=False)
+        state = ckpt.get("model", ckpt)
+        tb = {}
+        for k, v in state.items():
+            kk = k.replace("_fsdp_wrapped_module.", "")
+            if kk.startswith("teacher.backbone."):
+                tb[kk[len("teacher.backbone."):]] = v
+        if not tb:
+            raise RuntimeError(f"No teacher.backbone.* keys. Sample: {list(state)[:8]}")
+        missing, unexpected = teacher.load_state_dict(tb, strict=False)
+        print(f"teacher: loaded {len(tb)} keys  missing={len(missing)} "
+              f"unexpected={len(unexpected)}  embed_dim={embed_dim}", flush=True)
+        self.teacher = teacher.to(DEVICE).eval()
+        self.embed_dim = embed_dim
+
+    @torch.no_grad()
+    def cls_token(self, path, native_tr, agg="mean"):
+        """CLS aggregated over sliding native windows (each spanning T_FIXED*0.72s,
+        resampled to T_FIXED @ 0.72s). agg='mean' -> 384-d; 'mean_std' -> 768-d."""
+        win = max(1, round(T_FIXED * TARGET_TR / native_tr))
+        stride = max(1, win // 2)
+        scan = _load_mmap(path).float()                  # (T, X, Y, Z)
+        if scan.ndim == 4:
+            scan = scan.unsqueeze(1)                      # (T, 1, X, Y, Z)
+        T = scan.shape[0]
+        embs = []
+        for s in range(0, max(T - win + 1, 1), stride):
+            clip = scan[s:s + win].clone()
+            clip = _temporal_resample(clip, T_FIXED)      # -> 270 @ 0.72s
+            clip = _zscore_per_frame(clip)
+            x = clip.unsqueeze(0).to(DEVICE)              # (1, T_FIXED, 1, X, Y, Z)
+            out = self.teacher(x, is_training=True)
+            embs.append(out["x_norm_clstoken"].squeeze(0).float().cpu())
+        embs = torch.stack(embs)                          # (n_windows, 384)
+        if agg == "mean_std":
+            return torch.cat([embs.mean(0), embs.std(0, unbiased=False)]).numpy()
+        return embs.mean(0).numpy()
+
+    def embed_all(self, samples, agg, cache_name):
+        """Extract (or load-cached) one embedding per sample -> (N, d) array."""
+        cache = self.run_dir / cache_name
+        if cache.exists() and int(np.load(cache)["X"].shape[0]) == len(samples):
+            X = np.load(cache)["X"]
+            print(f"loaded cached embeddings {X.shape} from {cache.name}", flush=True)
+            return X
+        t0, embs = time.time(), []
+        for i, s in enumerate(samples):
+            embs.append(self.cls_token(s["path"], s["tr"], agg=agg))
+            if (i + 1) % 100 == 0 or i == len(samples) - 1:
+                dt = time.time() - t0
+                print(f"  embeddings {i+1}/{len(samples)}  ({dt:.0f}s, "
+                      f"{dt/(i+1)*1000:.0f} ms/scan)", flush=True)
+        X = np.stack(embs)
+        np.savez(cache, X=X)
+        print(f"cached embeddings -> {cache.name}", flush=True)
+        return X
 
 
-def _add_age_bin(table, age_field):
-    """Add row['age_bin'] = 1 if age >= global median else 0 (NaN if missing).
-    Global median (one scalar) works in both fixed-split and k-fold modes."""
-    ages = [_to_float(t["row"].get(age_field)) for t in table]
-    valid = [a for a in ages if a is not None]
-    med = float(np.median(valid)) if valid else None
-    for t, a in zip(table, ages):
-        t["row"]["age_bin"] = (float("nan") if a is None or med is None
-                               else (1.0 if a >= med else 0.0))
+# =====================================================================
+# 2. METRICS — one function per metric
+# =====================================================================
+
+def auroc(y_true, proba):
+    return float(roc_auc_score(y_true, proba))
 
 
-def _load_adni_clinical():
-    """Optional real DX + amyloid (DXSUM DIAGNOSIS + UCBERKELEY amyloid, built by
-    add_adni_labels.py / R export). subject_id -> {nc_vs_mci, ad_vs_hc,
-    amyloid_positive} (real, overrides the CDR proxy). Looked up in ADNI_DIR or
-    the versioned repo data/ dir (so a git pull is enough — no scp needed)."""
-    p = next((c for c in (ADNI_DIR / "adni_clinical.csv",
-                          REPO_ROOT / "data" / "adni_clinical.csv") if c.exists()), None)
-    if p is None:
-        return {}
-    out = {}
-    for r in csv.DictReader(open(p)):
-        out[r["subject_id"]] = {k: _to_float(r.get(k))
-                                for k in ("nc_vs_mci", "ad_vs_hc", "amyloid_positive")}
-    return out
+def accuracy(y_true, pred):
+    return float(accuracy_score(y_true, pred))
 
 
-def build_table_adni():
-    sub2split = _split_map("ADNI")
-    clinical = _load_adni_clinical()      # real DX + amyloid if available
-    if clinical:
-        print(f"ADNI: real clinical labels for {len(clinical)} subjects "
-              f"(overriding CDR proxy where present)", flush=True)
-    table = []
-    for r in csv.DictReader(open(ADNI_MANIFEST)):
-        sid, iid = r["subject_id"], r["image_id"]
-        p = ADNI_DIR / sid / f"{iid}.pt"
-        sp = sub2split.get(sid)
-        if sp is None or not p.exists():
-            continue
-        # Derived diagnostic labels from Global CDR (NC=0, MCI=0.5, AD>=1).
-        cdr = _to_float(r.get("Global CDR"))
-        r["nc_vs_mci"] = (0.0 if cdr == 0 else 1.0 if cdr == 0.5 else float("nan"))
-        r["ad_vs_hc"] = (0.0 if cdr == 0 else
-                         1.0 if (cdr is not None and cdr >= 1) else float("nan"))
-        r["amyloid_positive"] = float("nan")
-        # override with REAL clinical labels + amyloid when the join file exists
-        c = clinical.get(sid)
-        if c:
-            for k in ("nc_vs_mci", "ad_vs_hc", "amyloid_positive"):
-                if c.get(k) is not None:
-                    r[k] = c[k]
-        table.append({"path": p, "subject": sid, "split": sp, "tr": 3.0, "row": r})
-    _add_age_bin(table, "Age")         # binary age at global median
-    return table, LABELS_ADNI
+def f1(y_true, pred):
+    return float(f1_score(y_true, pred, zero_division=0))
 
 
-def build_table_abide():
-    sub2split = _split_map("ABIDE")
-    pheno = {r["FILE_ID"]: r for r in csv.DictReader(open(ABIDE_PHENO))}
-    table = []
-    for r in csv.DictReader(open(CORPUS_MANIFEST)):
-        if r["dataset"] != "ABIDE":
-            continue
-        sid = r["subject_id"]
-        sp = sub2split.get(sid)
-        if sp is None:
-            continue
-        ph = pheno.get(sid.replace("_downsampled", ""))   # FILE_ID = name w/o suffix
-        if ph is None:
-            continue
-        dx = _to_float(ph.get("DX_GROUP"))                # 1=autism, 2=control
-        if dx is None:
-            continue
-        sex = _to_float(ph.get("SEX"))                    # 1=male, 2=female
-        row = {"autism": 1.0 if dx == 1 else 0.0,
-               "sex_bin": (1.0 if sex == 1 else 0.0) if sex is not None else float("nan"),
-               "AGE_AT_SCAN": ph.get("AGE_AT_SCAN")}
-        table.append({"path": Path(r["path"]), "subject": sid, "split": sp,
-                      "tr": float(r["tr"]), "row": row})
-    _add_age_bin(table, "AGE_AT_SCAN")     # binary age at global median
-    return table, LABELS_ABIDE
+def pearson(a, b):
+    return float(np.corrcoef(a, b)[0, 1]) if np.std(a) > 0 and np.std(b) > 0 else float("nan")
 
 
-def build_table_hcp():
-    """HCP-YA: Sex (Gender M/F) is the SOTA axis (SLIM-Brain 0.91, LCM 0.73 F1);
-    Age (Age_in_Yrs) binarised at the median as a demographic sanity check."""
-    sub2split = _split_map("HCP")
-    meta = {str(r["Subject"]).strip(): r for r in csv.DictReader(open(HCP_CSV))}
-    table, matched = [], 0
-    for r in csv.DictReader(open(CORPUS_MANIFEST)):
-        if r["dataset"] != "HCP":
-            continue
-        sid = r["subject_id"]
-        sp = sub2split.get(sid)
-        if sp is None:
-            continue
-        # HCP CSV "Subject" is a 6-digit id; manifest subject_id may carry a suffix.
-        digits = "".join(ch for ch in sid if ch.isdigit())[:6]
-        m = meta.get(sid) or meta.get(digits)
-        if m is None:
-            continue
-        g = (m.get("Gender") or "").strip()
-        row = {"sex_bin": 1.0 if g == "M" else 0.0 if g == "F" else float("nan"),
-               "Age_in_Yrs": m.get("Age_in_Yrs")}
-        table.append({"path": Path(r["path"]), "subject": sid, "split": sp,
-                      "tr": float(r["tr"]), "row": row})
-        matched += 1
-    print(f"HCP: matched {matched} scans to Sex/Age labels", flush=True)
-    _add_age_bin(table, "Age_in_Yrs")
-    return table, LABELS_HCP
-
-
-def build_table_hcp_cog():
-    """HCP-YA cognition (NeuroSTORM/Brain-JEPA phenotype REGRESSION). Same scans &
-    split as build_table_hcp; label = continuous cognitive scores from HCP_CSV.
-    Evaluated on the held-out 30% (excluded from pretraining) -> no leakage."""
-    sub2split = _split_map("HCP")
-    meta = {str(r["Subject"]).strip(): r for r in csv.DictReader(open(HCP_CSV))}
-    table, matched = [], 0
-    for r in csv.DictReader(open(CORPUS_MANIFEST)):
-        if r["dataset"] != "HCP":
-            continue
-        sid = r["subject_id"]
-        sp = sub2split.get(sid)
-        if sp is None:
-            continue
-        digits = "".join(ch for ch in sid if ch.isdigit())[:6]
-        m = meta.get(sid) or meta.get(digits)
-        if m is None:
-            continue
-        row = {LABELS_HCP_COG[name]: _to_float(m.get(col))
-               for name, col in HCP_COG_TARGETS.items()}
-        table.append({"path": Path(r["path"]), "subject": sid, "split": sp,
-                      "tr": float(r["tr"]), "row": row})
-        matched += 1
-    print(f"HCP_COG: matched {matched} scans to cognitive scores", flush=True)
-    return table, LABELS_HCP_COG
-
-
-def build_table_oasis():
-    """OASIS-3 AD Conversion (Brain-JEPA task). Needs oasis_labels.csv from
-    derive_oasis_adconv.py (CDR trajectory). Matches by the OAS3xxxx id."""
-    sub2split = _split_map("OASIS")
-    labels = {}
-    if OASIS_LABELS.exists():
-        for r in csv.DictReader(open(OASIS_LABELS)):
-            labels[r["subject_id"]] = _to_float(r.get("ad_conversion"))
-    else:
-        print(f"OASIS: {OASIS_LABELS.name} not found -> run derive_oasis_adconv.py "
-              f"(AD Conversion will be all-NaN)", flush=True)
-    table, matched = [], 0
-    for r in csv.DictReader(open(CORPUS_MANIFEST)):
-        if r["dataset"] != "OASIS":
-            continue
-        sid = r["subject_id"]
-        sp = sub2split.get(sid)
-        if sp is None:
-            continue
-        key = next((k for k in (sid, sid.split("_")[0]) if k in labels), None)
-        row = {"ad_conversion": labels.get(key, float("nan"))}
-        if key:
-            matched += 1
-        table.append({"path": Path(r["path"]), "subject": sid, "split": sp,
-                      "tr": float(r["tr"]), "row": row})
-    print(f"OASIS: {matched} scans matched to AD-Conversion labels", flush=True)
-    return table, LABELS_OASIS
-
-
-def _detect_col(header, wants):
-    """First header index whose (stripped, lowercased) name contains any of wants."""
-    low = [h.strip().lower() for h in header]
-    for want in wants:
-        for i, h in enumerate(low):
-            if want in h:
-                return i
-    return None
-
-
-def build_table_adhd200():
-    """ADHD-200 (NeuroSTORM disease): ADHD vs typically-developing control.
-    Downstream-only -> k-fold over cohort. Phenotypic DX: 0=control,
-    1/2/3=ADHD subtypes; 'pending'/blank excluded. Native TR is per-site."""
-    table = []
-    if not ADHD_PHENO.exists():
-        print(f"ADHD: {ADHD_PHENO} not found -> run download_adhd200.py", flush=True)
-        return table, LABELS_ADHD
-    rows = list(csv.reader(open(ADHD_PHENO)))
-    header = rows[0]
-    si = _detect_col(header, ["scandir", "subject"])
-    si = 0 if si is None else si
-    di = _detect_col(header, ["dx"])
-    gi = _detect_col(header, ["site"])
-    pheno = {}
-    for r in rows[1:]:
-        if di is None or si >= len(r) or di >= len(r):
-            continue
-        digits = "".join(ch for ch in r[si] if ch.isdigit())
-        dxv = _to_float(r[di])
-        if not digits or dxv is None:      # 'pending' etc. -> None -> excluded
-            continue
-        site = r[gi].strip() if gi is not None and gi < len(r) else ""
-        pheno[int(digits)] = (0.0 if dxv == 0 else 1.0, site)
-    matched = 0
-    for p in sorted(ADHD_DIR.glob("*_downsampled.pt")):
-        stem = p.name.replace("_downsampled.pt", "")            # 0010020_session_1
-        digits = "".join(ch for ch in stem.split("_session")[0] if ch.isdigit())
-        rec = pheno.get(int(digits)) if digits else None
-        if rec is None:
-            continue
-        adhd, site = rec
-        tr = next((v for k, v in ADHD_SITE_TR.items() if k.lower() in site.lower()), 2.0)
-        table.append({"path": p, "subject": stem.split("_session")[0],
-                      "split": "none", "tr": tr, "row": {"adhd": adhd}})
-        matched += 1
-    print(f"ADHD: {matched} scans matched to DX labels", flush=True)
-    return table, LABELS_ADHD
-
-
-def build_table_hcp_task():
-    """HCP-YA task-state (NeuroSTORM): 7-class (which task). Downstream-only;
-    reads the download manifest (subject,task,pe,path). Multiclass -> task_id 0..6."""
-    tid = {t: i for i, t in enumerate(HCP_TASKS)}
-    table = []
-    if not HCP_TASK_MANIFEST.exists():
-        print(f"HCP_TASK: {HCP_TASK_MANIFEST} not found -> run download_hcp_task.py", flush=True)
-        return table, LABELS_HCP_TASK
-    for r in csv.DictReader(open(HCP_TASK_MANIFEST)):
-        p = Path(r["path"])
-        t = tid.get(r["task"])
-        if t is None or not p.exists():
-            continue
-        table.append({"path": p, "subject": r["subject"], "split": "none",
-                      "tr": 0.72, "row": {"task_id": float(t)}})
-    n_subj = len({t["subject"] for t in table})
-    print(f"HCP_TASK: {len(table)} task runs ({n_subj} subjects)", flush=True)
-    return table, LABELS_HCP_TASK
-
-
-def build_table_ucla():
-    """UCLA CNP (ds000030, NeuroSTORM same-dataset). Two binary tasks vs control:
-    SCHZ->schizophrenia, ADHD->adhd (bipolar excluded from each). Reads
-    participants.tsv (diagnosis). Downstream-only -> k-fold. CNP rest TR = 2.0s."""
-    table, dx = [], {}
-    if UCLA_LABELS.exists():
-        for r in csv.DictReader(open(UCLA_LABELS), delimiter="\t"):
-            dx[r["participant_id"].strip()] = (r.get("diagnosis") or "").strip().upper()
-    else:
-        print(f"UCLA: {UCLA_LABELS} not found -> run download_ucla.py", flush=True)
-    matched = 0
-    for p in sorted(UCLA_DIR.glob("*_downsampled.pt")):
-        subj = p.name.replace("_downsampled.pt", "")           # sub-10159
-        d = dx.get(subj)
-        if d is None:
-            continue
-        row = {"schizophrenia": (1.0 if d == "SCHZ" else 0.0 if d == "CONTROL" else float("nan")),
-               "adhd": (1.0 if d == "ADHD" else 0.0 if d == "CONTROL" else float("nan"))}
-        table.append({"path": p, "subject": subj, "split": "none", "tr": 2.0, "row": row})
-        matched += 1
-    print(f"UCLA: {matched} scans matched to diagnosis", flush=True)
-    return table, LABELS_UCLA
-
-
-def build_table_cobre():
-    """COBRE schizophrenia vs control (NeuroSTORM disease). Downstream-only.
-    Reads cobre_labels.csv (subject_id, sz). COBRE native TR = 2.0s."""
-    table, labels = [], {}
-    if COBRE_LABELS.exists():
-        for r in csv.DictReader(open(COBRE_LABELS)):
-            labels[r["subject_id"].strip()] = _to_float(r.get("sz"))
-    else:
-        print(f"COBRE: {COBRE_LABELS} not found -> run download_cobre.py", flush=True)
-    matched = 0
-    for p in sorted(COBRE_DIR.glob("*_downsampled.pt")):
-        subj = p.name.replace("_downsampled.pt", "")
-        sz = labels.get(subj)
-        if sz is None:
-            continue
-        table.append({"path": p, "subject": subj, "split": "none",
-                      "tr": 2.0, "row": {"sz": sz}})
-        matched += 1
-    print(f"COBRE: {matched} scans matched to SZ labels", flush=True)
-    return table, LABELS_COBRE
-
-
-# ---------------- probe ----------------
+# =====================================================================
+# 3. EVALUATION — one function per task type
+#    (each returns a plain dict written verbatim into the output JSON)
+# =====================================================================
 
 def _make_clf(head, hp):
-    """A fresh classifier on the FROZEN embeddings.
-    head='linear' -> LogReg (hp=C, class-balanced); head='mlp' -> MLP with
-    hp=(hidden_layer_sizes, alpha). Point-3 ablation: linear vs MLP head, several
-    MLP archs, on a frozen encoder (the encoder is NOT fine-tuned — that is point 4)."""
+    """Fresh classifier on the FROZEN embeddings. linear -> LogReg(C=hp);
+    mlp -> MLPClassifier with hp=(hidden_layer_sizes, alpha)."""
     if head == "mlp":
         arch, alpha = hp
-        return MLPClassifier(hidden_layer_sizes=arch, activation="relu",
-                             alpha=alpha, max_iter=500, early_stopping=True,
-                             n_iter_no_change=15, random_state=0)
+        return MLPClassifier(hidden_layer_sizes=arch, activation="relu", alpha=alpha,
+                             max_iter=500, early_stopping=True, n_iter_no_change=15,
+                             random_state=0)
     return LogisticRegression(C=hp, max_iter=2000, class_weight="balanced")
 
 
-def _select_hp_cv(X, y, groups, head, mlp_archs=None):
-    """Choose the head's regularisation (C for linear, alpha for MLP) by
-    SUBJECT-AWARE cross-validation on the TRAIN set only. The CV builds temporary
-    validation folds from the train subjects (grouped), so the 30% test is never
-    touched. Selection criterion = mean CV AUC. Falls back to a default if the
-    train set is too small to split. mlp_archs overrides the arch grid (for the
-    per-arch MLP ablation -> pass a single [(...)] to force one architecture)."""
-    archs = mlp_archs if mlp_archs else MLP_ARCHS
-    grid = ([(a, al) for a in archs for al in ALPHA_GRID] if head == "mlp"
-            else C_GRID)
+def _select_clf_hp(X, y, groups, head, mlp_archs=None):
+    """Choose C (linear) / (arch, alpha) (mlp) by subject-aware CV on TRAIN,
+    maximizing mean CV AUC. mlp_archs overrides the arch grid (per-arch ablation)."""
+    archs = mlp_archs or MLP_ARCHS
+    grid = ([(a, al) for a in archs for al in ALPHA_GRID] if head == "mlp" else C_GRID)
     default = ((256, 128), 1e-3) if head == "mlp" else 1.0
     yb = y.astype(int)
     grp_per_class = {c: len(set(groups[yb == c])) for c in np.unique(yb)}
@@ -492,7 +192,7 @@ def _select_hp_cv(X, y, groups, head, mlp_archs=None):
                     continue
                 sc = StandardScaler().fit(X[tr])
                 clf = _make_clf(head, hp).fit(sc.transform(X[tr]), y[tr])
-                aucs.append(roc_auc_score(y[va], clf.predict_proba(sc.transform(X[va]))[:, 1]))
+                aucs.append(auroc(y[va], clf.predict_proba(sc.transform(X[va]))[:, 1]))
         except ValueError:
             continue
         if aucs and np.mean(aucs) > best:
@@ -500,70 +200,76 @@ def _select_hp_cv(X, y, groups, head, mlp_archs=None):
     return best_hp
 
 
-def probe_label(X, y, splits, groups, name, head="linear", mlp_archs=None):
-    """70:30 split. TRAIN = 'train' subjects (in pretraining is fine); TEST = the
-    held-out 30% ('val'+'test', excluded from pretraining). Head hyperparam chosen
-    by CV on TRAIN. Report TEST AUC/Acc/F1 (F1 binary = positive class, matches SOTA)."""
+def _select_ridge_alpha(X, y, groups):
+    """Ridge alpha by subject-aware GroupKFold CV on TRAIN, maximizing Pearson r."""
+    if len(set(groups)) < 3:
+        return 10.0
+    cv = GroupKFold(n_splits=min(5, len(set(groups))))
+    best_a, best = 10.0, -2.0
+    for a in RIDGE_ALPHA_GRID:
+        rs = []
+        for tr, va in cv.split(X, y, groups):
+            sc = StandardScaler().fit(X[tr])
+            reg = Ridge(alpha=a).fit(sc.transform(X[tr]), y[tr])
+            r = pearson(reg.predict(sc.transform(X[va])), y[va])
+            if not np.isnan(r):
+                rs.append(r)
+        if rs and np.mean(rs) > best:
+            best, best_a = float(np.mean(rs)), a
+    return best_a
+
+
+def evaluate_binary_split(X, y, splits, groups, head="linear", mlp_archs=None):
+    """70:30. TRAIN='train' subjects; TEST='val'+'test' (held out of pretraining).
+    Head hyperparam by CV on TRAIN. Report TEST AUC/Acc/F1."""
     tr = (splits == "train")
-    te = (splits == "val") | (splits == "test")     # 70:30 — merge val+test as held-out test
+    te = (splits == "val") | (splits == "test")
     m = ~np.isnan(y)
     tr, te = tr & m, te & m
     if tr.sum() < 10 or te.sum() < 10:
         return None
     if len(np.unique(y[tr])) < 2 or len(np.unique(y[te])) < 2:
         return None
-
-    best_hp = _select_hp_cv(X[tr], y[tr], groups[tr], head, mlp_archs)
+    hp = _select_clf_hp(X[tr], y[tr], groups[tr], head, mlp_archs)
     sc = StandardScaler().fit(X[tr])
-    clf = _make_clf(head, best_hp).fit(sc.transform(X[tr]), y[tr])
+    clf = _make_clf(head, hp).fit(sc.transform(X[tr]), y[tr])
     proba = clf.predict_proba(sc.transform(X[te]))[:, 1]
     pred = (proba >= 0.5).astype(int)
-    # linear hp = C (float); mlp hp = (arch, alpha) tuple -> keep as-is (JSON list)
-    hp = float(best_hp) if isinstance(best_hp, (int, float)) else best_hp
-    return {"head": head, "hp": hp,
-            "test_auc": float(roc_auc_score(y[te], proba)),
-            "test_acc": float(accuracy_score(y[te], pred)),
-            "test_f1": float(f1_score(y[te], pred, zero_division=0)),
-            "n_train": int(tr.sum()), "n_test": int(te.sum()),
+    return {"head": head, "hp": float(hp) if isinstance(hp, (int, float)) else hp,
+            "test_auc": auroc(y[te], proba), "test_acc": accuracy(y[te], pred),
+            "test_f1": f1(y[te], pred), "n_train": int(tr.sum()), "n_test": int(te.sum()),
             "n_test_subj": int(len(set(groups[te]))), "pos_test": int(y[te].sum())}
 
 
-def probe_kfold(X, y, groups, n_splits=5, head="linear", mlp_archs=None):
-    """Subject-aware k-fold CV: every subject is a test sample once. Use this when
-    the encoder saw NONE of these subjects in pretraining (e.g. ADNI fully excluded)
-    -> stable estimate over the full cohort, comparable to SOTA test sizes. Fixed
-    hyperparam (no val tuning): linear -> C=1; mlp -> the given arch (or 256,128
-    default) with alpha=1e-3. Report mean +/- std of AUC/Acc/F1 across folds."""
+def evaluate_binary_kfold(X, y, groups, n_splits=5, head="linear", mlp_archs=None):
+    """Subject-aware k-fold over the WHOLE cohort (for datasets never pretrained on).
+    Fixed hyperparam: linear C=1; mlp = given arch (or 256,128) with alpha=1e-3."""
     m = ~np.isnan(y)
     X, y, groups = X[m], y[m], groups[m]
     if len(np.unique(y)) < 2 or len(set(groups)) < n_splits:
         return None
-    arch = (mlp_archs[0] if mlp_archs else (256, 128))
-    hp = (arch, 1e-3) if head == "mlp" else 1.0
+    hp = ((mlp_archs[0] if mlp_archs else (256, 128)), 1e-3) if head == "mlp" else 1.0
     cv = StratifiedGroupKFold(n_splits=n_splits, shuffle=True, random_state=0)
     aucs, accs, f1s = [], [], []
     for tr, te in cv.split(X, y.astype(int), groups):
         if len(np.unique(y[te])) < 2:
             continue
         sc = StandardScaler().fit(X[tr])
-        clf = _make_clf(head, hp)
-        clf.fit(sc.transform(X[tr]), y[tr])
+        clf = _make_clf(head, hp).fit(sc.transform(X[tr]), y[tr])
         proba = clf.predict_proba(sc.transform(X[te]))[:, 1]
         pred = (proba >= 0.5).astype(int)
-        aucs.append(roc_auc_score(y[te], proba))
-        accs.append(accuracy_score(y[te], pred))
-        f1s.append(f1_score(y[te], pred, zero_division=0))
+        aucs.append(auroc(y[te], proba)); accs.append(accuracy(y[te], pred)); f1s.append(f1(y[te], pred))
     if not aucs:
         return None
-    return {"auc_mean": float(np.mean(aucs)), "auc_std": float(np.std(aucs)),
+    return {"head": head, "auc_mean": float(np.mean(aucs)), "auc_std": float(np.std(aucs)),
             "acc_mean": float(np.mean(accs)), "acc_std": float(np.std(accs)),
             "f1_mean": float(np.mean(f1s)), "f1_std": float(np.std(f1s)),
             "n": int(len(y)), "pos": int(y.sum()), "folds": len(aucs)}
 
 
-def probe_multiclass_kfold(X, y, groups, n_splits=5):
+def evaluate_multiclass_kfold(X, y, groups, n_splits=5):
     """Subject-aware k-fold multinomial LogReg for >2-class tasks (HCP task-state).
-    Reports mean±std accuracy and macro one-vs-rest AUC over folds. Fixed C=1."""
+    Report mean±std accuracy and macro one-vs-rest AUC."""
     m = ~np.isnan(y)
     X, y, groups = X[m], y[m], groups[m]
     y = y.astype(int)
@@ -574,15 +280,13 @@ def probe_multiclass_kfold(X, y, groups, n_splits=5):
     accs, aucs = [], []
     for tr, te in cv.split(X, y, groups):
         sc = StandardScaler().fit(X[tr])
-        # lbfgs (default) handles >2 classes as multinomial automatically.
         clf = LogisticRegression(C=1.0, max_iter=2000, class_weight="balanced")
         clf.fit(sc.transform(X[tr]), y[tr])
         Xte = sc.transform(X[te])
-        accs.append(accuracy_score(y[te], clf.predict(Xte)))
+        accs.append(accuracy(y[te], clf.predict(Xte)))
         try:
-            aucs.append(roc_auc_score(y[te], clf.predict_proba(Xte),
-                                      multi_class="ovr", average="macro",
-                                      labels=clf.classes_))
+            aucs.append(roc_auc_score(y[te], clf.predict_proba(Xte), multi_class="ovr",
+                                      average="macro", labels=clf.classes_))
         except ValueError:
             pass
     if not accs:
@@ -593,202 +297,503 @@ def probe_multiclass_kfold(X, y, groups, n_splits=5):
             "n": int(len(y)), "n_classes": int(len(classes)), "folds": len(accs)}
 
 
-def _select_alpha_cv(X, y, groups, alphas=RIDGE_ALPHA_GRID):
-    """Ridge alpha by SUBJECT-AWARE GroupKFold CV on TRAIN, maximizing mean
-    Pearson r. Regression -> GroupKFold (no class stratification)."""
-    n_groups = len(set(groups))
-    if n_groups < 3:
-        return 10.0
-    cv = GroupKFold(n_splits=min(5, n_groups))
-    best_a, best = 10.0, -2.0
-    for a in alphas:
-        rs = []
-        for tr, va in cv.split(X, y, groups):
-            sc = StandardScaler().fit(X[tr])
-            reg = Ridge(alpha=a).fit(sc.transform(X[tr]), y[tr])
-            p = reg.predict(sc.transform(X[va]))
-            if np.std(p) > 0 and np.std(y[va]) > 0:
-                rs.append(float(np.corrcoef(p, y[va])[0, 1]))
-        if rs and np.mean(rs) > best:
-            best, best_a = float(np.mean(rs)), a
-    return best_a
-
-
-def probe_regression(X, y, splits, groups):
-    """70:30 split Ridge regression. TRAIN=70% subjects, TEST=held-out 30%.
-    alpha chosen by subject-aware CV on TRAIN. Report TEST Pearson r + R² + MSE
-    (r = the metric Brain-JEPA/NeuroSTORM report for cognition)."""
+def evaluate_regression_split(X, y, splits, groups, **_):
+    """70:30 Ridge regression. alpha by CV on TRAIN. Report TEST Pearson r + R2 + MSE."""
     tr = (splits == "train")
     te = (splits == "val") | (splits == "test")
     m = ~np.isnan(y)
     tr, te = tr & m, te & m
     if tr.sum() < 20 or te.sum() < 10:
         return None
-    a = _select_alpha_cv(X[tr], y[tr], groups[tr])
+    a = _select_ridge_alpha(X[tr], y[tr], groups[tr])
     sc = StandardScaler().fit(X[tr])
     reg = Ridge(alpha=a).fit(sc.transform(X[tr]), y[tr])
     pred = reg.predict(sc.transform(X[te]))
     yte = y[te]
-    r = float(np.corrcoef(pred, yte)[0, 1]) if np.std(pred) > 0 else float("nan")
     ss_res = float(np.sum((yte - pred) ** 2))
     ss_tot = float(np.sum((yte - yte.mean()) ** 2))
-    return {"alpha": float(a), "test_r": r,
+    return {"alpha": float(a), "test_r": pearson(pred, yte),
             "test_r2": 1.0 - ss_res / ss_tot if ss_tot > 0 else float("nan"),
             "test_mse": float(np.mean((pred - yte) ** 2)),
             "n_train": int(tr.sum()), "n_test": int(te.sum()),
             "n_test_subj": int(len(set(groups[te])))}
 
 
+# =====================================================================
+# 4. TASK + DATASET — one Dataset subclass per cohort
+# =====================================================================
+
+@dataclass
+class Task:
+    """One evaluation target: a label column, its kind, the metric reported vs the
+    SOTA, and the SOTA reference string. `kind` in {binary, multiclass, regression}."""
+    name: str
+    column: str
+    kind: str = "binary"
+    metric: str = "test_auc"
+    sota: str = ""
+
+
+# ---- shared label helpers (used by several datasets) ----
+
+def _split_map(ds):
+    split = json.loads((LAB / DEFAULT_SPLIT).read_text())["datasets"][ds]
+    return {s: name for name, subs in split.items() for s in subs}
+
+
+def _add_age_bin(samples, age_field, key="age_bin"):
+    ages = [_to_float(s["labels"].get(age_field)) for s in samples]
+    valid = [a for a in ages if a is not None]
+    med = float(np.median(valid)) if valid else None
+    for s, a in zip(samples, ages):
+        s["labels"][key] = (float("nan") if a is None or med is None
+                            else (1.0 if a >= med else 0.0))
+
+
+def _detect_col(header, wants):
+    low = [h.strip().lower() for h in header]
+    for want in wants:
+        for i, h in enumerate(low):
+            if want in h:
+                return i
+    return None
+
+
+class Dataset(ABC):
+    """Base cohort. Subclasses set `name`, `eval_mode` ('split' or 'kfold'), the
+    `tasks` list, and implement `samples()` returning dicts with keys:
+        path, subject, split ('train'/'val'/'test' or 'none'), tr, labels{col: value}."""
+    name = ""
+    eval_mode = "split"          # 'split' (70:30, in-pretraining) or 'kfold' (downstream-only)
+    tasks: list = []
+    cache_key = None             # override to reuse another dataset's embedding cache
+
+    @abstractmethod
+    def samples(self):
+        ...
+
+
+# ---------- ADNI ----------
+
+class ADNI(Dataset):
+    name = "ADNI"
+    eval_mode = "split"
+    DIR = LAB / "ADNI_data" / "downsampled"
+    MANIFEST = DIR / "adni_manifest.csv"
+    tasks = [
+        Task("NC_vs_MCI", "nc_vs_mci", "binary", "test_acc", "Brain-JEPA 0.77 (FT)"),
+        Task("AD_vs_HC", "ad_vs_hc", "binary", "test_auc", "BrainGFM 0.80"),
+        Task("Amyloid", "amyloid_positive", "binary", "test_acc", "Brain-JEPA 0.71 (FT)"),
+    ]
+
+    def _clinical(self):
+        """Real DX + amyloid (ADNIMERGE2 export), overrides the CDR proxy."""
+        p = next((c for c in (self.DIR / "adni_clinical.csv",
+                              REPO_ROOT / "data" / "adni_clinical.csv") if c.exists()), None)
+        if p is None:
+            return {}
+        return {r["subject_id"]: {k: _to_float(r.get(k))
+                for k in ("nc_vs_mci", "ad_vs_hc", "amyloid_positive")}
+                for r in csv.DictReader(open(p))}
+
+    def samples(self):
+        sub2split = _split_map("ADNI")
+        clinical = self._clinical()
+        if clinical:
+            print(f"ADNI: real clinical labels for {len(clinical)} subjects", flush=True)
+        out = []
+        for r in csv.DictReader(open(self.MANIFEST)):
+            sid, iid = r["subject_id"], r["image_id"]
+            p = self.DIR / sid / f"{iid}.pt"
+            sp = sub2split.get(sid)
+            if sp is None or not p.exists():
+                continue
+            cdr = _to_float(r.get("Global CDR"))     # proxy: NC=0, MCI=0.5, AD>=1
+            lab = {"nc_vs_mci": (0.0 if cdr == 0 else 1.0 if cdr == 0.5 else float("nan")),
+                   "ad_vs_hc": (0.0 if cdr == 0 else 1.0 if (cdr is not None and cdr >= 1) else float("nan")),
+                   "amyloid_positive": float("nan"), "Age": r.get("Age")}
+            c = clinical.get(sid)
+            if c:
+                for k in ("nc_vs_mci", "ad_vs_hc", "amyloid_positive"):
+                    if c.get(k) is not None:
+                        lab[k] = c[k]
+            out.append({"path": p, "subject": sid, "split": sp, "tr": 3.0, "labels": lab})
+        return out
+
+
+# ---------- ABIDE ----------
+
+class ABIDE(Dataset):
+    name = "ABIDE"
+    eval_mode = "split"
+    PHENO = LAB / "ABIDE_data" / "abide_phenotypic.csv"
+    tasks = [
+        Task("Autism", "autism", "binary", "test_auc", "BNT 0.80 / BrainGFM 0.71"),
+        Task("Age", "age_bin", "binary", "test_acc", "SLIM 0.64"),
+        Task("Sex", "sex_bin", "binary", "test_f1", "LCM 0.87"),
+    ]
+
+    def samples(self):
+        sub2split = _split_map("ABIDE")
+        pheno = {r["FILE_ID"]: r for r in csv.DictReader(open(self.PHENO))}
+        out = []
+        for r in csv.DictReader(open(CORPUS_MANIFEST)):
+            if r["dataset"] != "ABIDE":
+                continue
+            sid = r["subject_id"]
+            sp = sub2split.get(sid)
+            ph = pheno.get(sid.replace("_downsampled", ""))
+            if sp is None or ph is None:
+                continue
+            dx = _to_float(ph.get("DX_GROUP"))       # 1=autism, 2=control
+            if dx is None:
+                continue
+            sex = _to_float(ph.get("SEX"))           # 1=male, 2=female
+            lab = {"autism": 1.0 if dx == 1 else 0.0,
+                   "sex_bin": (1.0 if sex == 1 else 0.0) if sex is not None else float("nan"),
+                   "AGE_AT_SCAN": ph.get("AGE_AT_SCAN")}
+            out.append({"path": Path(r["path"]), "subject": sid, "split": sp,
+                        "tr": float(r["tr"]), "labels": lab})
+        _add_age_bin(out, "AGE_AT_SCAN")
+        return out
+
+
+# ---------- HCP (rest: Sex / Age) ----------
+
+class HCP(Dataset):
+    name = "HCP"
+    eval_mode = "split"
+    CSV = REPO_ROOT / "data" / "HCP_YA_subjects.csv"
+    tasks = [
+        Task("Sex", "sex_bin", "binary", "test_acc", "SLIM 0.91"),
+        Task("Age", "age_bin", "binary", "test_acc", "—"),
+    ]
+
+    def _meta(self):
+        return {str(r["Subject"]).strip(): r for r in csv.DictReader(open(self.CSV))}
+
+    def samples(self):
+        sub2split = _split_map("HCP")
+        meta = self._meta()
+        out = []
+        for r in csv.DictReader(open(CORPUS_MANIFEST)):
+            if r["dataset"] != "HCP":
+                continue
+            sid = r["subject_id"]
+            sp = sub2split.get(sid)
+            if sp is None:
+                continue
+            digits = "".join(ch for ch in sid if ch.isdigit())[:6]
+            m = meta.get(sid) or meta.get(digits)
+            if m is None:
+                continue
+            g = (m.get("Gender") or "").strip()
+            lab = {"sex_bin": 1.0 if g == "M" else 0.0 if g == "F" else float("nan"),
+                   "Age_in_Yrs": m.get("Age_in_Yrs")}
+            out.append({"path": Path(r["path"]), "subject": sid, "split": sp,
+                        "tr": float(r["tr"]), "labels": lab})
+        _add_age_bin(out, "Age_in_Yrs")
+        print(f"HCP: matched {len(out)} scans", flush=True)
+        return out
+
+
+# ---------- HCP cognition (regression, reuses HCP scans/cache) ----------
+
+class HCP_COG(HCP):
+    name = "HCP_COG"
+    eval_mode = "split"
+    cache_key = "HCP"                 # identical scans/order -> reuse HCP embeddings
+    TARGETS = {"FluidIntel": "PMAT24_A_CR", "ProcSpeed": "ProcSpeed_AgeAdj",
+               "WorkingMem": "ListSort_AgeAdj"}
+    tasks = [
+        Task("FluidIntel", "fluidintel", "regression", "test_r", "—"),
+        Task("ProcSpeed", "procspeed", "regression", "test_r", "—"),
+        Task("WorkingMem", "workingmem", "regression", "test_r", "—"),
+    ]
+
+    def samples(self):
+        sub2split = _split_map("HCP")
+        meta = self._meta()
+        out = []
+        for r in csv.DictReader(open(CORPUS_MANIFEST)):
+            if r["dataset"] != "HCP":
+                continue
+            sid = r["subject_id"]
+            sp = sub2split.get(sid)
+            if sp is None:
+                continue
+            digits = "".join(ch for ch in sid if ch.isdigit())[:6]
+            m = meta.get(sid) or meta.get(digits)
+            if m is None:
+                continue
+            lab = {t.column: _to_float(m.get(self.TARGETS[t.name])) for t in self.tasks}
+            out.append({"path": Path(r["path"]), "subject": sid, "split": sp,
+                        "tr": float(r["tr"]), "labels": lab})
+        print(f"HCP_COG: matched {len(out)} scans", flush=True)
+        return out
+
+
+# ---------- OASIS (AD Conversion) ----------
+
+class OASIS(Dataset):
+    name = "OASIS"
+    eval_mode = "split"
+    LABELS = LAB / "OASIS3_data" / "oasis_labels.csv"
+    tasks = [Task("AD_Conversion", "ad_conversion", "binary", "test_acc", "—")]
+
+    def samples(self):
+        sub2split = _split_map("OASIS")
+        labels = {}
+        if self.LABELS.exists():
+            for r in csv.DictReader(open(self.LABELS)):
+                labels[r["subject_id"]] = _to_float(r.get("ad_conversion"))
+        else:
+            print(f"OASIS: {self.LABELS.name} not found -> run derive_oasis_adconv.py", flush=True)
+        out = []
+        for r in csv.DictReader(open(CORPUS_MANIFEST)):
+            if r["dataset"] != "OASIS":
+                continue
+            sid = r["subject_id"]
+            sp = sub2split.get(sid)
+            if sp is None:
+                continue
+            key = next((k for k in (sid, sid.split("_")[0]) if k in labels), None)
+            out.append({"path": Path(r["path"]), "subject": sid, "split": sp,
+                        "tr": float(r["tr"]), "labels": {"ad_conversion": labels.get(key, float("nan"))}})
+        return out
+
+
+# ---------- downstream-only cohorts (k-fold, never pretrained on) ----------
+
+class ADHD(Dataset):
+    name = "ADHD"
+    eval_mode = "kfold"
+    DIR = LAB / "ADHD200_data" / "downsampled"
+    PHENO = LAB / "ADHD200_data" / "adhd200_phenotypic.csv"
+    SITE_TR = {"Peking": 2.0, "KKI": 2.5, "NYU": 2.0, "NeuroIMAGE": 1.96,
+               "OHSU": 2.5, "Pittsburgh": 1.5, "Brown": 2.5, "WashU": 2.5}
+    tasks = [Task("ADHD", "adhd", "binary", "test_acc", "NeuroSTORM 0.587 (ADHD-200)")]
+
+    def samples(self):
+        if not self.PHENO.exists():
+            print(f"ADHD: {self.PHENO} not found", flush=True)
+            return []
+        rows = list(csv.reader(open(self.PHENO)))
+        header = rows[0]
+        si = _detect_col(header, ["scandir", "subject"]) or 0
+        di = _detect_col(header, ["dx"])
+        gi = _detect_col(header, ["site"])
+        pheno = {}
+        for r in rows[1:]:
+            if di is None or si >= len(r) or di >= len(r):
+                continue
+            digits = "".join(ch for ch in r[si] if ch.isdigit())
+            dxv = _to_float(r[di])
+            if not digits or dxv is None:
+                continue
+            site = r[gi].strip() if gi is not None and gi < len(r) else ""
+            pheno[int(digits)] = (0.0 if dxv == 0 else 1.0, site)
+        out = []
+        for p in sorted(self.DIR.glob("*_downsampled.pt")):
+            stem = p.name.replace("_downsampled.pt", "")
+            digits = "".join(ch for ch in stem.split("_session")[0] if ch.isdigit())
+            rec = pheno.get(int(digits)) if digits else None
+            if rec is None:
+                continue
+            adhd, site = rec
+            tr = next((v for k, v in self.SITE_TR.items() if k.lower() in site.lower()), 2.0)
+            out.append({"path": p, "subject": stem.split("_session")[0], "split": "none",
+                        "tr": tr, "labels": {"adhd": adhd}})
+        print(f"ADHD: {len(out)} scans matched", flush=True)
+        return out
+
+
+class COBRE(Dataset):
+    name = "COBRE"
+    eval_mode = "kfold"
+    DIR = LAB / "COBRE_data" / "downsampled"
+    LABELS = LAB / "COBRE_data" / "cobre_labels.csv"
+    tasks = [Task("Schizophrenia", "sz", "binary", "test_acc", "—")]
+
+    def samples(self):
+        labels = {}
+        if self.LABELS.exists():
+            for r in csv.DictReader(open(self.LABELS)):
+                labels[r["subject_id"].strip()] = _to_float(r.get("sz"))
+        else:
+            print(f"COBRE: {self.LABELS} not found -> run download_cobre.py", flush=True)
+        out = []
+        for p in sorted(self.DIR.glob("*_downsampled.pt")):
+            subj = p.name.replace("_downsampled.pt", "")
+            sz = labels.get(subj)
+            if sz is None:
+                continue
+            out.append({"path": p, "subject": subj, "split": "none", "tr": 2.0,
+                        "labels": {"sz": sz}})
+        print(f"COBRE: {len(out)} scans matched", flush=True)
+        return out
+
+
+class UCLA(Dataset):
+    name = "UCLA"
+    eval_mode = "kfold"
+    DIR = LAB / "UCLA_data" / "downsampled"
+    LABELS = LAB / "UCLA_data" / "ucla_participants.tsv"
+    tasks = [
+        Task("Schizophrenia", "schizophrenia", "binary", "test_acc", "—"),
+        Task("ADHD", "adhd", "binary", "test_auc", "NeuroSTORM 0.604 (UCLA)"),
+    ]
+
+    def samples(self):
+        dx = {}
+        if self.LABELS.exists():
+            for r in csv.DictReader(open(self.LABELS), delimiter="\t"):
+                dx[r["participant_id"].strip()] = (r.get("diagnosis") or "").strip().upper()
+        else:
+            print(f"UCLA: {self.LABELS} not found -> run download_ucla.py", flush=True)
+        out = []
+        for p in sorted(self.DIR.glob("*_downsampled.pt")):
+            subj = p.name.replace("_downsampled.pt", "")
+            d = dx.get(subj)
+            if d is None:
+                continue
+            lab = {"schizophrenia": (1.0 if d == "SCHZ" else 0.0 if d == "CONTROL" else float("nan")),
+                   "adhd": (1.0 if d == "ADHD" else 0.0 if d == "CONTROL" else float("nan"))}
+            out.append({"path": p, "subject": subj, "split": "none", "tr": 2.0, "labels": lab})
+        print(f"UCLA: {len(out)} scans matched", flush=True)
+        return out
+
+
+class HCP_TASK(Dataset):
+    name = "HCP_TASK"
+    eval_mode = "kfold"
+    MANIFEST = LAB / "HCP_task_data" / "hcp_task_labels.csv"
+    TASKS_7 = ["EMOTION", "GAMBLING", "LANGUAGE", "MOTOR", "RELATIONAL", "SOCIAL", "WM"]
+    tasks = [Task("TaskState", "task_id", "multiclass", "acc_mean", "—")]
+
+    def samples(self):
+        tid = {t: i for i, t in enumerate(self.TASKS_7)}
+        if not self.MANIFEST.exists():
+            print(f"HCP_TASK: {self.MANIFEST} not found -> run download_hcp_task.py", flush=True)
+            return []
+        out = []
+        for r in csv.DictReader(open(self.MANIFEST)):
+            p = Path(r["path"])
+            t = tid.get(r["task"])
+            if t is None or not p.exists():
+                continue
+            out.append({"path": p, "subject": r["subject"], "split": "none",
+                        "tr": 0.72, "labels": {"task_id": float(t)}})
+        print(f"HCP_TASK: {len(out)} runs", flush=True)
+        return out
+
+
+REGISTRY = {c.name: c for c in
+            [ADNI, ABIDE, HCP, HCP_COG, OASIS, ADHD, COBRE, UCLA, HCP_TASK]}
+
+
+# =====================================================================
+# RUNNER — samples -> embeddings -> evaluate each task -> JSON
+# =====================================================================
+
+def evaluate_task(task, X, y, splits, groups, eval_mode, head, mlp_archs, n_splits):
+    """Dispatch to the protocol matching (task kind × dataset eval mode)."""
+    if task.kind == "regression":
+        return evaluate_regression_split(X, y, splits, groups)
+    if task.kind == "multiclass":
+        return evaluate_multiclass_kfold(X, y, groups, n_splits=n_splits)
+    if eval_mode == "kfold":
+        return evaluate_binary_kfold(X, y, groups, n_splits, head, mlp_archs)
+    return evaluate_binary_split(X, y, splits, groups, head, mlp_archs)
+
+
+def run_probe(dataset, encoder, head="linear", agg="mean", n_splits=5, out=None):
+    samples = dataset.samples()
+    print(f"{dataset.name}: {len(samples)} scans with split+label", flush=True)
+    if not samples:
+        raise RuntimeError(f"No {dataset.name} scans matched (labels/split missing?)")
+
+    ck = encoder.checkpoint.replace(".", "_")
+    agg_suffix = "" if agg == "mean" else f"_{agg}"
+    cache_name = f"emb_{dataset.cache_key or dataset.name}_{ck}{agg_suffix}.npz"
+    X = encoder.embed_all(samples, agg, cache_name)
+    splits = np.array([s["split"] for s in samples])
+    groups = np.array([s["subject"] for s in samples])
+
+    mode = f"{n_splits}-fold CV" if dataset.eval_mode == "kfold" else "70:30 split"
+    print(f"\n{'='*66}\n  PROBE  {encoder.run_dir.name}  {dataset.name}  "
+          f"[{mode}, head={head}, agg={agg}]\n{'='*66}", flush=True)
+    results = {}
+    for task in dataset.tasks:
+        y = np.array([_to_float(s["labels"].get(task.column)) for s in samples], dtype=float)
+        r = evaluate_task(task, X, y, splits, groups, dataset.eval_mode, head,
+                          None, n_splits)
+        results[task.name] = r
+        head_metric = (r.get(task.metric) if r else None)
+        hm = f"{head_metric:.3f}" if isinstance(head_metric, float) else "—"
+        print(f"  {task.name:16} {task.metric:9} = {hm:>6}   (SOTA: {task.sota})", flush=True)
+
+    payload = {"run": encoder.run_dir.name, "dataset": dataset.name, "mode": mode,
+               "head": head, "agg": agg, "checkpoint": encoder.checkpoint, "results": results}
+    if out:
+        Path(out).parent.mkdir(parents=True, exist_ok=True)
+        Path(out).write_text(json.dumps(payload, indent=2))
+        print(f"\nSaved {out}", flush=True)
+    return payload
+
+
+def run_probe_with_arch(dataset, encoder, head, agg, n_splits, out, mlp_archs):
+    """Same as run_probe but threads a forced MLP arch into the evaluation (for the
+    per-arch ablation). Kept separate so run_probe stays simple."""
+    samples = dataset.samples()
+    print(f"{dataset.name}: {len(samples)} scans", flush=True)
+    if not samples:
+        raise RuntimeError(f"No {dataset.name} scans matched")
+    ck = encoder.checkpoint.replace(".", "_")
+    agg_suffix = "" if agg == "mean" else f"_{agg}"
+    cache_name = f"emb_{dataset.cache_key or dataset.name}_{ck}{agg_suffix}.npz"
+    X = encoder.embed_all(samples, agg, cache_name)
+    splits = np.array([s["split"] for s in samples])
+    groups = np.array([s["subject"] for s in samples])
+    mode = f"{n_splits}-fold CV" if dataset.eval_mode == "kfold" else "70:30 split"
+    print(f"\n  PROBE {encoder.run_dir.name} {dataset.name} [{mode}, head={head}, "
+          f"agg={agg}, mlp_arch={mlp_archs}]", flush=True)
+    results = {}
+    for task in dataset.tasks:
+        y = np.array([_to_float(s["labels"].get(task.column)) for s in samples], dtype=float)
+        results[task.name] = evaluate_task(task, X, y, splits, groups, dataset.eval_mode,
+                                            head, mlp_archs, n_splits)
+    payload = {"run": encoder.run_dir.name, "dataset": dataset.name, "mode": mode,
+               "head": head, "agg": agg, "checkpoint": encoder.checkpoint, "results": results}
+    if out:
+        Path(out).parent.mkdir(parents=True, exist_ok=True)
+        Path(out).write_text(json.dumps(payload, indent=2))
+        print(f"Saved {out}", flush=True)
+    return payload
+
+
 def main():
     ap = argparse.ArgumentParser()
     ap.add_argument("--run-dir", required=True)
-    ap.add_argument("--dataset", default="ADNI",
-                    choices=["ADNI", "ABIDE", "HCP", "OASIS", "ADHD", "HCP_TASK",
-                             "COBRE", "HCP_COG", "UCLA"])
-    ap.add_argument("--head", default="linear", choices=["linear", "mlp"],
-                    help="probe head on the frozen encoder (point-3 ablation): "
-                         "linear=LogReg, mlp=2-hidden-layer MLP.")
+    ap.add_argument("--dataset", default="ADNI", choices=sorted(REGISTRY))
+    ap.add_argument("--head", default="linear", choices=["linear", "mlp"])
+    ap.add_argument("--agg", default="mean", choices=["mean", "mean_std"])
+    ap.add_argument("--mlp-arch", default=None, help="force one MLP arch, e.g. '256,128'")
     ap.add_argument("--checkpoint", default="model_final.rank_0.pth")
-    ap.add_argument("--out", default=None,
-                    help="explicit output json path (write directly there, e.g. into "
-                         "the versioned task folder); else <run-dir>/probe_<ds>...json")
-    ap.add_argument("--kfold", type=int, default=0,
-                    help="If >0, subject-aware k-fold CV over the whole cohort "
-                         "(use only when this dataset was FULLY excluded from "
-                         "pretraining). Else fixed train/val/test split.")
-    ap.add_argument("--agg", default="mean", choices=["mean", "mean_std"],
-                    help="temporal aggregation of per-window CLS (ablation): "
-                         "mean=384-d; mean_std=[mean‖std]=768-d (adds dynamics).")
-    ap.add_argument("--mlp-arch", default=None,
-                    help="force one MLP architecture, e.g. '256,128' (per-arch "
-                         "ablation). Only with --head mlp; else the full arch grid.")
+    ap.add_argument("--kfold", type=int, default=5, help="n folds for kfold datasets")
+    ap.add_argument("--out", default=None)
     args = ap.parse_args()
-    mlp_archs = ([tuple(int(w) for w in args.mlp_arch.split(","))]
-                 if args.mlp_arch else None)
 
-    print(f"Device: {DEVICE}  cuda_available={torch.cuda.is_available()}", flush=True)
-    teacher, embed_dim = load_teacher(args.run_dir, args.checkpoint)
-    print(f"embed_dim={embed_dim}", flush=True)
+    print(f"Device: {DEVICE}  cuda={torch.cuda.is_available()}", flush=True)
+    encoder = Encoder(args.run_dir, args.checkpoint)
+    dataset = REGISTRY[args.dataset]()
+    mlp_archs = ([tuple(int(w) for w in args.mlp_arch.split(","))] if args.mlp_arch else None)
 
-    table, LABELS = ({"ADNI": build_table_adni, "ABIDE": build_table_abide,
-                      "HCP": build_table_hcp, "OASIS": build_table_oasis,
-                      "ADHD": build_table_adhd200, "HCP_TASK": build_table_hcp_task,
-                      "COBRE": build_table_cobre, "HCP_COG": build_table_hcp_cog,
-                      "UCLA": build_table_ucla}[args.dataset])()
-    print(f"{args.dataset} scans with split+label: {len(table)}", flush=True)
-    if not table:
-        raise RuntimeError(f"No {args.dataset} scans matched (labels/split missing?)")
-
-    # downstream-only datasets were never in pretraining -> no 70:30 split file;
-    # evaluate by subject-aware k-fold over the whole cohort (no leakage).
-    if args.dataset in NO_SPLIT_DATASETS and not args.kfold:
-        args.kfold = 5
-        print(f"{args.dataset}: downstream-only -> forcing {args.kfold}-fold CV", flush=True)
-
-    # Cache embeddings per (dataset, checkpoint): extraction is the slow step, so
-    # re-running for a new metric (F1, ...) is then instant.
-    ck = args.checkpoint.replace(".", "_")
-    # HCP_COG uses the exact same scans/order as HCP -> reuse the HCP embedding
-    # cache (the length check below still guards against any table mismatch).
-    cache_ds = "HCP" if args.dataset == "HCP_COG" else args.dataset
-    agg_suffix = "" if args.agg == "mean" else f"_{args.agg}"   # keep old mean caches
-    cache = Path(args.run_dir) / f"emb_{cache_ds}_{ck}{agg_suffix}.npz"
-    if cache.exists() and int(np.load(cache)["X"].shape[0]) == len(table):
-        X = np.load(cache)["X"]
-        print(f"loaded cached embeddings {X.shape} from {cache.name}", flush=True)
+    if mlp_archs:
+        run_probe_with_arch(dataset, encoder, args.head, args.agg, args.kfold,
+                            args.out, mlp_archs)
     else:
-        t0 = time.time()
-        embs = []
-        for i, t in enumerate(table):
-            embs.append(scan_embedding(teacher, t["path"], t["tr"], agg=args.agg))
-            if (i + 1) % 100 == 0 or i == len(table) - 1:
-                dt = time.time() - t0
-                print(f"  embeddings {i+1}/{len(table)}  ({dt:.0f}s, "
-                      f"{dt/(i+1)*1000:.0f} ms/scan)", flush=True)
-        X = np.stack(embs)
-        np.savez(cache, X=X)
-        print(f"cached embeddings -> {cache.name}", flush=True)
-    splits = np.array([t["split"] for t in table])
-
-    run_name = Path(args.run_dir).name
-    mode = f"{args.kfold}-fold CV (full cohort)" if args.kfold else "fixed split (val-select)"
-    print(f"\n{'='*66}\n  PROBE  {run_name}  {args.dataset}  [{mode}]\n{'='*66}")
-    results = {}
-
-    if args.dataset in REGRESSION_DATASETS:
-        # HCP cognition: Ridge regression on the held-out 30%, report Pearson r.
-        groups = np.array([t["subject"] for t in table])
-        print(f"  {'target':14} {'alpha':>8} {'TEST_r':>8} {'R2':>7} {'MSE':>10}  "
-              f"{'n_te':>5} {'subj':>5}")
-        for name, col in LABELS.items():
-            y = np.array([_to_float(t["row"].get(col)) for t in table], dtype=float)
-            r = probe_regression(X, y, splits, groups)
-            results[name] = r
-            if r:
-                print(f"  {name:14} {r['alpha']:>8.4g} {r['test_r']:>8.3f} "
-                      f"{r['test_r2']:>7.3f} {r['test_mse']:>10.2f}  "
-                      f"{r['n_test']:>5} {r['n_test_subj']:>5}", flush=True)
-            else:
-                print(f"  {name:14} (skipped — too few samples)", flush=True)
-    elif args.dataset in MULTICLASS_DATASETS:
-        # 7-class HCP task-state: multinomial LogReg, macro-AUC + accuracy.
-        groups = np.array([t["subject"] for t in table])
-        name, col = next(iter(LABELS.items()))
-        y = np.array([_to_float(t["row"].get(col)) for t in table], dtype=float)
-        r = probe_multiclass_kfold(X, y, groups, n_splits=args.kfold or 5)
-        results[name] = r
-        if r:
-            auc = f"{r['auc_mean']:.3f}" if r['auc_mean'] is not None else "n/a"
-            print(f"  {name:12} Acc {r['acc_mean']:.3f}±{r['acc_std']:.3f}  "
-                  f"macroAUC {auc}  ({r['n_classes']} classes, n={r['n']}, "
-                  f"{r['folds']} folds)", flush=True)
-        else:
-            print(f"  {name:12} (skipped — need >=3 classes / enough subjects)", flush=True)
-    elif args.kfold:
-        groups = np.array([t["subject"] for t in table])
-        print(f"  {'label':16} {'AUC (mean±std)':>18} {'Acc (mean±std)':>18}  {'n':>5} pos")
-        for name, col in LABELS.items():
-            y = np.array([_to_float(t["row"].get(col)) for t in table], dtype=float)
-            r = probe_kfold(X, y, groups, n_splits=args.kfold,
-                            head=args.head, mlp_archs=mlp_archs)
-            results[name] = r
-            if r:
-                print(f"  {name:16} AUC {r['auc_mean']:.3f}±{r['auc_std']:.3f}  "
-                      f"Acc {r['acc_mean']:.3f}±{r['acc_std']:.3f}  "
-                      f"F1 {r['f1_mean']:.3f}±{r['f1_std']:.3f}  n={r['n']} pos={r['pos']}",
-                      flush=True)
-            else:
-                print(f"  {name:16} (skipped)", flush=True)
-    else:
-        groups = np.array([t["subject"] for t in table])
-        print(f"  head={args.head}")
-        print(f"  {'label':16} {'best_hp':>18} {'TEST_auc':>9} {'acc':>6} {'F1':>6}  "
-              f"{'n_te':>5} {'subj':>5} pos")
-        for name, col in LABELS.items():
-            y = np.array([_to_float(t["row"].get(col)) for t in table], dtype=float)
-            r = probe_label(X, y, splits, groups, name, head=args.head, mlp_archs=mlp_archs)
-            results[name] = r
-            if r:
-                hp = r['hp']
-                hps = f"{hp:.4g}" if isinstance(hp, (int, float)) else str(hp)
-                print(f"  {name:16} {hps:>18} {r['test_auc']:>9.2f}"
-                      f" {r['test_acc']:>6.2f} {r['test_f1']:>6.2f}  {r['n_test']:>5} "
-                      f"{r['n_test_subj']:>5} {r['pos_test']}", flush=True)
-            else:
-                print(f"  {name:16} (skipped — too few samples / one class)", flush=True)
-
-    # linear -> probe_<ds>.json (default); mlp -> probe_<ds>_mlp.json (point-3 ablation)
-    if args.out:
-        out = Path(args.out)
-        out.parent.mkdir(parents=True, exist_ok=True)
-    else:
-        head_suffix = "" if args.head == "linear" else f"_{args.head}"
-        suffix = f"_kfold{args.kfold}" if args.kfold else ""
-        out = Path(args.run_dir) / f"probe_{args.dataset.lower()}{head_suffix}{suffix}.json"
-    out.write_text(json.dumps({"run": run_name, "dataset": args.dataset, "mode": mode,
-                               "head": args.head, "checkpoint": args.checkpoint,
-                               "results": results}, indent=2))
-    print(f"\nSaved {out}", flush=True)
+        run_probe(dataset, encoder, args.head, args.agg, args.kfold, args.out)
 
 
 if __name__ == "__main__":
