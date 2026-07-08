@@ -488,7 +488,9 @@ def probe_label(X, y, splits, groups, name, head="linear", mlp_archs=None):
     clf = _make_clf(head, best_hp).fit(sc.transform(X[tr]), y[tr])
     proba = clf.predict_proba(sc.transform(X[te]))[:, 1]
     pred = (proba >= 0.5).astype(int)
-    return {"head": head, "hp": float(best_hp),
+    # linear hp = C (float); mlp hp = (arch, alpha) tuple -> keep as-is (JSON list)
+    hp = float(best_hp) if isinstance(best_hp, (int, float)) else best_hp
+    return {"head": head, "hp": hp,
             "test_auc": float(roc_auc_score(y[te], proba)),
             "test_acc": float(accuracy_score(y[te], pred)),
             "test_f1": float(f1_score(y[te], pred, zero_division=0)),
@@ -496,22 +498,25 @@ def probe_label(X, y, splits, groups, name, head="linear", mlp_archs=None):
             "n_test_subj": int(len(set(groups[te]))), "pos_test": int(y[te].sum())}
 
 
-def probe_kfold(X, y, groups, n_splits=5):
+def probe_kfold(X, y, groups, n_splits=5, head="linear", mlp_archs=None):
     """Subject-aware k-fold CV: every subject is a test sample once. Use this when
     the encoder saw NONE of these subjects in pretraining (e.g. ADNI fully excluded)
     -> stable estimate over the full cohort, comparable to SOTA test sizes. Fixed
-    C=1 (no val tuning), report mean +/- std of AUC and Accuracy across folds."""
+    hyperparam (no val tuning): linear -> C=1; mlp -> the given arch (or 256,128
+    default) with alpha=1e-3. Report mean +/- std of AUC/Acc/F1 across folds."""
     m = ~np.isnan(y)
     X, y, groups = X[m], y[m], groups[m]
     if len(np.unique(y)) < 2 or len(set(groups)) < n_splits:
         return None
+    arch = (mlp_archs[0] if mlp_archs else (256, 128))
+    hp = (arch, 1e-3) if head == "mlp" else 1.0
     cv = StratifiedGroupKFold(n_splits=n_splits, shuffle=True, random_state=0)
     aucs, accs, f1s = [], [], []
     for tr, te in cv.split(X, y.astype(int), groups):
         if len(np.unique(y[te])) < 2:
             continue
         sc = StandardScaler().fit(X[tr])
-        clf = LogisticRegression(C=1.0, max_iter=2000, class_weight="balanced")
+        clf = _make_clf(head, hp)
         clf.fit(sc.transform(X[tr]), y[tr])
         proba = clf.predict_proba(sc.transform(X[te]))[:, 1]
         pred = (proba >= 0.5).astype(int)
@@ -713,7 +718,8 @@ def main():
         print(f"  {'label':16} {'AUC (mean±std)':>18} {'Acc (mean±std)':>18}  {'n':>5} pos")
         for name, col in LABELS.items():
             y = np.array([_to_float(t["row"].get(col)) for t in table], dtype=float)
-            r = probe_kfold(X, y, groups, n_splits=args.kfold)
+            r = probe_kfold(X, y, groups, n_splits=args.kfold,
+                            head=args.head, mlp_archs=mlp_archs)
             results[name] = r
             if r:
                 print(f"  {name:16} AUC {r['auc_mean']:.3f}±{r['auc_std']:.3f}  "
