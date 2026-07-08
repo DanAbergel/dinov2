@@ -1,4 +1,4 @@
-== probe_one  RUN=base DS=COBRE HEAD=mlp AGG=mean ARCH=128  Wed Jul  8 09:39:15 IDT 2026 ==
+== probe_one  RUN=base DS=COBRE HEAD=mlp AGG=mean ARCH=128  Wed Jul  8 10:45:17 IDT 2026 ==
 Device: cuda  cuda_available=True
 teacher: loaded 225 keys  missing=0 unexpected=0
 embed_dim=384
@@ -14,4 +14,4 @@ loaded cached embeddings (146, 384) from emb_COBRE_model_final_rank_0_pth.npz
   Schizophrenia    AUC 0.602±0.100  Acc 0.561±0.112  F1 0.574±0.096  n=146 pos=72
 
 Saved /sci/labs/arieljaffe/dan.abergel1/repos/FAIR_official/tasks/v2/probe/json_results/probe_base_cobre_mlp-128.json
-done -> /sci/labs/arieljaffe/dan.abergel1/repos/FAIR_official/tasks/v2/probe/json_results/probe_base_cobre_mlp-128.json  (Wed Jul  8 09:41:08 IDT 2026)
+done -> /sci/labs/arieljaffe/dan.abergel1/repos/FAIR_official/tasks/v2/probe/json_results/probe_base_cobre_mlp-128.json  (Wed Jul  8 10:47:10 IDT 2026)

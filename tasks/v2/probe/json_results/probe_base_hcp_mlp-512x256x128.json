@@ -1,0 +1,45 @@
+{
+  "run": "base",
+  "dataset": "HCP",
+  "mode": "fixed split (val-select)",
+  "head": "mlp",
+  "checkpoint": "model_final.rank_0.pth",
+  "results": {
+    "Sex": {
+      "head": "mlp",
+      "hp": [
+        [
+          512,
+          256,
+          128
+        ],
+        0.001
+      ],
+      "test_auc": 0.8948659003831417,
+      "test_acc": 0.8061538461538461,
+      "test_f1": 0.7934426229508197,
+      "n_train": 759,
+      "n_test": 325,
+      "n_test_subj": 325,
+      "pos_test": 145
+    },
+    "Age": {
+      "head": "mlp",
+      "hp": [
+        [
+          512,
+          256,
+          128
+        ],
+        0.1
+      ],
+      "test_auc": 0.5952561669829223,
+      "test_acc": 0.56,
+      "test_f1": 0.4982456140350877,
+      "n_train": 759,
+      "n_test": 325,
+      "n_test_subj": 325,
+      "pos_test": 170
+    }
+  }
+}

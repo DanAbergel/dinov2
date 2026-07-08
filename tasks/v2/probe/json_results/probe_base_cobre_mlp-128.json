@@ -1,0 +1,20 @@
+{
+  "run": "base",
+  "dataset": "COBRE",
+  "mode": "5-fold CV (full cohort)",
+  "head": "mlp",
+  "checkpoint": "model_final.rank_0.pth",
+  "results": {
+    "Schizophrenia": {
+      "auc_mean": 0.6021587301587302,
+      "auc_std": 0.09989511254160625,
+      "acc_mean": 0.5609195402298851,
+      "acc_std": 0.11200853071337778,
+      "f1_mean": 0.5736904761904762,
+      "f1_std": 0.09611530537556255,
+      "n": 146,
+      "pos": 72,
+      "folds": 5
+    }
+  }
+}
