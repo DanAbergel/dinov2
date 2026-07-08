@@ -9,9 +9,8 @@ from .collate import collate_data_and_cast
 from .masking import MaskingGenerator, RandomTokenMaskingGenerator
 from .augmentations import DataAugmentationDINO
 from .cell_dino.augmentations import CellAugmentationDINO
-# FMRI CHANGE: surface MultiCrop3D / MaskingAugmentation3D at the same import
-# level as DataAugmentationDINO / CellAugmentationDINO. WHY: `do_train` selects
-# the augmentation class via a single import from this package; we add our fMRI
-# branches by symmetry, not by sneaking around the package layout.
-from .fmri_data import MultiCrop3D, MaskingAugmentation3D
+# FMRI CHANGE: surface MaskingAugmentation3D at the same import level as
+# DataAugmentationDINO / CellAugmentationDINO, so `do_train` selects it with a
+# single import from this package.
+from .fmri_data import MaskingAugmentation3D
 from .accumulators import NoOpAccumulator, ResultsAccumulator

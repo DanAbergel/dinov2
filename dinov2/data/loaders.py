@@ -10,12 +10,11 @@ from typing import Any, Callable, List, Optional, TypeVar
 import torch
 from torch.utils.data import Sampler
 
-# FMRI CHANGE: HCPFullScanDataset / ADNIFullScanDataset are re-exported from
-# .datasets. WHY: same import surface as ImageNet so make_dataset / do_train
-# don't need to know about fMRI specifically.
+# FMRI CHANGE: MixedFMRIDataset is re-exported from .datasets with the same
+# import surface as ImageNet, so make_dataset / do_train stay fMRI-agnostic.
 from .datasets import (
     ImageNet, ImageNet22k, HPAone, HPAFoV, CHAMMI_CP, CHAMMI_HPA, CHAMMI_WTC,
-    HCPFullScanDataset, ADNIFullScanDataset, MixedFMRIDataset,
+    MixedFMRIDataset,
 )
 from .samplers import (
     EpochSampler, InfiniteSampler, ShardedInfiniteSampler,
@@ -79,13 +78,9 @@ def _parse_dataset_str(dataset_str: str):
         class_ = CHAMMI_WTC
     elif name == "CHAMMI_HPA":
         class_ = CHAMMI_HPA
-    # FMRI CHANGE: two new dataset names. WHY: lets us write
-    # `cfg.train.dataset_path: "HCP"` or `"ADNI:root=/path/to/file.pt"` in the
-    # fMRI YAML and have `make_dataset` resolve it like any other dataset.
-    elif name == "HCP":
-        class_ = HCPFullScanDataset
-    elif name == "ADNI":
-        class_ = ADNIFullScanDataset
+    # FMRI CHANGE: the multi-source corpus. WHY: lets us write
+    # `cfg.train.dataset_path: "Mixed"` (or "Mixed:exclude=ADNI") in the fMRI YAML
+    # and have `make_dataset` resolve it like any other dataset.
     elif name == "Mixed":
         class_ = MixedFMRIDataset
     else:

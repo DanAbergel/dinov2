@@ -10,8 +10,6 @@ from .cell_dino.hpafov import HPAFoV
 from .cell_dino.chammi_cp import CHAMMI_CP
 from .cell_dino.chammi_hpa import CHAMMI_HPA
 from .cell_dino.chammi_wtc import CHAMMI_WTC
-# FMRI CHANGE: re-export HCP / ADNI Dataset classes so `_parse_dataset_str`
-# (loaders.py) can resolve "HCP" / "ADNI" dataset strings the same way it
-# resolves "ImageNet". WHY: avoid touching loaders.py beyond a couple of
-# elif branches; the heavy lifting lives in dinov2/data/fmri_data.py.
-from ..fmri_data import HCPFullScanDataset, ADNIFullScanDataset, MixedFMRIDataset
+# FMRI CHANGE: re-export the multi-source dataset so `_parse_dataset_str`
+# (loaders.py) can resolve the "Mixed" dataset string like "ImageNet".
+from ..fmri_data import MixedFMRIDataset

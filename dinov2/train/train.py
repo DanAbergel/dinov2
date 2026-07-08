@@ -13,11 +13,11 @@ from fvcore.common.checkpoint import PeriodicCheckpointer
 import torch
 
 from dinov2.data import SamplerType, make_data_loader, make_dataset
-# FMRI CHANGE: import MultiCrop3D alongside the official transforms.
-# WHY: needed for the fmri_augmentation branch in do_train below.
+# FMRI CHANGE: import MaskingAugmentation3D alongside the official transforms
+# for the fmri_augmentation branch in do_train below.
 from dinov2.data import (
     collate_data_and_cast, DataAugmentationDINO, CellAugmentationDINO,
-    MaskingGenerator, RandomTokenMaskingGenerator, MultiCrop3D, MaskingAugmentation3D,
+    MaskingGenerator, RandomTokenMaskingGenerator, MaskingAugmentation3D,
 )
 import dinov2.distributed as distributed
 from dinov2.fsdp import FSDPCheckpointer
@@ -281,8 +281,8 @@ def do_train(cfg, model, resume=False):
         )
 
     # FMRI CHANGE: third augmentation branch, symmetric to cell_augmentation.
-    # WHY: MultiCrop3D matches DataAugmentationDINO's constructor signature
-    # exactly, so the branch is a one-class swap without further plumbing.
+    # fMRI uses masking-only (full-image crops); the per-token masking happens in
+    # the collate (meeting 2026-06-14, §2).
     if cfg.train.cell_augmentation:
         data_transform = CellAugmentationDINO(
             cfg.crops.global_crops_scale,
@@ -292,24 +292,13 @@ def do_train(cfg, model, resume=False):
             local_crops_size=cfg.crops.local_crops_size,
         )
     elif getattr(cfg.train, "fmri_augmentation", False):
-        # FMRI CHANGE: masking-only (full-image crops) vs the older spatial
-        # MultiCrop3D, selected by cfg.train.fmri_masking_only (meeting §2).
-        if getattr(cfg.train, "fmri_masking_only", False):
-            data_transform = MaskingAugmentation3D(
-                cfg.crops.global_crops_scale,
-                cfg.crops.local_crops_scale,
-                cfg.crops.local_crops_number,
-                global_crops_size=cfg.crops.global_crops_size,
-                local_crops_size=cfg.crops.local_crops_size,
-            )
-        else:
-            data_transform = MultiCrop3D(
-                cfg.crops.global_crops_scale,
-                cfg.crops.local_crops_scale,
-                cfg.crops.local_crops_number,
-                global_crops_size=cfg.crops.global_crops_size,
-                local_crops_size=cfg.crops.local_crops_size,
-            )
+        data_transform = MaskingAugmentation3D(
+            cfg.crops.global_crops_scale,
+            cfg.crops.local_crops_scale,
+            cfg.crops.local_crops_number,
+            global_crops_size=cfg.crops.global_crops_size,
+            local_crops_size=cfg.crops.local_crops_size,
+        )
     else:
         data_transform = DataAugmentationDINO(
             cfg.crops.global_crops_scale,

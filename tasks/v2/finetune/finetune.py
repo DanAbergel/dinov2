@@ -42,8 +42,10 @@ from dinov2.data.fmri_data import (
     _load_mmap, _temporal_resample, _zscore_per_frame, TARGET_TR,
 )
 
-# reuse the sibling probe.py machinery (encoder loader + table builders)
-_PROBE = Path(__file__).resolve().parents[1] / "probe" / "probe.py"
+# reuse the probe machinery (encoder loader + table builders). Uses probe_legacy.py:
+# the current probe.py was rewritten (OOP, no build_table_* / _to_float), while
+# finetune was written against the older API kept intact in probe_legacy.py.
+_PROBE = Path(__file__).resolve().parents[1] / "probe" / "probe_legacy.py"
 _spec = importlib.util.spec_from_file_location("v2probe", _PROBE)
 probe = importlib.util.module_from_spec(_spec)
 _spec.loader.exec_module(probe)

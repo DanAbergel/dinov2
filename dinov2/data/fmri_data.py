@@ -1,19 +1,19 @@
-# fMRI data utilities — drop-in for DINOv2's official pipeline.
-#
-# Two Dataset classes (HCP, ADNI). Each returns ONE full scan as a
-# (T, 1, X, Y, Z) z-scored tensor. The temporal dimension is kept intact
-# and reduced by the PatchEmbed3DPlus1D layer.
-#
-# One MultiCrop3D class — 3D spatial multi-crop only, no photometric augs.
-# Its constructor matches `DataAugmentationDINO` so it drops into
-# `do_train` as a one-line replacement (via cfg.train.fmri_augmentation).
-# `global_crops_size` / `local_crops_size` are accepted but ignored: fMRI
-# crops are resized back to the input volume shape (X, Y, Z) so the ViT
-# pos_embed table stays one fixed size.
-#
-# No colour jitter / blur / solarize / flip / noise / ImageNet normalize —
-# fMRI volumes are already z-scored.
+"""Multi-source fMRI training data for the DINOv2 pipeline.
 
+Three pieces, in order:
+  1. corpus       — discover scans (glob or manifest), apply subject holdout
+  2. windowing    — mmap a scan, crop a native window, resample to T_FIXED @ 0.72s
+  3. MixedFMRIDataset + ProportionalBatchSampler + MaskingAugmentation3D
+
+MixedFMRIDataset yields ONE harmonized window per scan as a z-scored
+(T_FIXED, 1, 45, 54, 45) tensor; ProportionalBatchSampler composes each batch
+with a fixed per-dataset quota; MaskingAugmentation3D is the (masking-only)
+augmentation. All constants live in fmri_const.py (re-exported here for the
+probe and the data-prep tasks that import them from this module).
+"""
+
+import csv
+import json
 import logging
 import math
 from pathlib import Path
@@ -25,79 +25,22 @@ import torch.nn.functional as F
 from scipy.signal import resample_poly
 from torch.utils.data import Dataset, Sampler
 
+from .fmri_const import (                       # noqa: F401  (re-exported)
+    LAB_ROOT, TARGET_TR, TARGET_SHAPE, DEFAULT_T_FIXED, DEFAULT_MANIFEST,
+    DEFAULT_SPLIT, CORPUS_DATASETS, HOLDOUT_DATASETS, ABIDE_SITE_TR,
+    OASIS_DEFAULT_TR, AOMIC_TR, HCP_TR, ADNI_TR,
+)
 
 logger = logging.getLogger("dinov2")
 
 
-# ----------------------------------------------------------------------
-# Datasets — same `transform=` / `target_transform=` API as ImageNet so
-# they plug into `make_dataset` and `do_train` unchanged.
-# ----------------------------------------------------------------------
+# =====================================================================
+# 1. CORPUS — discover scans + subject-level holdout
+# =====================================================================
 
-def _zscore_per_frame(scan: torch.Tensor) -> torch.Tensor:
-    """Per-frame z-score on (T, 1, X, Y, Z)."""
-    mean = scan.mean(dim=(1, 2, 3, 4), keepdim=True)
-    std = scan.std(dim=(1, 2, 3, 4), keepdim=True)
-    return torch.where(
-        std > 1e-6,
-        (scan - mean) / std.clamp_min(1e-6),
-        torch.zeros_like(scan),
-    )
-
-
-# ----------------------------------------------------------------------
-# Multi-source corpus: paths, per-dataset native TR, and the temporal
-# harmonization used by MixedFMRIDataset.
-#
-# Every scan on disk is a (T, X, Y, Z) float32 tensor at a fixed spatial
-# resolution of (45, 54, 45). The ONLY thing that differs across datasets is
-# the acquisition TR (seconds between consecutive volumes). To mix them we
-# resample every scan to a common TR (TARGET_TR = 0.72 s = HCP's native TR,
-# chosen to preserve HCP's temporal richness) and crop a fixed-length window of
-# T_FIXED frames. See _native_window + _temporal_resample.
-# ----------------------------------------------------------------------
-
-LAB_ROOT = "/sci/labs/arieljaffe/dan.abergel1"
-TARGET_TR = 0.72                       # common TR after harmonization (HCP native)
-TARGET_SHAPE = (45, 54, 45)
-# T_fixed = 270 frames @ 0.72s = 194.4s window. Chosen at the knee of the
-# window-vs-scans trade-off: it sits 1 frame under ABIDE's min upsampled length
-# (271) so ALL of ABIDE is kept, and drops only the 2 short OASIS outliers whose
-# upsampled length is < 270 (filtered via the corpus manifest; see build_corpus_
-# manifest / MixedFMRIDataset(manifest=...)).
-DEFAULT_T_FIXED = 270
-DEFAULT_MANIFEST = "corpus_manifest.csv"   # under LAB_ROOT; auto-used if present
-DEFAULT_SPLIT = "subject_split.json"       # under LAB_ROOT; auto-used if present
-# Downstream datasets: their val+test SUBJECTS are excluded from SSL pretraining
-# (no leakage), so probes evaluate on subjects the encoder never saw. HCP is now a
-# downstream dataset too (Sex probe vs SLIM-Brain/LCM) -> held out. AOMIC stays
-# pretraining-only (no probe planned) -> kept whole.
-HOLDOUT_DATASETS = ("ADNI", "ABIDE", "OASIS", "HCP")
-
-# ABIDE I native TR per site (seconds). Site = filename.split("_")[0].
-# Standard ABIDE acquisition parameters — CROSS-CHECK against the deep-research
-# TR report before the final training run.
-ABIDE_SITE_TR = {
-    "Caltech": 2.0, "CMU": 2.0, "KKI": 2.5, "Leuven": 1.6667, "MaxMun": 3.0,
-    "NYU": 2.0, "OHSU": 2.5, "Olin": 1.5, "Pitt": 1.5, "SBL": 2.2,
-    "SDSU": 2.0, "Stanford": 2.0, "Trinity": 2.0, "UCLA": 3.0, "UM": 2.0,
-    "USM": 2.0, "Yale": 2.0,
-}
-# OASIS-3 per-scan TR was NOT captured (manifest tr=None, raw deleted). Use the
-# standard documented value; consistent with T=164 -> 164*2.2 ~= 6 min scans.
-OASIS_DEFAULT_TR = 2.2
-AOMIC_TR = {"piop1": 0.75, "piop2": 2.0}
-HCP_TR = 0.72
-ADNI_TR = 3.0                          # single-band (pending Sagi confirmation)
-
-
-def build_corpus_entries(lab_root=LAB_ROOT,
-                         datasets=("HCP", "ABIDE", "OASIS", "AOMIC", "ADNI")):
-    """Scan the five dataset dirs -> (flat entry list, name->indices map).
-
-    Each entry: {"dataset", "path", "subject_id", "tr"}. The name->indices map
-    feeds ProportionalBatchSampler.
-    """
+def build_corpus_entries(lab_root=LAB_ROOT, datasets=CORPUS_DATASETS):
+    """Scan the dataset dirs -> (flat entry list, name->indices map). Each entry:
+    {dataset, path, subject_id, tr}. The map feeds ProportionalBatchSampler."""
     lab = Path(lab_root)
     entries: list = []
     by_dataset: dict = {}
@@ -112,10 +55,9 @@ def build_corpus_entries(lab_root=LAB_ROOT,
             add("HCP", p, p.parent.name, HCP_TR)
     if "ABIDE" in datasets:
         for p in sorted(lab.glob("ABIDE_data/downsampled/**/*.pt")):
-            site = p.name.split("_")[0]
-            tr = ABIDE_SITE_TR.get(site)
+            tr = ABIDE_SITE_TR.get(p.name.split("_")[0])
             if tr is None:
-                logger.warning(f"ABIDE site '{site}' unmapped ({p.name}); skipping")
+                logger.warning(f"ABIDE site unmapped ({p.name}); skipping")
                 continue
             add("ABIDE", p, p.stem, tr)
     if "OASIS" in datasets:
@@ -128,60 +70,42 @@ def build_corpus_entries(lab_root=LAB_ROOT,
     if "ADNI" in datasets:
         for p in sorted(lab.glob("ADNI_data/downsampled/*/I*.pt")):
             add("ADNI", p, p.parent.name, ADNI_TR)
-
     return entries, by_dataset
 
 
-def write_corpus_manifest(out_path, lab_root=LAB_ROOT,
-                          datasets=("HCP", "ABIDE", "OASIS", "AOMIC", "ADNI")):
-    """Scan every scan's native T ONCE and write a corpus manifest CSV:
-        dataset,path,subject_id,tr,T_native,upsampled_T
-    where upsampled_T = round(T_native * tr / TARGET_TR). Built offline (the
-    header scan is slow on the network FS); MixedFMRIDataset then reads this
-    instead of re-scanning shapes, and uses upsampled_T to drop too-short scans.
-    """
-    import csv
+def write_corpus_manifest(out_path, lab_root=LAB_ROOT, datasets=CORPUS_DATASETS):
+    """Offline: scan every scan's native T once and write the corpus manifest CSV
+    (dataset,path,subject_id,tr,T_native,upsampled_T). MixedFMRIDataset then reads
+    this instead of re-scanning shapes, using upsampled_T to drop too-short scans."""
     entries, _ = build_corpus_entries(lab_root, datasets)
     out_path = Path(out_path)
     out_path.parent.mkdir(parents=True, exist_ok=True)
-    n = 0
     with open(out_path, "w", newline="") as f:
         w = csv.writer(f)
         w.writerow(["dataset", "path", "subject_id", "tr", "T_native", "upsampled_T"])
-        for e in entries:
+        for n, e in enumerate(entries, 1):
             T = int(_load_mmap(e["path"]).shape[0])
-            up = round(T * e["tr"] / TARGET_TR)
-            w.writerow([e["dataset"], e["path"], e["subject_id"],
-                        e["tr"], T, up])
-            n += 1
+            w.writerow([e["dataset"], e["path"], e["subject_id"], e["tr"], T,
+                        round(T * e["tr"] / TARGET_TR)])
             if n % 200 == 0:
                 logger.info(f"  corpus manifest: {n}/{len(entries)}")
-    logger.info(f"corpus manifest written: {n} scans -> {out_path}")
+    logger.info(f"corpus manifest written: {len(entries)} scans -> {out_path}")
     return out_path
 
 
 def _load_split_map(split_file):
     """subject_split.json -> {dataset: {subject_id: 'train'|'val'|'test'}}."""
-    import json
     d = json.loads(Path(split_file).read_text())
-    m = {}
-    for ds, splits in d.get("datasets", {}).items():
-        m[ds] = {s: name for name, subs in splits.items() for s in subs}
-    return m
+    return {ds: {s: name for name, subs in splits.items() for s in subs}
+            for ds, splits in d.get("datasets", {}).items()}
 
 
-def entries_from_manifest(manifest_path, datasets=("HCP", "ABIDE", "OASIS", "AOMIC", "ADNI"),
-                          min_upsampled_t=0, split_map=None, holdout_datasets=(),
-                          pretrain_splits=("train",)):
-    """Build (entries, name->indices) from a corpus manifest CSV.
-
-    Keeps rows whose dataset is requested and whose upsampled_T >= min_upsampled_t
-    (drops too-short scans). If `split_map` is given, a scan from a dataset in
-    `holdout_datasets` is kept ONLY if its subject's split is in `pretrain_splits`
-    (default: 'train') — so val+test subjects are excluded from SSL pretraining
-    (no leakage). Non-holdout datasets (e.g. HCP/AOMIC) are kept whole.
-    """
-    import csv
+def entries_from_manifest(manifest_path, datasets=CORPUS_DATASETS, min_upsampled_t=0,
+                          split_map=None, holdout_datasets=(), pretrain_splits=("train",)):
+    """Build (entries, name->indices) from the corpus manifest CSV. Keeps rows whose
+    dataset is requested and whose upsampled_T >= min_upsampled_t. If split_map is
+    given, a holdout-dataset scan is kept only if its subject's split is in
+    pretrain_splits (val+test excluded from pretraining -> no leakage)."""
     entries: list = []
     by_dataset: dict = {}
     n_short = n_holdout = 0
@@ -204,83 +128,18 @@ def entries_from_manifest(manifest_path, datasets=("HCP", "ABIDE", "OASIS", "AOM
     if n_short:
         logger.info(f"manifest: dropped {n_short} scans with upsampled_T < {min_upsampled_t}")
     if n_holdout:
-        logger.info(f"holdout: excluded {n_holdout} val+test scans of {holdout_datasets} "
-                    f"from pretraining (no leakage)")
+        logger.info(f"holdout: excluded {n_holdout} val+test scans of {holdout_datasets}")
     return entries, by_dataset
 
 
-def _load_mmap(path):
-    """Memory-map a scan lazily (no RAM until sliced). Shape (T,X,Y,Z) or
-    (T,1,X,Y,Z)."""
-    return torch.load(path, map_location="cpu", weights_only=True, mmap=True)
-
-
-def _native_window(T, tr_native, t_fixed, target_tr=TARGET_TR):
-    """(start, win): a native window of `win` frames spanning t_fixed*target_tr
-    seconds, at a random start. If the scan is shorter than the window, take it
-    whole (it gets stretched up to t_fixed by _temporal_resample)."""
-    win = max(1, round(t_fixed * target_tr / tr_native))
-    if T >= win:
-        return int(np.random.randint(0, T - win + 1)), win
-    return 0, T
-
-
-def _temporal_resample(clip, n_out):
-    """(n_in,1,X,Y,Z) -> (n_out,1,X,Y,Z) by POLYPHASE resampling along time
-    (scipy.signal.resample_poly, per Ariel — anti-aliased FIR, the correct tool
-    for resampling a band-limited BOLD signal, vs naive linear interpolation).
-
-    Resamples the cropped window from n_in to n_out samples, i.e. from the
-    native TR to TARGET_TR (since n_in native frames span ~n_out*TARGET_TR
-    seconds). For HCP (n_in == n_out) it's a no-op.
-    """
-    n_in = clip.shape[0]
-    if n_in == n_out:
-        return clip
-    g = math.gcd(n_out, n_in)
-    up, down = n_out // g, n_in // g                  # new_rate/old_rate = n_out/n_in
-    arr = clip.contiguous().numpy()                   # (n_in, 1, X, Y, Z)
-    out = resample_poly(arr, up, down, axis=0)        # ~n_out along time
-    out = torch.from_numpy(np.ascontiguousarray(out)).float()
-    if out.shape[0] > n_out:                          # guard off-by-one from ceil
-        out = out[:n_out]
-    elif out.shape[0] < n_out:
-        pad = n_out - out.shape[0]
-        out = torch.cat([out, out[-1:].expand(pad, *out.shape[1:])], dim=0)
-    return out.contiguous()
-
-
-def _finalize(clip, t_fixed, target_shape=TARGET_SHAPE):
-    """Materialized native window -> (t_fixed,1,*target_shape), z-scored."""
-    clip = clip.float()
-    if clip.ndim == 4:                         # (n,X,Y,Z) -> add channel
-        clip = clip.unsqueeze(1)
-    if tuple(clip.shape[-3:]) != tuple(target_shape):
-        clip = F.interpolate(clip, size=tuple(target_shape),
-                             mode="trilinear", align_corners=False)
-    clip = _temporal_resample(clip, t_fixed)
-    return _zscore_per_frame(clip)
-
-
-def compute_t_fixed_max(lab_root=LAB_ROOT,
-                        datasets=("HCP", "ABIDE", "OASIS", "AOMIC", "ADNI"),
-                        margin=0):
-    """Largest T_fixed window (in TARGET_TR frames) that fits EVERY scan with no
-    padding = the global minimum upsampled length round(T_native*tr/TARGET_TR).
-
-    Reads every scan's header T (cheap mmap) once. Returns
-    (t_fixed_max - margin, per_dataset_min, shortest_scan_entry, per_all_upsampled).
-    Use it offline to pick DEFAULT_T_FIXED; a small margin guards the
-    round()/edge off-by-one. `per_all_upsampled` (dataset -> list of every scan's
-    upsampled T) lets callers compute how many scans a larger T_fixed would drop.
-    """
+def compute_t_fixed_max(lab_root=LAB_ROOT, datasets=CORPUS_DATASETS, margin=0):
+    """Offline: largest T_fixed that fits EVERY scan with no padding = global min
+    upsampled length. Returns (t_fixed_max - margin, per_dataset_min, shortest_entry,
+    per_dataset_all_upsampled). Use to pick DEFAULT_T_FIXED."""
     entries, _ = build_corpus_entries(lab_root, datasets)
-    per: dict = {}
-    per_all: dict = {}       # dataset -> list of every scan's upsampled T
-    g_min, argmin = None, None
+    per, per_all, g_min, argmin = {}, {}, None, None
     for e in entries:
-        T = _load_mmap(e["path"]).shape[0]
-        up = round(T * e["tr"] / TARGET_TR)
+        up = round(_load_mmap(e["path"]).shape[0] * e["tr"] / TARGET_TR)
         d = e["dataset"]
         per[d] = min(per.get(d, up), up)
         per_all.setdefault(d, []).append(up)
@@ -289,262 +148,121 @@ def compute_t_fixed_max(lab_root=LAB_ROOT,
     return max(1, g_min - margin), per, argmin, per_all
 
 
-class HCPFullScanDataset(Dataset):
-    """One HCP subject = one (T, 1, X, Y, Z) tensor reconstructed from windows.pt.
+# =====================================================================
+# 2. WINDOWING — mmap -> native window -> resample to T_FIXED @ 0.72s
+# =====================================================================
 
-    The on-disk files are
-        {hcp_root}/subject_*/MNINonLinear/Results/rfMRI_REST1_LR/windows.pt
-    each of shape (N_short, T_short, 1, X, Y, Z). Concatenating every-other
-    window (w = 0, 2, 4, ...) reconstructs the full original time series
-    (HCP REST1_LR: 1200 frames, T_short=10, stride=5 -> 120 even windows).
-    """
-
-    def __init__(
-        self,
-        root: Optional[str] = None,
-        *,
-        window_size: int = 10,
-        window_stride: int = 5,
-        temporal_crop: Optional[int] = None,
-        target_shape: Optional[Tuple[int, int, int]] = (45, 54, 45),
-        transform: Optional[Callable] = None,
-        target_transform: Optional[Callable] = None,
-    ):
-        # Default root from env if unset (matches Moriah layout).
-        self.hcp_root = Path(root) if root else Path(
-            "/sci/labs/arieljaffe/dan.abergel1/HCP_data"
-        )
-        assert window_size % window_stride == 0, (
-            "Cannot reconstruct a full scan without overlap unless "
-            "window_size is a multiple of window_stride."
-        )
-        self.window_size = window_size
-        self.window_stride = window_stride
-        self.short_step = window_size // window_stride
-        # If `temporal_crop` is set, __getitem__ returns a random T=temporal_crop
-        # window from the full T=1200 scan. This is used for mixed-dataset
-        # training where ADNI is at T=140 — we want HCP scans to also be
-        # T=temporal_crop so all datasets share the same temporal length.
-        self.temporal_crop = temporal_crop
-        # HCP native spatial = (46, 55, 46), ADNI native = (45, 54, 45).
-        # Resample HCP -> (45, 54, 45) so Mixed dataset can torch.stack uniformly.
-        # The model was already happy with both (conv K=3 S=3 P=0 floors to the
-        # same output) but the collate is not.
-        self.target_shape = target_shape
-        self.transform = transform
-        self.target_transform = target_transform
-
-        self.paths = sorted(
-            self.hcp_root.glob(
-                "subject_*/MNINonLinear/Results/rfMRI_REST1_LR/windows.pt"
-            )
-        )
-        if not self.paths:
-            raise FileNotFoundError(
-                f"No windows.pt found under {self.hcp_root}."
-            )
-        logger.info(
-            f"HCPFullScanDataset: {len(self.paths)} subjects under {self.hcp_root}"
-            + (f" (temporal_crop={temporal_crop})" if temporal_crop else "")
-        )
-
-    def __len__(self) -> int:
-        return len(self.paths)
-
-    def _load(self, idx: int) -> torch.Tensor:
-        tensor = torch.load(self.paths[idx], map_location="cpu", mmap=True)
-        non_overlapping = tensor[:: self.short_step].float()    # (N', T_short, 1, X, Y, Z)
-        scan = non_overlapping.reshape(-1, *non_overlapping.shape[2:])  # (T_full, 1, X, Y, Z)
-        scan = _zscore_per_frame(scan)
-        if self.temporal_crop is not None and scan.shape[0] > self.temporal_crop:
-            # Random temporal window of length `temporal_crop`.
-            start = int(np.random.randint(0, scan.shape[0] - self.temporal_crop + 1))
-            scan = scan[start:start + self.temporal_crop]
-        if self.target_shape is not None and tuple(scan.shape[-3:]) != tuple(self.target_shape):
-            scan = F.interpolate(
-                scan, size=tuple(self.target_shape),
-                mode="trilinear", align_corners=False,
-            )
-        return scan
-
-    def __getitem__(self, idx: int) -> Tuple[Any, Any]:
-        image = self._load(idx)
-        target: Any = 0
-        if self.transform is not None:
-            image = self.transform(image)
-        if self.target_transform is not None:
-            target = self.target_transform(target)
-        return image, target
+def _zscore_per_frame(scan):
+    """Per-frame z-score on (T, 1, X, Y, Z)."""
+    mean = scan.mean(dim=(1, 2, 3, 4), keepdim=True)
+    std = scan.std(dim=(1, 2, 3, 4), keepdim=True)
+    return torch.where(std > 1e-6, (scan - mean) / std.clamp_min(1e-6), torch.zeros_like(scan))
 
 
-class ADNIFullScanDataset(Dataset):
-    """One ADNI scan = one (T, 1, X, Y, Z) tensor.
+def _load_mmap(path):
+    """Memory-map a scan lazily (no RAM until sliced). Shape (T,X,Y,Z) or (T,1,X,Y,Z)."""
+    return torch.load(path, map_location="cpu", weights_only=True, mmap=True)
 
-    The shared tensor on disk is (N, X, Y, Z, T) fp32. We mmap it and slice
-    + permute one scan at a time so each rank only materialises the scan
-    it currently needs.
-    """
 
-    def __init__(
-        self,
-        root: Optional[str] = None,
-        *,
-        target_shape: Optional[Tuple[int, int, int]] = (45, 54, 45),
-        transform: Optional[Callable] = None,
-        target_transform: Optional[Callable] = None,
-    ):
-        self.adni_path = root or (
-            "/sci/nosnap/arieljaffe/sagi.nathan/shared_fmri_data/all_4d_downsampled.pt"
-        )
-        self.data = torch.load(
-            self.adni_path, weights_only=True, map_location="cpu", mmap=True,
-        )
-        if self.data.ndim != 5:
-            raise ValueError(
-                f"Expected 5D ADNI tensor, got shape {tuple(self.data.shape)}"
-            )
-        non_batch = list(self.data.shape[1:])
-        self.t_axis = 1 + int(np.argmax(non_batch))
-        # ADNI native spatial = (46, 55, 46), HCP / model target = (45, 54, 45).
-        # Resample to target_shape via trilinear, matching what probe_adni.py does.
-        self.target_shape = target_shape
-        self.transform = transform
-        self.target_transform = target_transform
-        logger.info(
-            f"ADNIFullScanDataset: {self.data.shape[0]} scans, shape={tuple(self.data.shape)}, t_axis={self.t_axis}, target_shape={target_shape}"
-        )
+def _native_window(T, tr_native, t_fixed, target_tr=TARGET_TR):
+    """(start, win): a native window of `win` frames spanning t_fixed*target_tr
+    seconds, at a random start. Scan shorter than the window -> take it whole
+    (it gets stretched up to t_fixed by _temporal_resample)."""
+    win = max(1, round(t_fixed * target_tr / tr_native))
+    if T >= win:
+        return int(np.random.randint(0, T - win + 1)), win
+    return 0, T
 
-    def __len__(self) -> int:
-        return self.data.shape[0]
 
-    def _load(self, idx: int) -> torch.Tensor:
-        if self.t_axis == 1:
-            scan = self.data[idx]
-        elif self.t_axis == 4:
-            scan = self.data[idx].permute(3, 0, 1, 2)
-        else:
-            perm = [self.t_axis - 1] + [
-                i for i in range(self.data[idx].ndim) if i != self.t_axis - 1
-            ]
-            scan = self.data[idx].permute(*perm)
-        scan = scan.contiguous().float().unsqueeze(1)         # (T, 1, X, Y, Z)
-        if self.target_shape is not None and tuple(scan.shape[-3:]) != tuple(self.target_shape):
-            scan = F.interpolate(
-                scan, size=tuple(self.target_shape),
-                mode="trilinear", align_corners=False,
-            )
-        return _zscore_per_frame(scan)
+def _temporal_resample(clip, n_out):
+    """(n_in,1,X,Y,Z) -> (n_out,1,X,Y,Z) by polyphase resampling along time
+    (scipy.signal.resample_poly — anti-aliased FIR, correct for band-limited BOLD).
+    Resamples the window from its native TR to TARGET_TR. HCP (n_in==n_out): no-op."""
+    n_in = clip.shape[0]
+    if n_in == n_out:
+        return clip
+    g = math.gcd(n_out, n_in)
+    out = resample_poly(clip.contiguous().numpy(), n_out // g, n_in // g, axis=0)
+    out = torch.from_numpy(np.ascontiguousarray(out)).float()
+    if out.shape[0] > n_out:                          # guard off-by-one from ceil
+        out = out[:n_out]
+    elif out.shape[0] < n_out:
+        pad = out[-1:].expand(n_out - out.shape[0], *out.shape[1:])
+        out = torch.cat([out, pad], dim=0)
+    return out.contiguous()
 
-    def __getitem__(self, idx: int) -> Tuple[Any, Any]:
-        image = self._load(idx)
-        target: Any = 0
-        if self.transform is not None:
-            image = self.transform(image)
-        if self.target_transform is not None:
-            target = self.target_transform(target)
-        return image, target
 
+def _finalize(clip, t_fixed, target_shape=TARGET_SHAPE):
+    """Native window -> (t_fixed, 1, *target_shape), z-scored."""
+    clip = clip.float()
+    if clip.ndim == 4:                                # (n,X,Y,Z) -> add channel
+        clip = clip.unsqueeze(1)
+    if tuple(clip.shape[-3:]) != tuple(target_shape):
+        clip = F.interpolate(clip, size=tuple(target_shape), mode="trilinear", align_corners=False)
+    return _zscore_per_frame(_temporal_resample(clip, t_fixed))
+
+
+# =====================================================================
+# 3. DATASET + SAMPLER + AUGMENTATION
+# =====================================================================
 
 class MixedFMRIDataset(Dataset):
-    """All five fMRI cohorts (HCP / ABIDE / OASIS-3 / AOMIC / ADNI) as one dataset.
+    """The five fMRI cohorts (HCP/ABIDE/OASIS/AOMIC/ADNI) as one dataset. Each
+    __getitem__ mmaps a native (T,X,Y,Z) scan, crops a native window spanning
+    T_fixed*0.72s (crop FIRST so a 524 MB HCP file never fully loads), resamples
+    it to T_fixed frames @ 0.72s, and z-scores -> (T_fixed, 1, 45, 54, 45).
+    `dataset_indices` (name -> global indices) feeds ProportionalBatchSampler."""
 
-    Each __getitem__:
-      1. memory-maps a native (T,X,Y,Z) scan,
-      2. slices a native window spanning T_fixed * 0.72 s of brain activity
-         (crop FIRST, on the mmap, so a 524 MB HCP file never fully loads),
-      3. materializes only that window and resamples it to exactly T_fixed
-         frames at the common TR = 0.72 s (temporal harmonization across the
-         heterogeneous native TRs: HCP 0.72, ABIDE per-site, OASIS 2.2,
-         AOMIC 0.75/2.0, ADNI 3.0),
-      4. per-frame z-scores -> (T_fixed, 1, 45, 54, 45).
-
-    `self.dataset_indices` (name -> global indices) is exposed so a
-    ProportionalBatchSampler can build per-dataset balanced batches.
-    """
-
-    def __init__(
-        self,
-        root: Optional[str] = None,
-        *,
-        t_fixed: int = DEFAULT_T_FIXED,
-        temporal_crop: Optional[int] = None,        # legacy alias for t_fixed
-        datasets: Tuple[str, ...] = ("HCP", "ABIDE", "OASIS", "AOMIC", "ADNI"),
-        exclude: Optional[str] = None,              # drop these whole datasets (e.g. "ADNI")
-        manifest: Optional[str] = None,             # corpus_manifest.csv; auto if present
-        drop_short: bool = True,                    # drop scans whose window needs padding
-        split_file: Optional[str] = None,           # subject_split.json; auto if present
-        holdout_datasets: Tuple[str, ...] = HOLDOUT_DATASETS,
-        pretrain_splits: Tuple[str, ...] = ("train",),
-        transform: Optional[Callable] = None,
-        target_transform: Optional[Callable] = None,
-        **_ignored,
-    ):
-        if temporal_crop is not None:
-            t_fixed = temporal_crop
-        self.t_fixed = int(t_fixed)
+    def __init__(self, root=None, *, t_fixed=DEFAULT_T_FIXED, temporal_crop=None,
+                 datasets=CORPUS_DATASETS, exclude=None, manifest=None, drop_short=True,
+                 split_file=None, holdout_datasets=HOLDOUT_DATASETS,
+                 pretrain_splits=("train",), transform=None, target_transform=None,
+                 **_ignored):
+        self.t_fixed = int(temporal_crop if temporal_crop is not None else t_fixed)
         lab_root = root or LAB_ROOT
 
-        # Drop whole datasets from pretraining (e.g. exclude=ADNI so a clean
-        # k-fold downstream probe can use the FULL ADNI cohort, encoder unseen).
+        # Drop whole datasets from pretraining (e.g. exclude=ADNI for a clean
+        # downstream probe over the FULL ADNI cohort, encoder unseen).
         if exclude:
             ex = {d.strip() for d in str(exclude).replace("-", ",").split(",")}
             datasets = tuple(d for d in datasets if d not in ex)
-            logger.info(f"MixedFMRIDataset: excluding whole datasets {ex} from pretraining")
+            logger.info(f"MixedFMRIDataset: excluding whole datasets {ex}")
 
-        # Subject-level holdout: if a split file exists, exclude val+test subjects
-        # of the downstream datasets from pretraining (no leakage). Absent -> no
-        # holdout (uses all data).
+        # Subject-level holdout via split file (absent -> use all data).
         sf = Path(split_file) if split_file else Path(lab_root) / DEFAULT_SPLIT
         split_map = _load_split_map(sf) if sf.exists() else None
 
-        # Prefer the corpus manifest (fast + carries T_native so we can drop
-        # too-short scans). Falls back to globbing if no manifest is found.
+        # Prefer the manifest (fast + carries T_native to drop too-short scans).
         man = Path(manifest) if manifest else Path(lab_root) / DEFAULT_MANIFEST
         if man.exists():
             min_t = self.t_fixed if drop_short else 0
             self.entries, self.dataset_indices = entries_from_manifest(
-                man, datasets, min_upsampled_t=min_t,
-                split_map=split_map,
+                man, datasets, min_upsampled_t=min_t, split_map=split_map,
                 holdout_datasets=holdout_datasets if split_map else (),
-                pretrain_splits=pretrain_splits,
-            )
-            src = f"manifest {man.name}" + (f" (drop_short<{min_t})" if drop_short else "")
-            if split_map:
-                src += f" + holdout(val+test of {list(holdout_datasets)})"
+                pretrain_splits=pretrain_splits)
+            src = f"manifest {man.name}"
         else:
             self.entries, self.dataset_indices = build_corpus_entries(lab_root, datasets)
-            src = "glob (no manifest; short scans will be stretched, not dropped)"
-            if drop_short:
-                logger.warning(
-                    f"drop_short requested but no manifest at {man} — short scans "
-                    "cannot be filtered without T_native. Build it with "
-                    "write_corpus_manifest()."
-                )
+            src = "glob (no manifest; short scans stretched, not dropped)"
 
         if not self.entries:
-            raise FileNotFoundError(
-                f"No scans found under {lab_root} for datasets={datasets}"
-            )
+            raise FileNotFoundError(f"No scans under {lab_root} for datasets={datasets}")
         self.transform = transform
         self.target_transform = target_transform
         counts = {k: len(v) for k, v in self.dataset_indices.items()}
-        logger.info(
-            f"MixedFMRIDataset: {len(self.entries)} scans  T_fixed={self.t_fixed}  "
-            f"target_TR={TARGET_TR}s  src={src}  per-dataset={counts}"
-        )
+        logger.info(f"MixedFMRIDataset: {len(self.entries)} scans  T_fixed={self.t_fixed}  "
+                    f"target_TR={TARGET_TR}s  src={src}  per-dataset={counts}")
 
-    def __len__(self) -> int:
+    def __len__(self):
         return len(self.entries)
 
-    def _load(self, idx: int) -> torch.Tensor:
+    def _load(self, idx):
         e = self.entries[idx]
         scan = _load_mmap(e["path"])                       # (T,X,Y,Z) lazy
-        T = scan.shape[0]
-        start, win = _native_window(T, e["tr"], self.t_fixed)
-        clip = scan[start:start + win].clone()             # materialize ONLY the window
-        return _finalize(clip, self.t_fixed)
+        start, win = _native_window(scan.shape[0], e["tr"], self.t_fixed)
+        return _finalize(scan[start:start + win].clone(), self.t_fixed)
 
-    def __getitem__(self, idx: int) -> Tuple[Any, Any]:
+    def __getitem__(self, idx):
         image = self._load(idx)
         target: Any = 0
         if self.transform is not None:
@@ -555,18 +273,11 @@ class MixedFMRIDataset(Dataset):
 
 
 class ProportionalBatchSampler(Sampler):
-    """Yield batches with a fixed per-dataset composition.
-
-    Default quota (batch of 16, ~proportional to dataset sizes):
-        HCP 4, ABIDE 4, OASIS 4, ADNI 3, AOMIC 1.
-    Each dataset's indices are shuffled and consumed without replacement; a
-    dataset that runs out within an epoch is reshuffled and cycled (smaller
-    datasets cycle more often). Tokens within a batch are shuffled so the
-    dataset order is not fixed.
-
-    Use with DataLoader(dataset, batch_sampler=sampler). For DDP, pass
-    rank/world_size so each rank draws a disjoint stream of batches.
-    """
+    """Batches with a fixed per-dataset composition (default quota, batch 16:
+    HCP 4, ABIDE 4, OASIS 4, ADNI 3, AOMIC 1). Each dataset's indices are shuffled
+    and consumed without replacement; a dataset that runs out mid-epoch is
+    reshuffled and cycled (smaller datasets cycle more often). Use with
+    DataLoader(dataset, batch_sampler=sampler); pass rank/world_size for DDP."""
 
     DEFAULT_QUOTA = {"HCP": 4, "ABIDE": 4, "OASIS": 4, "ADNI": 3, "AOMIC": 1}
 
@@ -576,15 +287,10 @@ class ProportionalBatchSampler(Sampler):
         self.quota = {k: q for k, q in (quota or self.DEFAULT_QUOTA).items()
                       if k in self.dataset_indices and q > 0}
         if not self.quota:
-            raise ValueError(
-                f"No dataset matches quota keys. Have {list(self.dataset_indices)}, "
-                f"quota {list((quota or self.DEFAULT_QUOTA))}"
-            )
+            raise ValueError(f"No dataset matches quota. Have {list(self.dataset_indices)}, "
+                             f"quota {list(quota or self.DEFAULT_QUOTA)}")
         self.batch_size = sum(self.quota.values())
-        self.seed = seed
-        self.rank = rank
-        self.world_size = max(1, world_size)
-        self.epoch = 0
+        self.seed, self.rank, self.world_size, self.epoch = seed, rank, max(1, world_size), 0
         if batches_per_epoch is None:
             total = sum(len(self.dataset_indices[k]) for k in self.quota)
             batches_per_epoch = math.ceil(total / self.batch_size)
@@ -602,8 +308,7 @@ class ProportionalBatchSampler(Sampler):
         pools, ptr = {}, {}
         for name in self.quota:
             idxs = self.dataset_indices[name]
-            order = torch.randperm(len(idxs), generator=g).tolist()
-            pools[name] = [idxs[i] for i in order]
+            pools[name] = [idxs[i] for i in torch.randperm(len(idxs), generator=g).tolist()]
             ptr[name] = 0
         for _ in range(self.batches_per_epoch):
             batch = []
@@ -611,117 +316,30 @@ class ProportionalBatchSampler(Sampler):
                 pool, p = pools[name], ptr[name]
                 for _ in range(q):
                     if p >= len(pool):                     # epoch-local reshuffle + cycle
-                        order = torch.randperm(len(pool), generator=g).tolist()
-                        pool = [pool[i] for i in order]
-                        pools[name] = pool
-                        p = 0
+                        pool = [pool[i] for i in torch.randperm(len(pool), generator=g).tolist()]
+                        pools[name], p = pool, 0
                     batch.append(pool[p])
                     p += 1
                 ptr[name] = p
-            order = torch.randperm(len(batch), generator=g).tolist()
-            yield [batch[i] for i in order]
-
-
-# ----------------------------------------------------------------------
-# Multi-crop (3D spatial only, no photometric augs).
-#
-# Constructor signature matches `DataAugmentationDINO` so `do_train` can
-# swap classes via `cfg.train.fmri_augmentation` without further changes.
-# `global_crops_size` / `local_crops_size` are accepted to keep the
-# signature identical but are not used: a 3D crop is resampled back to
-# the input volume's (X, Y, Z) so all crops share one fixed token grid.
-# ----------------------------------------------------------------------
-
-class MultiCrop3D:
-    """3D spatial multi-crop for fMRI volumes."""
-
-    def __init__(
-        self,
-        global_crops_scale,
-        local_crops_scale,
-        local_crops_number,
-        global_crops_size=224,        # accepted, unused (kept for API parity)
-        local_crops_size=96,          # accepted, unused (kept for API parity)
-    ):
-        self.global_crops_scale = global_crops_scale
-        self.local_crops_scale = local_crops_scale
-        self.local_crops_number = local_crops_number
-
-        logger.info("###################################")
-        logger.info("Using fMRI multi-crop parameters:")
-        logger.info(f"global_crops_scale: {global_crops_scale}")
-        logger.info(f"local_crops_scale: {local_crops_scale}")
-        logger.info(f"local_crops_number: {local_crops_number}")
-        logger.info("###################################")
-
-    @staticmethod
-    def _random_resized_crop(scan: torch.Tensor, scale) -> torch.Tensor:
-        T, C, X, Y, Z = scan.shape
-        frac = float(np.random.uniform(*scale))
-        cx, cy, cz = max(1, int(X * frac)), max(1, int(Y * frac)), max(1, int(Z * frac))
-        sx = int(np.random.randint(0, max(X - cx, 1)))
-        sy = int(np.random.randint(0, max(Y - cy, 1)))
-        sz = int(np.random.randint(0, max(Z - cz, 1)))
-        sub = scan[:, :, sx:sx + cx, sy:sy + cy, sz:sz + cz]
-        return F.interpolate(sub, size=(X, Y, Z),
-                             mode="trilinear", align_corners=False)
-
-    def __call__(self, scan: torch.Tensor) -> dict:
-        global_crops = [
-            self._random_resized_crop(scan, self.global_crops_scale)
-            for _ in range(2)
-        ]
-        local_crops = [
-            self._random_resized_crop(scan, self.local_crops_scale)
-            for _ in range(self.local_crops_number)
-        ]
-        return {
-            "global_crops":         global_crops,
-            "global_crops_teacher": global_crops,
-            "local_crops":          local_crops,
-            "offsets":              (),
-        }
+            yield [batch[i] for i in torch.randperm(len(batch), generator=g).tolist()]
 
 
 class MaskingAugmentation3D:
-    """fMRI augmentation = MASKING ONLY (no spatial/temporal crop).
+    """fMRI augmentation = MASKING ONLY (no spatial/temporal crop). All crops are
+    the FULL volume; the per-token random masking in the collate (for iBOT) is the
+    only corruption. Matches DataAugmentationDINO's call contract so do_train uses
+    it as a drop-in. Scale/size args are accepted for API parity but unused."""
 
-    All crops are the FULL volume; the per-token random masking applied in the
-    collate (to the global crops, for iBOT) is the only corruption. Spatial zoom
-    is dropped because a brain is a fixed anatomical structure, not a scene to
-    crop (meeting 2026-06-14, §2). Temporal augmentation is off for now.
-
-    Matches DataAugmentationDINO's call contract (returns global_crops /
-    global_crops_teacher / local_crops / offsets) so do_train uses it as a
-    drop-in. The scale args are accepted (API parity) but unused — there is no
-    cropping. num_global_crops stays 2 (DINOv2's forward requires it); the
-    distinct masked student views come from the collate, not from cropping.
-    """
-
-    def __init__(
-        self,
-        global_crops_scale=None,        # unused (no cropping)
-        local_crops_scale=None,         # unused
-        local_crops_number=3,
-        global_crops_size=None,         # unused
-        local_crops_size=None,          # unused
-        global_crops_number=2,
-    ):
+    def __init__(self, global_crops_scale=None, local_crops_scale=None,
+                 local_crops_number=3, global_crops_size=None, local_crops_size=None,
+                 global_crops_number=2):
         self.global_crops_number = int(global_crops_number)
         self.local_crops_number = int(local_crops_number)
-        logger.info("###################################")
-        logger.info("Using fMRI MASKING-ONLY augmentation (full-image crops):")
-        logger.info(f"  global_crops_number: {self.global_crops_number}")
-        logger.info(f"  local_crops_number:  {self.local_crops_number}")
-        logger.info("  (no spatial/temporal crop; masking applied in collate)")
-        logger.info("###################################")
+        logger.info(f"fMRI MASKING-ONLY augmentation: global={self.global_crops_number} "
+                    f"local={self.local_crops_number} (masking applied in collate)")
 
-    def __call__(self, scan: torch.Tensor) -> dict:
-        global_crops = [scan for _ in range(self.global_crops_number)]
-        local_crops = [scan for _ in range(self.local_crops_number)]
-        return {
-            "global_crops":         global_crops,
-            "global_crops_teacher": global_crops,
-            "local_crops":          local_crops,
-            "offsets":              (),
-        }
+    def __call__(self, scan):
+        return {"global_crops":         [scan] * self.global_crops_number,
+                "global_crops_teacher": [scan] * self.global_crops_number,
+                "local_crops":          [scan] * self.local_crops_number,
+                "offsets":              ()}
