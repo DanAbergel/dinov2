@@ -27,8 +27,11 @@ n=0
 for DS in $DATASETS; do
     for A in $ARCHS; do
         tag="${A//,/x}"
-        sbatch -A arieljaffe --job-name="mlp-${DS}-${tag}" \
-            --export=ALL,RUN=$RUN,DATASET=$DS,HEAD=mlp,AGG=mean,MLP_ARCH=$A \
+        # pass vars as an ENV PREFIX (+ --export=ALL), NOT in the --export list:
+        # sbatch's --export list is COMMA-separated, so MLP_ARCH=512,256 there would
+        # be truncated to 512. The env prefix preserves commas intact.
+        RUN="$RUN" DATASET="$DS" HEAD=mlp AGG=mean MLP_ARCH="$A" \
+            sbatch -A arieljaffe --job-name="mlp-${DS}-${tag}" --export=ALL \
             "$TASK_DIR/probe_one.sh"
         n=$((n+1))
     done
