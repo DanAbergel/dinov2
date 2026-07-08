@@ -1,0 +1,18 @@
+== probe_one  RUN=base DS=ABIDE HEAD=mlp AGG=mean ARCH=256  Wed Jul  8 09:39:15 IDT 2026 ==
+Device: cuda  cuda_available=True
+teacher: loaded 225 keys  missing=0 unexpected=0
+embed_dim=384
+ABIDE scans with split+label: 1035
+loaded cached embeddings (1035, 384) from emb_ABIDE_model_final_rank_0_pth.npz
+
+==================================================================
+  PROBE  base  ABIDE  [fixed split (val-select)]
+==================================================================
+  head=mlp
+  label                       best_hp  TEST_auc    acc     F1   n_te  subj pos
+  Autism              ((256,), 0.001)      0.50   0.50   0.50    311   311 148
+  Age                ((256,), 0.0001)      0.81   0.75   0.76    311   311 153
+  Sex                  ((256,), 0.01)      0.55   0.84   0.91    311   311 268
+
+Saved /sci/labs/arieljaffe/dan.abergel1/repos/FAIR_official/tasks/v2/probe/json_results/probe_base_abide_mlp-256.json
+done -> /sci/labs/arieljaffe/dan.abergel1/repos/FAIR_official/tasks/v2/probe/json_results/probe_base_abide_mlp-256.json  (Wed Jul  8 09:41:08 IDT 2026)

@@ -1,0 +1,17 @@
+== probe_one  RUN=base DS=ADHD HEAD=mlp AGG=mean ARCH=256  Wed Jul  8 09:39:16 IDT 2026 ==
+Device: cuda  cuda_available=True
+teacher: loaded 225 keys  missing=0 unexpected=0
+embed_dim=384
+ADHD: 115 scans matched to DX labels
+ADHD scans with split+label: 115
+ADHD: downstream-only -> forcing 5-fold CV
+loaded cached embeddings (115, 384) from emb_ADHD_model_final_rank_0_pth.npz
+
+==================================================================
+  PROBE  base  ADHD  [5-fold CV (full cohort)]
+==================================================================
+  label                AUC (mean±std)     Acc (mean±std)      n pos
+  ADHD             AUC 0.466±0.123  Acc 0.626±0.098  F1 0.129±0.106  n=115 pos=33
+
+Saved /sci/labs/arieljaffe/dan.abergel1/repos/FAIR_official/tasks/v2/probe/json_results/probe_base_adhd_mlp-256.json
+done -> /sci/labs/arieljaffe/dan.abergel1/repos/FAIR_official/tasks/v2/probe/json_results/probe_base_adhd_mlp-256.json  (Wed Jul  8 09:41:08 IDT 2026)
