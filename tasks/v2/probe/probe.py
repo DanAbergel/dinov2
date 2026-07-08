@@ -83,7 +83,13 @@ COBRE_DIR = LAB / "COBRE_data" / "downsampled"
 COBRE_LABELS = LAB / "COBRE_data" / "cobre_labels.csv"
 LABELS_COBRE = {"Schizophrenia": "sz"}               # NeuroSTORM disease benchmark
 
-NO_SPLIT_DATASETS = {"ADHD", "HCP_TASK", "COBRE"}    # not pretrained on -> force k-fold
+UCLA_DIR = LAB / "UCLA_data" / "downsampled"
+UCLA_LABELS = LAB / "UCLA_data" / "ucla_participants.tsv"
+# UCLA CNP (ds000030): NeuroSTORM same-dataset. SCHZ vs CONTROL & ADHD vs CONTROL
+# (bipolar excluded from each -> NaN). Diagnosis in participants.tsv.
+LABELS_UCLA = {"Schizophrenia": "schizophrenia", "ADHD": "adhd"}
+
+NO_SPLIT_DATASETS = {"ADHD", "HCP_TASK", "COBRE", "UCLA"}   # not pretrained on -> force k-fold
 MULTICLASS_DATASETS = {"HCP_TASK"}
 
 # HCP cognition (NeuroSTORM/Brain-JEPA phenotype prediction) — REGRESSION on the
@@ -399,6 +405,30 @@ def build_table_hcp_task():
     return table, LABELS_HCP_TASK
 
 
+def build_table_ucla():
+    """UCLA CNP (ds000030, NeuroSTORM same-dataset). Two binary tasks vs control:
+    SCHZ->schizophrenia, ADHD->adhd (bipolar excluded from each). Reads
+    participants.tsv (diagnosis). Downstream-only -> k-fold. CNP rest TR = 2.0s."""
+    table, dx = [], {}
+    if UCLA_LABELS.exists():
+        for r in csv.DictReader(open(UCLA_LABELS), delimiter="\t"):
+            dx[r["participant_id"].strip()] = (r.get("diagnosis") or "").strip().upper()
+    else:
+        print(f"UCLA: {UCLA_LABELS} not found -> run download_ucla.py", flush=True)
+    matched = 0
+    for p in sorted(UCLA_DIR.glob("*_downsampled.pt")):
+        subj = p.name.replace("_downsampled.pt", "")           # sub-10159
+        d = dx.get(subj)
+        if d is None:
+            continue
+        row = {"schizophrenia": (1.0 if d == "SCHZ" else 0.0 if d == "CONTROL" else float("nan")),
+               "adhd": (1.0 if d == "ADHD" else 0.0 if d == "CONTROL" else float("nan"))}
+        table.append({"path": p, "subject": subj, "split": "none", "tr": 2.0, "row": row})
+        matched += 1
+    print(f"UCLA: {matched} scans matched to diagnosis", flush=True)
+    return table, LABELS_UCLA
+
+
 def build_table_cobre():
     """COBRE schizophrenia vs control (NeuroSTORM disease). Downstream-only.
     Reads cobre_labels.csv (subject_id, sz). COBRE native TR = 2.0s."""
@@ -614,7 +644,7 @@ def main():
     ap.add_argument("--run-dir", required=True)
     ap.add_argument("--dataset", default="ADNI",
                     choices=["ADNI", "ABIDE", "HCP", "OASIS", "ADHD", "HCP_TASK",
-                             "COBRE", "HCP_COG"])
+                             "COBRE", "HCP_COG", "UCLA"])
     ap.add_argument("--head", default="linear", choices=["linear", "mlp"],
                     help="probe head on the frozen encoder (point-3 ablation): "
                          "linear=LogReg, mlp=2-hidden-layer MLP.")
@@ -643,7 +673,8 @@ def main():
     table, LABELS = ({"ADNI": build_table_adni, "ABIDE": build_table_abide,
                       "HCP": build_table_hcp, "OASIS": build_table_oasis,
                       "ADHD": build_table_adhd200, "HCP_TASK": build_table_hcp_task,
-                      "COBRE": build_table_cobre, "HCP_COG": build_table_hcp_cog}[args.dataset])()
+                      "COBRE": build_table_cobre, "HCP_COG": build_table_hcp_cog,
+                      "UCLA": build_table_ucla}[args.dataset])()
     print(f"{args.dataset} scans with split+label: {len(table)}", flush=True)
     if not table:
         raise RuntimeError(f"No {args.dataset} scans matched (labels/split missing?)")
