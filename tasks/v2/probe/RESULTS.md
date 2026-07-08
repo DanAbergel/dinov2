@@ -88,25 +88,32 @@ Each run starts from the same DINOv2 (ImageNet) init and changes **one** factor:
 
 ## 5. Best results vs SOTA (same-dataset comparisons)
 
-Caveats: (1) Brain-JEPA numbers are **fine-tuning**, ours are **linear probe**; (2) we report acc/F1 of the **best-AUROC** config (not the raw max accuracy, which would reward a majority-class classifier).
+All three metrics side by side. `n/r` = not reported by that paper. Caveats: (1) Brain-JEPA numbers are **fine-tuning**, ours are **linear probe**; (2) our row is the **best-AUROC config** (avoids majority-class accuracy inflation). Brain-JEPA reports only Acc/F1 (no AUROC); NeuroSTORM reports Acc for ADHD-200.
 
 ### Brain-JEPA (same dataset = ADNI)
 
-| Benchmark | Metric | Ours (best-AUC) | config | Brain-JEPA (FT) |
+| Benchmark | Model | Acc | F1 | AUROC |
 |---|---|---|---|---|
-| ADNI / NC-MCI | Acc | 0.576 | unfrozen_adni | 0.768 |
-| ADNI / NC-MCI | F1 | 0.632 | unfrozen_adni | 0.863 |
-| ADNI / Amyloid | Acc | 0.559 | pool_adni | 0.710 |
-| ADNI / Amyloid | F1 | 0.623 | pool_adni | 0.760 |
+| ADNI / NC-MCI | Ours (unfrozen_adni) | 0.576 | 0.632 | 0.604 |
+| | Brain-JEPA (FT) | 0.768 | 0.863 | n/r |
+| ADNI / Amyloid | Ours (pool_adni) | 0.559 | 0.623 | 0.641 |
+| | Brain-JEPA (FT) | 0.710 | 0.760 | n/r |
 
 ### NeuroSTORM (same dataset = ADHD-200)
 
-| Benchmark | Metric | Ours (best-AUC) | config | NeuroSTORM |
+| Benchmark | Model | Acc | F1 | AUROC |
 |---|---|---|---|---|
-| ADHD-200 | Acc | 0.617 | base_adhd_agg-mean_std | 0.587 |
-| ADHD-200 | AUROC | 0.557 | base_adhd_agg-mean_std | — |
+| ADHD-200 | Ours (base_adhd_agg-mean_std) | 0.617 | 0.287 | 0.557 |
+| | NeuroSTORM | 0.587 | n/r | n/r |
+
+**For reference (NOT a valid comparison — different cohort HCP-YA vs HCP-Aging):**
+
+| Benchmark | Model | Acc | F1 | AUROC |
+|---|---|---|---|---|
+| HCP / Sex | Ours (pool_hcp) | 0.892 | 0.879 | 0.962 |
+| | Brain-JEPA (FT, HCP-Aging) | 0.815 | 0.843 | n/r |
 
 **Not compared (different dataset):** HCP Sex/Age (HCP-YA vs HCP-Aging), COBRE vs HCP-EP, UCLA (to download). OASIS/ABIDE are not Brain-JEPA benchmarks.
 
 
-**SOTA sources:** Brain-JEPA (arXiv 2409.19407, Tables 2-3, fine-tuning) · NeuroSTORM (arXiv 2506.11167).
+**SOTA sources:** Brain-JEPA (arXiv 2409.19407, Tables 2-3, fine-tuning; Acc/F1 only) · NeuroSTORM (arXiv 2506.11167).

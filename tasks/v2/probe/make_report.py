@@ -142,29 +142,40 @@ for ds, lab in [("adni", "NC_vs_MCI"), ("adni", "AD_vs_HC"), ("adni", "Amyloid")
 w("\n*The MLP head does not clearly beat the linear probe; deeper heads overfit.*\n")
 
 # ---- 5. SOTA ----
+def our_all(ds, label):
+    """Acc / F1 / AUROC of the best-AUROC config (+ its tag) for (ds,label)."""
+    tag, res = best_auc_config(ds, label)
+    return (metric(res, "test_acc"), metric(res, "test_f1"), metric(res, "test_auc"), tag)
+
 w("## 5. Best results vs SOTA (same-dataset comparisons)\n")
-w("Caveats: (1) Brain-JEPA numbers are **fine-tuning**, ours are **linear probe**; "
-  "(2) we report acc/F1 of the **best-AUROC** config (not the raw max accuracy, which "
-  "would reward a majority-class classifier).\n")
+w("All three metrics side by side. `n/r` = not reported by that paper. Caveats: "
+  "(1) Brain-JEPA numbers are **fine-tuning**, ours are **linear probe**; (2) our row "
+  "is the **best-AUROC config** (avoids majority-class accuracy inflation). Brain-JEPA "
+  "reports only Acc/F1 (no AUROC); NeuroSTORM reports Acc for ADHD-200.\n")
 w("### Brain-JEPA (same dataset = ADNI)\n")
-w("| Benchmark | Metric | Ours (best-AUC) | config | Brain-JEPA (FT) |")
+w("| Benchmark | Model | Acc | F1 | AUROC |")
 w("|---|---|---|---|---|")
-for ds, lab, key, mname, sota in [("adni", "NC_vs_MCI", "test_acc", "Acc", "0.768"),
-                                  ("adni", "NC_vs_MCI", "test_f1", "F1", "0.863"),
-                                  ("adni", "Amyloid", "test_acc", "Acc", "0.710"),
-                                  ("adni", "Amyloid", "test_f1", "F1", "0.760")]:
-    v, where = best_reported(ds, lab, key)
-    w(f"| ADNI / {lab.replace('_vs_','-')} | {mname} | {cell(v)} | {where or '—'} | {sota} |")
+for ds, lab, sota_acc, sota_f1 in [("adni", "NC_vs_MCI", "0.768", "0.863"),
+                                   ("adni", "Amyloid", "0.710", "0.760")]:
+    acc, f1v, auc, tag = our_all(ds, lab)
+    name = f"ADNI / {lab.replace('_vs_','-')}"
+    w(f"| {name} | Ours ({tag}) | {cell(acc)} | {cell(f1v)} | {cell(auc)} |")
+    w(f"| | Brain-JEPA (FT) | {sota_acc} | {sota_f1} | n/r |")
 w("\n### NeuroSTORM (same dataset = ADHD-200)\n")
-w("| Benchmark | Metric | Ours (best-AUC) | config | NeuroSTORM |")
+w("| Benchmark | Model | Acc | F1 | AUROC |")
 w("|---|---|---|---|---|")
-acc, where = best_reported("adhd", "ADHD", "test_acc")
-auc, _ = best_reported("adhd", "ADHD", "test_auc")
-w(f"| ADHD-200 | Acc | {cell(acc)} | {where or '—'} | 0.587 |")
-w(f"| ADHD-200 | AUROC | {cell(auc)} | {where or '—'} | — |")
+acc, f1v, auc, tag = our_all("adhd", "ADHD")
+w(f"| ADHD-200 | Ours ({tag}) | {cell(acc)} | {cell(f1v)} | {cell(auc)} |")
+w(f"| | NeuroSTORM | 0.587 | n/r | n/r |")
+w("\n**For reference (NOT a valid comparison — different cohort HCP-YA vs HCP-Aging):**\n")
+w("| Benchmark | Model | Acc | F1 | AUROC |")
+w("|---|---|---|---|---|")
+acc, f1v, auc, tag = our_all("hcp", "Sex")
+w(f"| HCP / Sex | Ours ({tag}) | {cell(acc)} | {cell(f1v)} | {cell(auc)} |")
+w(f"| | Brain-JEPA (FT, HCP-Aging) | 0.815 | 0.843 | n/r |")
 w("\n**Not compared (different dataset):** HCP Sex/Age (HCP-YA vs HCP-Aging), "
   "COBRE vs HCP-EP, UCLA (to download). OASIS/ABIDE are not Brain-JEPA benchmarks.\n")
-w("\n**SOTA sources:** Brain-JEPA (arXiv 2409.19407, Tables 2-3, fine-tuning) · "
+w("\n**SOTA sources:** Brain-JEPA (arXiv 2409.19407, Tables 2-3, fine-tuning; Acc/F1 only) · "
   "NeuroSTORM (arXiv 2506.11167).\n")
 
 open(f"{HERE}/RESULTS.md", "w").write("\n".join(L))
