@@ -171,35 +171,51 @@ for ds, lab in [("adni", "NC_vs_MCI"), ("adni", "AD_vs_HC"), ("adni", "Amyloid")
 latex_table(["Axis"] + [a.replace("x", "$\\times$") for a in ARCHS] + ["linear"], rows)
 w("*The MLP head does not clearly beat the linear probe; deeper heads overfit.*\n")
 
-# ---- 5. SOTA (COLORED, 3 metrics) ----
+# ---- 5. results (ours) + SOTA only where same dataset ----
 def our_all(ds, label):
-    tag, res = best_auc_config(ds, label)
-    return (metric(res, "test_acc"), metric(res, "test_f1"), metric(res, "test_auc"), tag)
+    _, res = best_auc_config(ds, label)
+    return metric(res, "test_acc"), metric(res, "test_f1"), metric(res, "test_auc")
 
-w("## 5. Best results vs SOTA (same-dataset comparisons)\n")
-w("Three metrics side by side; `n/r` = not reported by that paper. Brain-JEPA numbers "
-  "are **fine-tuning** (ours: **linear probe**); our row is the **best-AUROC config**.\n")
-w("### Brain-JEPA (same dataset = ADNI)\n")
+def raw(ds, label, key):  # base-run value for cognition/task-state
+    return metric(load(f"{JSON}/probe_base_{ds}_agg-mean.json").get(label), key)
+
+NR = "\\cellcolor{gray!12}n/r"
+
+w("## 5. Our results vs SOTA (same-dataset only)\n")
+w("### 5a. Same-dataset comparisons\n")
+w("The SOTA number is shown **only** where the paper uses the same dataset as us. "
+  "Brain-JEPA = fine-tuning, Acc/F1 only; ours = linear probe (best-AUROC config).\n")
 rows = []
-for ds, lab, s_acc, s_f1 in [("adni", "NC_vs_MCI", 0.768, 0.863), ("adni", "Amyloid", 0.710, 0.760)]:
-    acc, f1v, auc, tag = our_all(ds, lab)
-    rows.append([f"ADNI / {lab.replace('_vs_','-')}", "Ours (lin.)", hc(acc), hc(f1v), hc(auc)])
-    rows.append(["", "Brain-JEPA (FT)", hc(s_acc), hc(s_f1), "\\cellcolor{gray!12}n/r"])
+for name, ds, lab, s_acc, s_f1 in [("ADNI / NC-MCI", "adni", "NC_vs_MCI", 0.768, 0.863),
+                                   ("ADNI / Amyloid", "adni", "Amyloid", 0.710, 0.760)]:
+    acc, f1v, auc = our_all(ds, lab)
+    rows.append([name, "Ours (lin.)", hc(acc), hc(f1v), hc(auc)])
+    rows.append(["", "Brain-JEPA (FT)", hc(s_acc), hc(s_f1), NR])
+acc, f1v, auc = our_all("adhd", "ADHD")
+rows.append(["ADHD-200", "Ours (lin.)", hc(acc), hc(f1v), hc(auc)])
+rows.append(["", "NeuroSTORM", hc(0.587), NR, NR])
 latex_table(["Benchmark", "Model", "Acc", "F1", "AUROC"], rows)
-w("### NeuroSTORM (same dataset = ADHD-200)\n")
-acc, f1v, auc, tag = our_all("adhd", "ADHD")
-rows = [["ADHD-200", "Ours (lin.)", hc(acc), hc(f1v), hc(auc)],
-        ["", "NeuroSTORM", hc(0.587), "\\cellcolor{gray!12}n/r", "\\cellcolor{gray!12}n/r"]]
-latex_table(["Benchmark", "Model", "Acc", "F1", "AUROC"], rows)
-w("### For reference — NOT a valid comparison (HCP-YA vs HCP-Aging)\n")
-acc, f1v, auc, tag = our_all("hcp", "Sex")
-rows = [["HCP / Sex", "Ours (lin.)", hc(acc), hc(f1v), hc(auc)],
-        ["", "Brain-JEPA (FT)", hc(0.815), hc(0.843), "\\cellcolor{gray!12}n/r"]]
-latex_table(["Benchmark", "Model", "Acc", "F1", "AUROC"], rows)
-w("\n**Not compared (different dataset):** HCP Sex/Age (HCP-YA vs HCP-Aging), "
-  "COBRE vs HCP-EP, UCLA (to download). OASIS/ABIDE are not Brain-JEPA benchmarks.\n")
-w("\n**SOTA sources:** Brain-JEPA (arXiv 2409.19407, Tables 2-3, fine-tuning; Acc/F1 only) · "
-  "NeuroSTORM (arXiv 2506.11167).\n")
+
+w("### 5b. Our other downstream results (no same-dataset SOTA to compare)\n")
+rows = []
+for name, ds, lab in [("ABIDE / Autism", "abide", "Autism"), ("ABIDE / Age", "abide", "Age"),
+                      ("ABIDE / Sex", "abide", "Sex"), ("ADNI / AD-HC", "adni", "AD_vs_HC"),
+                      ("HCP / Sex", "hcp", "Sex"), ("HCP / Age", "hcp", "Age"),
+                      ("COBRE / Schizophrenia", "cobre", "Schizophrenia")]:
+    acc, f1v, auc = our_all(ds, lab)
+    rows.append([name, hc(auc), hc(acc), hc(f1v)])
+latex_table(["Benchmark", "AUROC", "Acc", "F1"], rows)
+
+w("### 5c. Task-state and cognition (other metrics)\n")
+ts = raw("hcp_task", "TaskState", "acc_mean")
+rows = [["HCP task-state", "Acc (7-class, chance 0.143)", hc(ts)]]
+for tgt in ["FluidIntel", "ProcSpeed", "WorkingMem"]:
+    r = raw("hcp_cog", tgt, "test_r")
+    rows.append([f"HCP cognition / {tgt}", "Pearson $r$", hc(r)])
+latex_table(["Benchmark", "Metric", "Ours"], rows, colspec="llc")
+
+w("\n*Only ADNI (Brain-JEPA) and ADHD-200 (NeuroSTORM) are same-dataset comparisons. "
+  "Everything in 5b/5c is our own result with no matching same-dataset SOTA number.*\n")
 
 open(f"{HERE}/RESULTS.md", "w").write("\n".join(L))
 print("wrote RESULTS.md")

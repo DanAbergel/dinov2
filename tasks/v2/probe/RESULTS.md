@@ -109,11 +109,11 @@ COBRE / Schizophrenia & \cellcolor{Orange!50}0.602 & \cellcolor{Orange!50}0.566 
 ```
 *The MLP head does not clearly beat the linear probe; deeper heads overfit.*
 
-## 5. Best results vs SOTA (same-dataset comparisons)
+## 5. Our results vs SOTA (same-dataset only)
 
-Three metrics side by side; `n/r` = not reported by that paper. Brain-JEPA numbers are **fine-tuning** (ours: **linear probe**); our row is the **best-AUROC config**.
+### 5a. Same-dataset comparisons
 
-### Brain-JEPA (same dataset = ADNI)
+The SOTA number is shown **only** where the paper uses the same dataset as us. Brain-JEPA = fine-tuning, Acc/F1 only; ours = linear probe (best-AUROC config).
 
 ```{=latex}
 \begin{center}\small
@@ -125,40 +125,46 @@ ADNI / NC-MCI & Ours (lin.) & \cellcolor{Orange!50}0.576 & \cellcolor{Orange!50}
  & Brain-JEPA (FT) & \cellcolor{YellowGreen!50}0.768 & \cellcolor{OliveGreen!55}0.863 & \cellcolor{gray!12}n/r \\
 ADNI / Amyloid & Ours (lin.) & \cellcolor{Orange!50}0.559 & \cellcolor{Orange!50}0.623 & \cellcolor{Orange!50}0.641 \\
  & Brain-JEPA (FT) & \cellcolor{Yellow!55}0.710 & \cellcolor{YellowGreen!50}0.760 & \cellcolor{gray!12}n/r \\
-\hline
-\end{tabular}
-\end{center}
-```
-### NeuroSTORM (same dataset = ADHD-200)
-
-```{=latex}
-\begin{center}\small
-\begin{tabular}{lcccc}
-\hline
-\textbf{Benchmark} & \textbf{Model} & \textbf{Acc} & \textbf{F1} & \textbf{AUROC} \\
-\hline
 ADHD-200 & Ours (lin.) & \cellcolor{Orange!50}0.617 & \cellcolor{Red!35}0.287 & \cellcolor{Orange!50}0.557 \\
  & NeuroSTORM & \cellcolor{Orange!50}0.587 & \cellcolor{gray!12}n/r & \cellcolor{gray!12}n/r \\
 \hline
 \end{tabular}
 \end{center}
 ```
-### For reference — NOT a valid comparison (HCP-YA vs HCP-Aging)
+### 5b. Our other downstream results (no same-dataset SOTA to compare)
 
 ```{=latex}
 \begin{center}\small
-\begin{tabular}{lcccc}
+\begin{tabular}{lccc}
 \hline
-\textbf{Benchmark} & \textbf{Model} & \textbf{Acc} & \textbf{F1} & \textbf{AUROC} \\
+\textbf{Benchmark} & \textbf{AUROC} & \textbf{Acc} & \textbf{F1} \\
 \hline
-HCP / Sex & Ours (lin.) & \cellcolor{OliveGreen!55}0.892 & \cellcolor{OliveGreen!55}0.879 & \cellcolor{OliveGreen!55}0.962 \\
- & Brain-JEPA (FT) & \cellcolor{YellowGreen!50}0.815 & \cellcolor{YellowGreen!50}0.843 & \cellcolor{gray!12}n/r \\
+ABIDE / Autism & \cellcolor{Orange!50}0.606 & \cellcolor{Orange!50}0.572 & \cellcolor{Red!35}0.513 \\
+ABIDE / Age & \cellcolor{OliveGreen!55}0.877 & \cellcolor{YellowGreen!50}0.804 & \cellcolor{YellowGreen!50}0.805 \\
+ABIDE / Sex & \cellcolor{Yellow!55}0.694 & \cellcolor{Yellow!55}0.736 & \cellcolor{YellowGreen!50}0.834 \\
+ADNI / AD-HC & \cellcolor{Yellow!55}0.731 & \cellcolor{Yellow!55}0.651 & \cellcolor{Red!35}0.516 \\
+HCP / Sex & \cellcolor{OliveGreen!55}0.962 & \cellcolor{OliveGreen!55}0.892 & \cellcolor{OliveGreen!55}0.879 \\
+HCP / Age & \cellcolor{Yellow!55}0.680 & \cellcolor{Orange!50}0.618 & \cellcolor{Orange!50}0.597 \\
+COBRE / Schizophrenia & \cellcolor{Orange!50}0.602 & \cellcolor{Orange!50}0.561 & \cellcolor{Orange!50}0.574 \\
+\hline
+\end{tabular}
+\end{center}
+```
+### 5c. Task-state and cognition (other metrics)
+
+```{=latex}
+\begin{center}\small
+\begin{tabular}{llc}
+\hline
+\textbf{Benchmark} & \textbf{Metric} & \textbf{Ours} \\
+\hline
+HCP task-state & Acc (7-class, chance 0.143) & \cellcolor{Red!35}0.171 \\
+HCP cognition / FluidIntel & Pearson $r$ & \cellcolor{Red!35}0.115 \\
+HCP cognition / ProcSpeed & Pearson $r$ & \cellcolor{Red!35}0.159 \\
+HCP cognition / WorkingMem & Pearson $r$ & \cellcolor{Red!35}0.121 \\
 \hline
 \end{tabular}
 \end{center}
 ```
 
-**Not compared (different dataset):** HCP Sex/Age (HCP-YA vs HCP-Aging), COBRE vs HCP-EP, UCLA (to download). OASIS/ABIDE are not Brain-JEPA benchmarks.
-
-
-**SOTA sources:** Brain-JEPA (arXiv 2409.19407, Tables 2-3, fine-tuning; Acc/F1 only) · NeuroSTORM (arXiv 2506.11167).
+*Only ADNI (Brain-JEPA) and ADHD-200 (NeuroSTORM) are same-dataset comparisons. Everything in 5b/5c is our own result with no matching same-dataset SOTA number.*
