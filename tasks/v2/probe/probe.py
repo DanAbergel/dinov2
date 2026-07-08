@@ -1,11 +1,12 @@
 """Leakage-free 70:30 probe for a trained fMRI run.
 
 Four pieces, nothing else:
-  cls_token()  -> one embedding per scan (mean CLS over sliding 270-windows)
-  fit_probe()  -> THE training function: fit one head on frozen embeddings, return
-                  test AUC/Acc/F1. mlp=None -> linear; mlp=(256,128) -> that MLP.
-  Dataset      -> one class per cohort: its comparison tasks {name: label} + samples()
-  run()        -> samples -> embeddings (cached) -> 70:30 -> fit_probe per task -> JSON
+  cls_token()    -> one embedding per scan (mean CLS over sliding 270-windows)
+  Probe(nn)      -> the head: hidden=() linear, hidden=(256,128) MLP; forward -> 1 logit
+  train_probe()  -> THE training function: Adam + BCE + backprop on the FROZEN
+                    embeddings, return test AUC/Acc/F1. hidden=() linear else MLP.
+  Dataset        -> one class per cohort: its comparison tasks {name: label} + samples()
+  run()          -> samples -> embeddings (cached) -> 70:30 -> train_probe per task -> JSON
 
 70:30 split: in-pretraining cohorts (ADNI/ABIDE/HCP/OASIS) use subject_split.json
 (the 30% test was held out of pretraining -> no leakage); downstream-only cohorts
@@ -21,11 +22,9 @@ from pathlib import Path
 
 import numpy as np
 import torch
+import torch.nn as nn
 from omegaconf import OmegaConf
-from sklearn.linear_model import LogisticRegression
 from sklearn.metrics import accuracy_score, f1_score, roc_auc_score
-from sklearn.neural_network import MLPClassifier
-from sklearn.preprocessing import StandardScaler
 
 from dinov2.models import build_model_from_cfg
 from dinov2.data.fmri_data import (_load_mmap, _temporal_resample, _zscore_per_frame,
@@ -76,17 +75,53 @@ def cls_token(teacher, path, native_tr):
     return torch.stack(embs).mean(0).numpy()
 
 
-# ---- THE training function ----
+# ---- the probe head (PyTorch) + THE training function ----
 
-def fit_probe(Xtr, ytr, Xte, yte, mlp=None):
-    """Train one probe head on the frozen embeddings; return test AUC/Acc/F1.
-    mlp=None -> linear LogReg; mlp=(256,128) -> MLP with that hidden architecture."""
-    sc = StandardScaler().fit(Xtr)
-    clf = (MLPClassifier(hidden_layer_sizes=mlp, alpha=1e-3, max_iter=500,
-                         early_stopping=True, random_state=0) if mlp
-           else LogisticRegression(C=1.0, max_iter=2000, class_weight="balanced"))
-    clf.fit(sc.transform(Xtr), ytr)
-    proba = clf.predict_proba(sc.transform(Xte))[:, 1]
+class Probe(nn.Module):
+    """A probe head on top of the frozen CLS embedding.
+    hidden=() -> a single Linear (logistic regression);
+    hidden=(256, 128) -> an MLP with those hidden layers (ReLU). Output = 1 logit."""
+
+    def __init__(self, d_in, hidden=()):
+        super().__init__()
+        layers, d = [], d_in
+        for h in hidden:
+            layers += [nn.Linear(d, h), nn.ReLU()]
+            d = h
+        layers.append(nn.Linear(d, 1))
+        self.net = nn.Sequential(*layers)
+
+    def forward(self, x):
+        return self.net(x).squeeze(-1)                 # (B,) logits
+
+
+def train_probe(Xtr, ytr, Xte, yte, hidden=(), epochs=200, lr=1e-3, weight_decay=1e-4):
+    """Train a Probe head with Adam + BCE + backprop, return test AUC/Acc/F1.
+    hidden=() -> linear; hidden=(256,128) -> MLP. Encoder stays frozen (we train
+    only this head on the pre-extracted embeddings)."""
+    # standardize on TRAIN stats
+    mu, sd = Xtr.mean(0), Xtr.std(0) + 1e-6
+    xtr = torch.tensor((Xtr - mu) / sd, dtype=torch.float32, device=DEVICE)
+    xte = torch.tensor((Xte - mu) / sd, dtype=torch.float32, device=DEVICE)
+    ytr_t = torch.tensor(ytr, dtype=torch.float32, device=DEVICE)
+
+    model = Probe(Xtr.shape[1], hidden).to(DEVICE)
+    opt = torch.optim.Adam(model.parameters(), lr=lr, weight_decay=weight_decay)
+    # class balance: pos_weight = #neg / #pos
+    npos = float(ytr.sum())
+    pos_weight = torch.tensor([(len(ytr) - npos) / max(npos, 1.0)], device=DEVICE)
+    loss_fn = nn.BCEWithLogitsLoss(pos_weight=pos_weight)
+
+    model.train()
+    for _ in range(epochs):
+        opt.zero_grad()
+        loss = loss_fn(model(xtr), ytr_t)              # forward
+        loss.backward()                                # backprop
+        opt.step()
+
+    model.eval()
+    with torch.no_grad():
+        proba = torch.sigmoid(model(xte)).cpu().numpy()
     pred = (proba >= 0.5).astype(int)
     return {"auc": float(roc_auc_score(yte, proba)), "acc": float(accuracy_score(yte, pred)),
             "f1": float(f1_score(yte, pred, zero_division=0)),
@@ -313,7 +348,7 @@ def run(dataset, teacher, run_dir, checkpoint, mlp, out):
             results[task] = None
             print(f"  {task:16} (skipped)", flush=True)
             continue
-        r = fit_probe(X[tr], y[tr], X[te], y[te], mlp)
+        r = train_probe(X[tr], y[tr], X[te], y[te], hidden=mlp or ())
         results[task] = r
         print(f"  {task:16} AUC {r['auc']:.3f}  Acc {r['acc']:.3f}  F1 {r['f1']:.3f}  n_te={r['n_test']}", flush=True)
     payload = {"run": Path(run_dir).name, "dataset": dataset.name, "mlp": mlp, "results": results}
