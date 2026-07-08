@@ -1,4 +1,12 @@
+---
+header-includes:
+  - \usepackage[dvipsnames]{xcolor}
+  - \usepackage{colortbl}
+---
+
 # fMRI Foundation Model (V2) — Results
+
+**Color scale (AUROC / metric):** \colorbox{OliveGreen!55}{$\geq$0.85} \colorbox{YellowGreen!50}{0.75--0.85} \colorbox{Yellow!55}{0.65--0.75} \colorbox{Orange!50}{0.55--0.65} \colorbox{Red!35}{$<$0.55 (near chance)}
 
 ## 1. Pretraining corpus
 
@@ -12,11 +20,9 @@ Five sources, **4627 scans**, harmonized to TR = 0.72 s with a fixed T = 270 win
 | ADNI | 3.0 | yes | 3 |
 | AOMIC | 0.75/2.0 | no (kept whole) | 1 |
 
-*Quota = per-batch proportion (proportional sampler). Holdout: 30% of subjects excluded from pretraining -> leakage-free test set.*
+*Quota = per-batch proportion. Holdout: 30% of subjects excluded from pretraining -> leakage-free test set.*
 
 ## 2. Datasets & scan counts
-
-Every dataset we have, with its role (pretraining / downstream probe) and scan count.
 
 | Dataset | Role | Scans | Note |
 |---|---|---|---|
@@ -24,94 +30,133 @@ Every dataset we have, with its role (pretraining / downstream probe) and scan c
 | ABIDE | pretrain + probe | 1035 | Autism / Age / Sex |
 | OASIS-3 | pretrain + probe | 1197 | AD Conversion (labels pending) |
 | ADNI | pretrain + probe | 812 | NC-MCI / AD-HC / Amyloid |
-| AOMIC | pretrain only | ~499 | derived (4627 - others); no probe |
-| ADHD-200 | probe only (external) | 162 | 115 with usable DX label |
+| AOMIC | pretrain only | ~499 | derived (4627 - others) |
+| ADHD-200 | probe only (external) | 162 | 115 with usable DX |
 | COBRE | probe only (external) | 146 | schizophrenia (72 SZ / 74 HC) |
-| UCLA (ds000030) | probe only (external) | 265 | downloader ready, not yet run |
-| HCP task-fMRI | probe only | — | 7 tasks x ~1050, download pending |
+| UCLA (ds000030) | probe only (external) | 265 | downloader ready |
+| HCP task-fMRI | probe only | — | 7 tasks, download pending |
 
-*Pretraining corpus total = 4627 (HCP + ABIDE + OASIS + ADNI + AOMIC). External datasets (ADHD-200 / COBRE / UCLA) were never seen in pretraining.*
+*External datasets (ADHD-200 / COBRE / UCLA) were never seen in pretraining.*
 
 ## 3. Pretraining ablations (5 SSL runs) — test AUROC
 
-Each run starts from the same DINOv2 (ImageNet) init and changes **one** factor:
+Same DINOv2 (ImageNet) init; each run changes **one** factor. **base** = reference (freeze blocks 0-8), **fourier** = Fourier positional encoding, **noblock2** = drop block_2, **pool** = AvgPool downsampling, **unfrozen** = all layers unfrozen during SSL.
 
-- **base**: reference (freeze blocks 0-8) · **fourier**: Fourier positional encoding
-- **noblock2**: drop block_2 · **pool**: AvgPool downsampling (instead of strided conv)
-- **unfrozen**: all layers unfrozen during SSL
-
-| Axis | base | fourier | noblock2 | pool | unfrozen |
-|---|---|---|---|---|---|
-| ABIDE / Autism | 0.605 | 0.518 | 0.484 | 0.606 | 0.541 |
-| ABIDE / Age | 0.846 | 0.756 | 0.776 | 0.877 | 0.828 |
-| ABIDE / Sex | 0.521 | 0.514 | 0.492 | 0.694 | 0.538 |
-| ADNI / NC-MCI | 0.567 | 0.497 | 0.484 | 0.566 | 0.604 |
-| ADNI / AD-HC | 0.481 | 0.537 | 0.577 | 0.591 | 0.731 |
-| ADNI / Amyloid | 0.611 | 0.539 | 0.500 | 0.641 | 0.640 |
-| HCP / Sex | 0.908 | 0.900 | 0.933 | 0.962 | 0.886 |
-| HCP / Age | 0.633 | 0.594 | 0.626 | 0.680 | 0.592 |
-| OASIS / AD Conv | — | — | — | — | — |
-
-*Metric: test AUROC (linear probe, 30% held-out). OASIS = labels missing.*
+```{=latex}
+\begin{center}\small
+\begin{tabular}{lccccc}
+\hline
+\textbf{Axis} & \textbf{base} & \textbf{fourier} & \textbf{noblock2} & \textbf{pool} & \textbf{unfrozen} \\
+\hline
+ABIDE / Autism & \cellcolor{Orange!50}0.605 & \cellcolor{Red!35}0.518 & \cellcolor{Red!35}0.484 & \cellcolor{Orange!50}0.606 & \cellcolor{Red!35}0.541 \\
+ABIDE / Age & \cellcolor{YellowGreen!50}0.846 & \cellcolor{YellowGreen!50}0.756 & \cellcolor{YellowGreen!50}0.776 & \cellcolor{OliveGreen!55}0.877 & \cellcolor{YellowGreen!50}0.828 \\
+ABIDE / Sex & \cellcolor{Red!35}0.521 & \cellcolor{Red!35}0.514 & \cellcolor{Red!35}0.492 & \cellcolor{Yellow!55}0.694 & \cellcolor{Red!35}0.538 \\
+ADNI / NC-MCI & \cellcolor{Orange!50}0.567 & \cellcolor{Red!35}0.497 & \cellcolor{Red!35}0.484 & \cellcolor{Orange!50}0.566 & \cellcolor{Orange!50}0.604 \\
+ADNI / AD-HC & \cellcolor{Red!35}0.481 & \cellcolor{Red!35}0.537 & \cellcolor{Orange!50}0.577 & \cellcolor{Orange!50}0.591 & \cellcolor{Yellow!55}0.731 \\
+ADNI / Amyloid & \cellcolor{Orange!50}0.611 & \cellcolor{Red!35}0.539 & \cellcolor{Red!35}0.500 & \cellcolor{Orange!50}0.641 & \cellcolor{Orange!50}0.640 \\
+HCP / Sex & \cellcolor{OliveGreen!55}0.908 & \cellcolor{OliveGreen!55}0.900 & \cellcolor{OliveGreen!55}0.933 & \cellcolor{OliveGreen!55}0.962 & \cellcolor{OliveGreen!55}0.886 \\
+HCP / Age & \cellcolor{Orange!50}0.633 & \cellcolor{Orange!50}0.594 & \cellcolor{Orange!50}0.626 & \cellcolor{Yellow!55}0.680 & \cellcolor{Orange!50}0.592 \\
+OASIS / AD Conv & \cellcolor{gray!12}-- & \cellcolor{gray!12}-- & \cellcolor{gray!12}-- & \cellcolor{gray!12}-- & \cellcolor{gray!12}-- \\
+\hline
+\end{tabular}
+\end{center}
+```
+*AUROC ranks the runs by representation quality (threshold- and balance-independent). The SOTA table (Section 5) uses Acc/F1, matching what the papers report.*
 
 ## 4. Probe ablations (on `base`)
 
 ### 4a. Temporal aggregation of the CLS token — AUROC
 
-| Axis | mean (384-d) | mean_std (768-d) | delta |
-|---|---|---|---|
-| ABIDE / Autism | 0.605 | 0.583 | -0.023 |
-| ABIDE / Age | 0.846 | 0.835 | -0.011 |
-| ADNI / NC_vs_MCI | 0.567 | 0.505 | -0.062 |
-| ADNI / Amyloid | 0.611 | 0.606 | -0.005 |
-| ADNI / AD_vs_HC | 0.481 | 0.404 | -0.077 |
-| HCP / Sex | 0.908 | 0.853 | -0.055 |
-| HCP / Age | 0.633 | 0.595 | -0.037 |
-| ADHD / ADHD | 0.552 | 0.557 | +0.005 |
-| COBRE / Schizophrenia | 0.519 | 0.538 | +0.019 |
-
-*mean_std mainly helps task dynamics; elsewhere `mean` wins.*
+```{=latex}
+\begin{center}\small
+\begin{tabular}{lccc}
+\hline
+\textbf{Axis} & \textbf{mean (384-d)} & \textbf{mean\_std (768-d)} & \textbf{$\Delta$} \\
+\hline
+ABIDE / Autism & \cellcolor{Orange!50}0.605 & \cellcolor{Orange!50}0.583 & -0.023 \\
+ABIDE / Age & \cellcolor{YellowGreen!50}0.846 & \cellcolor{YellowGreen!50}0.835 & -0.011 \\
+ADNI / NC-MCI & \cellcolor{Orange!50}0.567 & \cellcolor{Red!35}0.505 & -0.062 \\
+ADNI / Amyloid & \cellcolor{Orange!50}0.611 & \cellcolor{Orange!50}0.606 & -0.005 \\
+ADNI / AD-HC & \cellcolor{Red!35}0.481 & \cellcolor{Red!35}0.404 & -0.077 \\
+HCP / Sex & \cellcolor{OliveGreen!55}0.908 & \cellcolor{OliveGreen!55}0.853 & -0.055 \\
+HCP / Age & \cellcolor{Orange!50}0.633 & \cellcolor{Orange!50}0.595 & -0.037 \\
+ADHD / ADHD & \cellcolor{Orange!50}0.552 & \cellcolor{Orange!50}0.557 & +0.005 \\
+COBRE / Schizophrenia & \cellcolor{Red!35}0.519 & \cellcolor{Red!35}0.538 & +0.019 \\
+\hline
+\end{tabular}
+\end{center}
+```
+*`mean_std` mainly helps task dynamics; elsewhere `mean` wins.*
 
 ### 4b. MLP head architecture — AUROC
 
-| Axis | 128 | 256 | 256x128 | 512x256 | 512x256x128 | linear |
-|---|---|---|---|---|---|---|
-| ADNI / NC_vs_MCI | 0.588 | 0.509 | 0.523 | 0.475 | 0.433 | 0.567 |
-| ADNI / AD_vs_HC | 0.407 | 0.467 | 0.472 | 0.448 | 0.487 | 0.481 |
-| ADNI / Amyloid | 0.621 | 0.623 | 0.610 | 0.631 | 0.610 | 0.611 |
-| ABIDE / Autism | 0.550 | 0.497 | 0.561 | 0.509 | 0.522 | 0.605 |
-| HCP / Sex | 0.844 | 0.906 | 0.896 | 0.898 | 0.895 | 0.908 |
-| ADHD / ADHD | 0.477 | 0.466 | 0.382 | 0.412 | 0.397 | 0.552 |
-| COBRE / Schizophrenia | 0.602 | 0.566 | 0.595 | 0.557 | 0.590 | 0.519 |
-
+```{=latex}
+\begin{center}\small
+\begin{tabular}{lcccccc}
+\hline
+\textbf{Axis} & \textbf{128} & \textbf{256} & \textbf{256$\times$128} & \textbf{512$\times$256} & \textbf{512$\times$256$\times$128} & \textbf{linear} \\
+\hline
+ADNI / NC-MCI & \cellcolor{Orange!50}0.588 & \cellcolor{Red!35}0.509 & \cellcolor{Red!35}0.523 & \cellcolor{Red!35}0.475 & \cellcolor{Red!35}0.433 & \cellcolor{Orange!50}0.567 \\
+ADNI / AD-HC & \cellcolor{Red!35}0.407 & \cellcolor{Red!35}0.467 & \cellcolor{Red!35}0.472 & \cellcolor{Red!35}0.448 & \cellcolor{Red!35}0.487 & \cellcolor{Red!35}0.481 \\
+ADNI / Amyloid & \cellcolor{Orange!50}0.621 & \cellcolor{Orange!50}0.623 & \cellcolor{Orange!50}0.610 & \cellcolor{Orange!50}0.631 & \cellcolor{Orange!50}0.610 & \cellcolor{Orange!50}0.611 \\
+ABIDE / Autism & \cellcolor{Red!35}0.550 & \cellcolor{Red!35}0.497 & \cellcolor{Orange!50}0.561 & \cellcolor{Red!35}0.509 & \cellcolor{Red!35}0.522 & \cellcolor{Orange!50}0.605 \\
+HCP / Sex & \cellcolor{YellowGreen!50}0.844 & \cellcolor{OliveGreen!55}0.906 & \cellcolor{OliveGreen!55}0.896 & \cellcolor{OliveGreen!55}0.898 & \cellcolor{OliveGreen!55}0.895 & \cellcolor{OliveGreen!55}0.908 \\
+ADHD / ADHD & \cellcolor{Red!35}0.477 & \cellcolor{Red!35}0.466 & \cellcolor{Red!35}0.382 & \cellcolor{Red!35}0.412 & \cellcolor{Red!35}0.397 & \cellcolor{Orange!50}0.552 \\
+COBRE / Schizophrenia & \cellcolor{Orange!50}0.602 & \cellcolor{Orange!50}0.566 & \cellcolor{Orange!50}0.595 & \cellcolor{Orange!50}0.557 & \cellcolor{Orange!50}0.590 & \cellcolor{Red!35}0.519 \\
+\hline
+\end{tabular}
+\end{center}
+```
 *The MLP head does not clearly beat the linear probe; deeper heads overfit.*
 
 ## 5. Best results vs SOTA (same-dataset comparisons)
 
-All three metrics side by side. `n/r` = not reported by that paper. Caveats: (1) Brain-JEPA numbers are **fine-tuning**, ours are **linear probe**; (2) our row is the **best-AUROC config** (avoids majority-class accuracy inflation). Brain-JEPA reports only Acc/F1 (no AUROC); NeuroSTORM reports Acc for ADHD-200.
+Three metrics side by side; `n/r` = not reported by that paper. Brain-JEPA numbers are **fine-tuning** (ours: **linear probe**); our row is the **best-AUROC config**.
 
 ### Brain-JEPA (same dataset = ADNI)
 
-| Benchmark | Model | Acc | F1 | AUROC |
-|---|---|---|---|---|
-| ADNI / NC-MCI | Ours (unfrozen_adni) | 0.576 | 0.632 | 0.604 |
-| | Brain-JEPA (FT) | 0.768 | 0.863 | n/r |
-| ADNI / Amyloid | Ours (pool_adni) | 0.559 | 0.623 | 0.641 |
-| | Brain-JEPA (FT) | 0.710 | 0.760 | n/r |
-
+```{=latex}
+\begin{center}\small
+\begin{tabular}{lcccc}
+\hline
+\textbf{Benchmark} & \textbf{Model} & \textbf{Acc} & \textbf{F1} & \textbf{AUROC} \\
+\hline
+ADNI / NC-MCI & Ours (lin.) & \cellcolor{Orange!50}0.576 & \cellcolor{Orange!50}0.632 & \cellcolor{Orange!50}0.604 \\
+ & Brain-JEPA (FT) & \cellcolor{YellowGreen!50}0.768 & \cellcolor{OliveGreen!55}0.863 & \cellcolor{gray!12}n/r \\
+ADNI / Amyloid & Ours (lin.) & \cellcolor{Orange!50}0.559 & \cellcolor{Orange!50}0.623 & \cellcolor{Orange!50}0.641 \\
+ & Brain-JEPA (FT) & \cellcolor{Yellow!55}0.710 & \cellcolor{YellowGreen!50}0.760 & \cellcolor{gray!12}n/r \\
+\hline
+\end{tabular}
+\end{center}
+```
 ### NeuroSTORM (same dataset = ADHD-200)
 
-| Benchmark | Model | Acc | F1 | AUROC |
-|---|---|---|---|---|
-| ADHD-200 | Ours (base_adhd_agg-mean_std) | 0.617 | 0.287 | 0.557 |
-| | NeuroSTORM | 0.587 | n/r | n/r |
+```{=latex}
+\begin{center}\small
+\begin{tabular}{lcccc}
+\hline
+\textbf{Benchmark} & \textbf{Model} & \textbf{Acc} & \textbf{F1} & \textbf{AUROC} \\
+\hline
+ADHD-200 & Ours (lin.) & \cellcolor{Orange!50}0.617 & \cellcolor{Red!35}0.287 & \cellcolor{Orange!50}0.557 \\
+ & NeuroSTORM & \cellcolor{Orange!50}0.587 & \cellcolor{gray!12}n/r & \cellcolor{gray!12}n/r \\
+\hline
+\end{tabular}
+\end{center}
+```
+### For reference — NOT a valid comparison (HCP-YA vs HCP-Aging)
 
-**For reference (NOT a valid comparison — different cohort HCP-YA vs HCP-Aging):**
-
-| Benchmark | Model | Acc | F1 | AUROC |
-|---|---|---|---|---|
-| HCP / Sex | Ours (pool_hcp) | 0.892 | 0.879 | 0.962 |
-| | Brain-JEPA (FT, HCP-Aging) | 0.815 | 0.843 | n/r |
+```{=latex}
+\begin{center}\small
+\begin{tabular}{lcccc}
+\hline
+\textbf{Benchmark} & \textbf{Model} & \textbf{Acc} & \textbf{F1} & \textbf{AUROC} \\
+\hline
+HCP / Sex & Ours (lin.) & \cellcolor{OliveGreen!55}0.892 & \cellcolor{OliveGreen!55}0.879 & \cellcolor{OliveGreen!55}0.962 \\
+ & Brain-JEPA (FT) & \cellcolor{YellowGreen!50}0.815 & \cellcolor{YellowGreen!50}0.843 & \cellcolor{gray!12}n/r \\
+\hline
+\end{tabular}
+\end{center}
+```
 
 **Not compared (different dataset):** HCP Sex/Age (HCP-YA vs HCP-Aging), COBRE vs HCP-EP, UCLA (to download). OASIS/ABIDE are not Brain-JEPA benchmarks.
 
