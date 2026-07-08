@@ -150,21 +150,5 @@ COBRE / Schizophrenia & \cellcolor{Orange!50}0.602 & \cellcolor{Orange!50}0.561 
 \end{tabular}
 \end{center}
 ```
-### 5c. Task-state and cognition (other metrics)
 
-```{=latex}
-\begin{center}\small
-\begin{tabular}{llc}
-\hline
-\textbf{Benchmark} & \textbf{Metric} & \textbf{Ours} \\
-\hline
-HCP task-state & Acc (7-class, chance 0.143) & \cellcolor{Red!35}0.171 \\
-HCP cognition / FluidIntel & Pearson $r$ & \cellcolor{Red!35}0.115 \\
-HCP cognition / ProcSpeed & Pearson $r$ & \cellcolor{Red!35}0.159 \\
-HCP cognition / WorkingMem & Pearson $r$ & \cellcolor{Red!35}0.121 \\
-\hline
-\end{tabular}
-\end{center}
-```
-
-*Only ADNI (Brain-JEPA) and ADHD-200 (NeuroSTORM) are same-dataset comparisons. Everything in 5b/5c is our own result with no matching same-dataset SOTA number.*
+*Only ADNI (Brain-JEPA) and ADHD-200 (NeuroSTORM) are same-dataset comparisons. Everything in 5b is our own result with no matching same-dataset SOTA number.*

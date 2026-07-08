@@ -206,16 +206,8 @@ for name, ds, lab in [("ABIDE / Autism", "abide", "Autism"), ("ABIDE / Age", "ab
     rows.append([name, hc(auc), hc(acc), hc(f1v)])
 latex_table(["Benchmark", "AUROC", "Acc", "F1"], rows)
 
-w("### 5c. Task-state and cognition (other metrics)\n")
-ts = raw("hcp_task", "TaskState", "acc_mean")
-rows = [["HCP task-state", "Acc (7-class, chance 0.143)", hc(ts)]]
-for tgt in ["FluidIntel", "ProcSpeed", "WorkingMem"]:
-    r = raw("hcp_cog", tgt, "test_r")
-    rows.append([f"HCP cognition / {tgt}", "Pearson $r$", hc(r)])
-latex_table(["Benchmark", "Metric", "Ours"], rows, colspec="llc")
-
 w("\n*Only ADNI (Brain-JEPA) and ADHD-200 (NeuroSTORM) are same-dataset comparisons. "
-  "Everything in 5b/5c is our own result with no matching same-dataset SOTA number.*\n")
+  "Everything in 5b is our own result with no matching same-dataset SOTA number.*\n")
 
 open(f"{HERE}/RESULTS.md", "w").write("\n".join(L))
 print("wrote RESULTS.md")
