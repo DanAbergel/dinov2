@@ -261,66 +261,92 @@ def _finalize(clip, t_fixed, target_shape=TARGET_SHAPE):
 # =====================================================================
 
 class MixedFMRIDataset(Dataset):
-    """The five fMRI cohorts (HCP/ABIDE/OASIS/AOMIC/ADNI) as one dataset. Each
-    __getitem__ mmaps a native (T,X,Y,Z) scan, crops a native window spanning
-    T_fixed*0.72s (crop FIRST so a 524 MB HCP file never fully loads), resamples
-    it to T_fixed frames @ 0.72s, and z-scores -> (T_fixed, 1, 45, 54, 45).
-    `dataset_indices` (name -> global indices) feeds ProportionalBatchSampler."""
+    """The five fMRI cohorts (HCP/ABIDE/OASIS/AOMIC/ADNI) presented as ONE dataset,
+    with the same (transform / target_transform) API as ImageNet so it drops into
+    DINOv2's do_train unchanged.
+
+    Each __getitem__ returns one preprocessed window:
+        image  : float tensor (T_fixed, 1, 45, 54, 45)   -- z-scored, TR-harmonized
+        target : 0                                        -- unused (self-supervised)
+
+    `dataset_indices` ({name -> [global indices]}) is exposed so
+    ProportionalBatchSampler can compose each batch with a per-dataset quota.
+
+    __init__ does three things (each a small helper below):
+        1. _apply_exclude : optionally drop whole datasets from pretraining
+        2. _discover      : build the scan list (manifest, else glob) + holdout
+        3. store transforms
+    """
 
     def __init__(self, root=None, *, t_fixed=DEFAULT_T_FIXED, temporal_crop=None,
                  datasets=CORPUS_DATASETS, exclude=None, manifest=None, drop_short=True,
                  split_file=None, holdout_datasets=HOLDOUT_DATASETS,
                  pretrain_splits=("train",), transform=None, target_transform=None,
                  **_ignored):
+        # temporal_crop is a legacy alias for t_fixed.
         self.t_fixed = int(temporal_crop if temporal_crop is not None else t_fixed)
+        self.transform, self.target_transform = transform, target_transform
         lab_root = root or LAB_ROOT
 
-        # Drop whole datasets from pretraining (e.g. exclude=ADNI for a clean
-        # downstream probe over the FULL ADNI cohort, encoder unseen).
-        if exclude:
-            ex = {d.strip() for d in str(exclude).replace("-", ",").split(",")}
-            datasets = tuple(d for d in datasets if d not in ex)
-            logger.info(f"MixedFMRIDataset: excluding whole datasets {ex}")
+        datasets = self._apply_exclude(datasets, exclude)
+        self.entries, self.dataset_indices = self._discover(
+            lab_root, datasets, drop_short, manifest, split_file,
+            holdout_datasets, pretrain_splits)
+        if not self.entries:
+            raise FileNotFoundError(f"No scans under {lab_root} for datasets={datasets}")
 
-        # Subject-level holdout via split file (absent -> use all data).
+    @staticmethod
+    def _apply_exclude(datasets, exclude):
+        """Drop whole datasets from pretraining, e.g. exclude="ADNI" (or "ADNI,ABIDE"),
+        so a downstream probe can later use the FULL held-out cohort, encoder unseen."""
+        if not exclude:
+            return datasets
+        ex = {d.strip() for d in str(exclude).replace("-", ",").split(",")}
+        logger.info(f"MixedFMRIDataset: excluding whole datasets {ex}")
+        return tuple(d for d in datasets if d not in ex)
+
+    def _discover(self, lab_root, datasets, drop_short, manifest, split_file,
+                  holdout_datasets, pretrain_splits):
+        """Build (entries, dataset_indices). Prefer the manifest (fast + carries
+        T_native, so short scans AND holdout subjects are filtered without opening
+        the files); fall back to a live glob if no manifest exists."""
+        # Subject-level holdout via the split file (absent -> keep every subject).
         sf = Path(split_file) if split_file else Path(lab_root) / DEFAULT_SPLIT
         split_map = _load_split_map(sf) if sf.exists() else None
 
-        # Prefer the manifest (fast + carries T_native to drop too-short scans).
         man = Path(manifest) if manifest else Path(lab_root) / DEFAULT_MANIFEST
         if man.exists():
-            min_t = self.t_fixed if drop_short else 0
-            self.entries, self.dataset_indices = entries_from_manifest(
-                man, datasets, min_upsampled_t=min_t, split_map=split_map,
+            entries, idx = entries_from_manifest(
+                man, datasets, min_upsampled_t=(self.t_fixed if drop_short else 0),
+                split_map=split_map,
                 holdout_datasets=holdout_datasets if split_map else (),
                 pretrain_splits=pretrain_splits)
             src = f"manifest {man.name}"
         else:
-            self.entries, self.dataset_indices = build_corpus_entries(lab_root, datasets)
+            entries, idx = build_corpus_entries(lab_root, datasets)
             src = "glob (no manifest; short scans stretched, not dropped)"
-
-        if not self.entries:
-            raise FileNotFoundError(f"No scans under {lab_root} for datasets={datasets}")
-        self.transform = transform
-        self.target_transform = target_transform
-        counts = {k: len(v) for k, v in self.dataset_indices.items()}
-        logger.info(f"MixedFMRIDataset: {len(self.entries)} scans  T_fixed={self.t_fixed}  "
+        counts = {k: len(v) for k, v in idx.items()}
+        logger.info(f"MixedFMRIDataset: {len(entries)} scans  T_fixed={self.t_fixed}  "
                     f"target_TR={TARGET_TR}s  src={src}  per-dataset={counts}")
+        return entries, idx
 
     def __len__(self):
         return len(self.entries)
 
     def _load(self, idx):
+        """One scan -> one preprocessed window (T_fixed, 1, 45, 54, 45). Crop the
+        native window FIRST (on the mmap) so a 500 MB HCP scan never fully loads;
+        then resize + resample-to-0.72s + z-score happen in _finalize."""
         e = self.entries[idx]
-        scan = _load_mmap(e["path"])                       # (T,X,Y,Z) lazy
+        scan = _load_mmap(e["path"])                       # lazy (T, X, Y, Z)
         start, win = _native_window(scan.shape[0], e["tr"], self.t_fixed)
         return _finalize(scan[start:start + win].clone(), self.t_fixed)
 
     def __getitem__(self, idx):
         image = self._load(idx)
-        target: Any = 0
+        target: Any = 0                                    # unused (self-supervised)
         if self.transform is not None:
-            image = self.transform(image)
+            image = self.transform(image)                  # augmentation (masking, Phase 5)
         if self.target_transform is not None:
             target = self.target_transform(target)
         return image, target
