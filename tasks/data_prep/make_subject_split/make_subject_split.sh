@@ -1,11 +1,11 @@
 #!/bin/bash
 # =====================================================================
-# Build the subject-level train/val/test split (70/15/15) for the corpus.
+# Build the subject-level train/test split (70/30) for the corpus.
 #
 # Reads  <lab>/corpus_manifest.csv, writes <lab>/subject_split.json.
-# MixedFMRIDataset then excludes the val+test subjects of the downstream
-# datasets (ADNI/ABIDE/OASIS) from SSL pretraining (no leakage); probes
-# evaluate on the held-out test subjects.
+# MixedFMRIDataset then excludes the test subjects of the downstream
+# datasets (ADNI/ABIDE/OASIS/HCP) from SSL pretraining (no leakage); probes
+# evaluate on those held-out test subjects.
 #
 # Read-only-ish, CPU, <1 min. Run on the gateway or:
 #   sbatch -A arieljaffe tasks/data_prep/make_subject_split/make_subject_split.sh
