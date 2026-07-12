@@ -19,7 +19,8 @@ official file**. Each item = **What** / **Why** (vs official) / **Where** (`file
 - **What**: walk each dataset dir, attach the per-scan native TR; the offline manifest
   records every scan's native length T so we can drop too-short scans without re-reading them.
 - **Why**: no such multi-source discovery exists in DINOv2.
-- **Where**: `build_corpus_entries` L41 · `write_corpus_manifest` (writes the CSV).
+- **Where**: `DATASET_SOURCES` (declarative per-dataset table) L51 · `build_corpus_entries` L75 ·
+  `write_corpus_manifest` (writes the CSV).
 
 **1.3 · Subject-level holdout, 70/30 train/test (no leakage)** 🟠 `dinov2/data/fmri_data.py`
 - **What**: a subject-level **70/30 train/test** split (`subject_split.json`); the 30 %

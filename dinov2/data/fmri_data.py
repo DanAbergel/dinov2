@@ -38,38 +38,65 @@ logger = logging.getLogger("dinov2")
 # 1. CORPUS — discover scans + subject-level holdout
 # =====================================================================
 
+# ---------------------------------------------------------------------------
+# Where each source lives on disk, and how to read its subject id + native TR.
+# One declarative entry per dataset -> build_corpus_entries just loops over this,
+# so adding a cohort = adding one line here (no new if/elif branch).
+#   glob    : path pattern (under lab_root) matching every scan .pt of the cohort.
+#   subject : derive the subject id from a scan's Path. All scans of one subject
+#             MUST share the same id, so they never straddle the train/test split.
+#   tr      : the native repetition time (s). ABIDE differs per acquisition site,
+#             so its TR is looked up from the filename -> a function, not a constant.
+# ---------------------------------------------------------------------------
+DATASET_SOURCES = {
+    # HCP: one rest run per subject; subject id = the "subject_XXXXXX" folder name.
+    "HCP":   dict(glob="HCP_data/downsampled/subject_*/rfMRI_REST1_LR_downsampled.pt",
+                  subject=lambda p: p.parent.name,
+                  tr=lambda p: HCP_TR),
+    # ABIDE: multi-site; the site is the filename prefix and the TR is per site.
+    "ABIDE": dict(glob="ABIDE_data/downsampled/**/*.pt",
+                  subject=lambda p: p.stem,
+                  tr=lambda p: ABIDE_SITE_TR.get(p.name.split("_")[0])),
+    # OASIS-3: one file per session folder; a single documented TR.
+    "OASIS": dict(glob="OASIS3_data/downsampled/*/rest_*.pt",
+                  subject=lambda p: p.parent.name,
+                  tr=lambda p: OASIS_DEFAULT_TR),
+    # AOMIC: two protocols (piop1/piop2) with different TRs, told apart by the path.
+    "AOMIC": dict(glob="AOMIC_data/downsampled/*/sub-*/restingstate_downsampled.pt",
+                  subject=lambda p: p.parent.name,
+                  tr=lambda p: AOMIC_TR["piop1" if "piop1" in str(p).lower() else "piop2"]),
+    # ADNI: files named I<image_id>.pt inside a per-subject folder.
+    "ADNI":  dict(glob="ADNI_data/downsampled/*/I*.pt",
+                  subject=lambda p: p.parent.name,
+                  tr=lambda p: ADNI_TR),
+}
+
+
 def build_corpus_entries(lab_root=LAB_ROOT, datasets=CORPUS_DATASETS):
-    """Scan the dataset dirs -> (flat entry list, name->indices map). Each entry:
-    {dataset, path, subject_id, tr}. The map feeds ProportionalBatchSampler."""
-    lab = Path(lab_root)
-    entries: list = []
-    by_dataset: dict = {}
+    """Discover every scan of the requested datasets on disk.
 
-    def add(name, path, subject_id, tr):
-        by_dataset.setdefault(name, []).append(len(entries))
-        entries.append({"dataset": name, "path": str(path),
-                        "subject_id": subject_id, "tr": float(tr)})
-
-    if "HCP" in datasets:
-        for p in sorted(lab.glob("HCP_data/downsampled/subject_*/rfMRI_REST1_LR_downsampled.pt")):
-            add("HCP", p, p.parent.name, HCP_TR)
-    if "ABIDE" in datasets:
-        for p in sorted(lab.glob("ABIDE_data/downsampled/**/*.pt")):
-            tr = ABIDE_SITE_TR.get(p.name.split("_")[0])
-            if tr is None:
-                logger.warning(f"ABIDE site unmapped ({p.name}); skipping")
+    Returns (entries, by_dataset):
+      entries    : flat list of {dataset, path, subject_id, tr}, one dict per scan.
+      by_dataset : {name -> [indices into entries]} — feeds ProportionalBatchSampler
+                   so each batch can be composed with a fixed per-dataset quota.
+    The per-dataset details live in DATASET_SOURCES above; this loop is generic.
+    """
+    entries, by_dataset = [], {}
+    for name in datasets:
+        src = DATASET_SOURCES.get(name)
+        if src is None:                                    # unknown dataset name -> skip
+            continue
+        # sorted() makes the file order deterministic (reproducible corpus).
+        for p in sorted(Path(lab_root).glob(src["glob"])):
+            tr = src["tr"](p)
+            if tr is None:                                 # e.g. an unmapped ABIDE site
+                logger.warning(f"{name}: no native TR for {p.name}; skipping")
                 continue
-            add("ABIDE", p, p.stem, tr)
-    if "OASIS" in datasets:
-        for p in sorted(lab.glob("OASIS3_data/downsampled/*/rest_*.pt")):
-            add("OASIS", p, p.parent.name, OASIS_DEFAULT_TR)
-    if "AOMIC" in datasets:
-        for p in sorted(lab.glob("AOMIC_data/downsampled/*/sub-*/restingstate_downsampled.pt")):
-            proto = "piop1" if "piop1" in str(p).lower() else "piop2"
-            add("AOMIC", p, p.parent.name, AOMIC_TR[proto])
-    if "ADNI" in datasets:
-        for p in sorted(lab.glob("ADNI_data/downsampled/*/I*.pt")):
-            add("ADNI", p, p.parent.name, ADNI_TR)
+            # record this scan's global index under its dataset (for the sampler)...
+            by_dataset.setdefault(name, []).append(len(entries))
+            # ...then append the scan itself.
+            entries.append({"dataset": name, "path": str(p),
+                            "subject_id": src["subject"](p), "tr": float(tr)})
     return entries, by_dataset
 
 
