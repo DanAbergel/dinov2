@@ -1,8 +1,9 @@
 """Generate RESULTS.md (+ colored PDF via pandoc/xelatex) from all json_results.
 
-Color heat-map on the numeric tables (green=strong ... red=near chance) so the
-story reads at a glance. Sections: corpus / scan counts / pretraining ablations /
-probe ablations / SOTA comparison.
+Coloring policy: only the BEST cell of each row is highlighted (green) — no
+heat-map buckets. In the SOTA tables the per-metric winner (Ours vs SOTA) is
+highlighted. Sections: corpus / scan counts / pretraining ablations / probe
+ablations / SOTA comparison.
 """
 import glob
 import json
@@ -11,6 +12,7 @@ import os
 HERE = os.path.dirname(__file__)
 JSON = os.path.join(HERE, "json_results")
 RUNS = ["base", "fourier", "noblock2", "pool", "unfrozen"]
+BEST = "\\cellcolor{OliveGreen!55}"          # highlight for the best cell
 
 
 def load(path):
@@ -29,20 +31,15 @@ def metric(res, key):
     return res.get(alt) if alt else None
 
 
-# ---- color heat-map (LaTeX \cellcolor) ----
-def _cc(v):
-    if v is None:
-        return "gray!12"
-    if v >= 0.85: return "OliveGreen!55"
-    if v >= 0.75: return "YellowGreen!50"
-    if v >= 0.65: return "Yellow!55"
-    if v >= 0.55: return "Orange!50"
-    return "Red!35"
+def fmt(v):
+    return f"{v:.3f}" if isinstance(v, (int, float)) else "--"
 
 
-def hc(v):
-    """Colored LaTeX cell for a metric value in [0,1]."""
-    return "\\cellcolor{gray!12}--" if v is None else f"\\cellcolor{{{_cc(v)}}}{v:.3f}"
+def row_hl(vals):
+    """Cells for a row where ONLY the max value is highlighted green."""
+    nums = [v for v in vals if isinstance(v, (int, float))]
+    mx = max(nums) if nums else None
+    return [(BEST + fmt(v)) if (isinstance(v, (int, float)) and v == mx) else fmt(v) for v in vals]
 
 
 def best_auc_config(ds, label):
@@ -55,6 +52,11 @@ def best_auc_config(ds, label):
     return best
 
 
+def our_all(ds, label):
+    _, res = best_auc_config(ds, label)
+    return metric(res, "test_acc"), metric(res, "test_f1"), metric(res, "test_auc")
+
+
 run_res = {(r, ds): load(f"{JSON}/probe_{r}_{ds}.json")
            for r in RUNS for ds in ["abide", "adni", "hcp", "oasis"]}
 
@@ -64,7 +66,6 @@ def w(s=""):
 
 
 def latex_table(header, rows, colspec=None):
-    """Emit a raw-LaTeX centered tabular (passed through by pandoc)."""
     n = len(header)
     colspec = colspec or ("l" + "c" * (n - 1))
     w("```{=latex}")
@@ -81,20 +82,15 @@ def latex_table(header, rows, colspec=None):
     w("```")
 
 
-# ---- YAML header: color packages ----
+# ---- header ----
 w("---")
 w("header-includes:")
 w("  - \\usepackage[dvipsnames]{xcolor}")
 w("  - \\usepackage{colortbl}")
 w("---\n")
-
 w("# fMRI Foundation Model (V2) — Results\n")
-w("**Color scale (AUROC / metric):** "
-  "\\colorbox{OliveGreen!55}{$\\geq$0.85} "
-  "\\colorbox{YellowGreen!50}{0.75--0.85} "
-  "\\colorbox{Yellow!55}{0.65--0.75} "
-  "\\colorbox{Orange!50}{0.55--0.65} "
-  "\\colorbox{Red!35}{$<$0.55 (near chance)}\n")
+w("*In every table, \\colorbox{OliveGreen!55}{green} marks the best value of the "
+  "row (in the SOTA tables: the per-metric winner between us and the paper).*\n")
 
 # ---- 1. corpus ----
 w("## 1. Pretraining corpus\n")
@@ -125,12 +121,12 @@ for d, role, n, note in [
     w(f"| {d} | {role} | {n} | {note} |")
 w("\n*External datasets (ADHD-200 / COBRE / UCLA) were never seen in pretraining.*\n")
 
-# ---- 3. pretraining ablations (COLORED) ----
+# ---- 3. pretraining ablations (best run per row) ----
 w("## 3. Pretraining ablations (5 SSL runs) — test AUROC\n")
 w("Same DINOv2 (ImageNet) init; each run changes **one** factor. "
-  "**base** = reference (freeze blocks 0-8), **fourier** = Fourier positional encoding, "
-  "**noblock2** = drop block_2, **pool** = AvgPool downsampling, **unfrozen** = all layers "
-  "unfrozen during SSL.\n")
+  "**base** = reference, **fourier** = Fourier positional encoding, "
+  "**noblock2** = drop block_2, **pool** = AvgPool downsampling, **unfrozen** = all "
+  "layers unfrozen during SSL. Green = best run for that axis.\n")
 AXES = [("abide", "Autism", "ABIDE / Autism"), ("abide", "Age", "ABIDE / Age"),
         ("abide", "Sex", "ABIDE / Sex"), ("adni", "NC_vs_MCI", "ADNI / NC-MCI"),
         ("adni", "AD_vs_HC", "ADNI / AD-HC"), ("adni", "Amyloid", "ADNI / Amyloid"),
@@ -138,12 +134,13 @@ AXES = [("abide", "Autism", "ABIDE / Autism"), ("abide", "Age", "ABIDE / Age"),
         ("oasis", "AD_Conversion", "OASIS / AD Conv")]
 rows = []
 for ds, lab, name in AXES:
-    rows.append([name] + [hc(metric(run_res[(r, ds)].get(lab), "test_auc")) for r in RUNS])
+    vals = [metric(run_res[(r, ds)].get(lab), "test_auc") for r in RUNS]
+    rows.append([name] + row_hl(vals))
 latex_table(["Axis"] + RUNS, rows)
 w("*AUROC ranks the runs by representation quality (threshold- and balance-independent). "
-  "The SOTA table (Section 5) uses Acc/F1, matching what the papers report.*\n")
+  "The SOTA table uses Acc/F1, matching the papers.*\n")
 
-# ---- 4. probe ablations (COLORED) ----
+# ---- 4. probe ablations (best per row) ----
 w("## 4. Probe ablations (on `base`)\n")
 w("### 4a. Temporal aggregation of the CLS token — AUROC\n")
 rows = []
@@ -153,7 +150,7 @@ for ds, lab in [("abide", "Autism"), ("abide", "Age"), ("adni", "NC_vs_MCI"),
     a = metric(load(f"{JSON}/probe_base_{ds}_agg-mean.json").get(lab), "test_auc")
     b = metric(load(f"{JSON}/probe_base_{ds}_agg-mean_std.json").get(lab), "test_auc")
     d = f"{b-a:+.3f}" if (a is not None and b is not None) else "--"
-    rows.append([f"{ds.upper()} / {lab.replace('_vs_','-').replace('_','-')}", hc(a), hc(b), d])
+    rows.append([f"{ds.upper()} / {lab.replace('_vs_','-').replace('_','-')}"] + row_hl([a, b]) + [d])
 latex_table(["Axis", "mean (384-d)", "mean\\_std (768-d)", "$\\Delta$"], rows)
 w("*`mean_std` mainly helps task dynamics; elsewhere `mean` wins.*\n")
 
@@ -162,52 +159,52 @@ ARCHS = ["128", "256", "256x128", "512x256", "512x256x128"]
 rows = []
 for ds, lab in [("adni", "NC_vs_MCI"), ("adni", "AD_vs_HC"), ("adni", "Amyloid"),
                 ("abide", "Autism"), ("hcp", "Sex"), ("adhd", "ADHD"), ("cobre", "Schizophrenia")]:
-    r = [f"{ds.upper()} / {lab.replace('_vs_','-').replace('_','-')}"]
-    r += [hc(metric(load(f"{JSON}/probe_base_{ds}_mlp-{a}.json").get(lab), "test_auc")) for a in ARCHS]
+    vals = [metric(load(f"{JSON}/probe_base_{ds}_mlp-{a}.json").get(lab), "test_auc") for a in ARCHS]
     lin = metric(load(f"{JSON}/probe_base_{ds}_agg-mean.json").get(lab), "test_auc") \
         or metric(run_res.get(("base", ds), {}).get(lab), "test_auc")
-    r.append(hc(lin))
-    rows.append(r)
+    rows.append([f"{ds.upper()} / {lab.replace('_vs_','-').replace('_','-')}"] + row_hl(vals + [lin]))
 latex_table(["Axis"] + [a.replace("x", "$\\times$") for a in ARCHS] + ["linear"], rows)
 w("*The MLP head does not clearly beat the linear probe; deeper heads overfit.*\n")
 
-# ---- 5. results (ours) + SOTA only where same dataset ----
-def our_all(ds, label):
-    _, res = best_auc_config(ds, label)
-    return metric(res, "test_acc"), metric(res, "test_f1"), metric(res, "test_auc")
-
-def raw(ds, label, key):  # base-run value for cognition/task-state
-    return metric(load(f"{JSON}/probe_base_{ds}_agg-mean.json").get(label), key)
-
-NR = "\\cellcolor{gray!12}n/r"
+# ---- 5. SOTA (per-metric winner highlighted) ----
+def pair(name, ds, lab, s_acc, s_f1, sota_name):
+    """Two rows (ours / SOTA); green = the better of the two per metric column."""
+    acc, f1v, auc = our_all(ds, lab)
+    def col(o, s):
+        oc = fmt(o)
+        sc = fmt(s) if s is not None else "\\cellcolor{gray!12}n/r"
+        if isinstance(o, (int, float)) and isinstance(s, (int, float)):
+            if o >= s:
+                oc = BEST + oc
+            else:
+                sc = BEST + sc
+        return oc, sc
+    a = col(acc, s_acc); f = col(f1v, s_f1)
+    return [[name, "Ours (lin.)", a[0], f[0], fmt(auc)],
+            ["", sota_name, a[1], f[1], "\\cellcolor{gray!12}n/r"]]
 
 w("## 5. Our results vs SOTA (same-dataset only)\n")
 w("### 5a. Same-dataset comparisons\n")
-w("The SOTA number is shown **only** where the paper uses the same dataset as us. "
-  "Brain-JEPA = fine-tuning, Acc/F1 only; ours = linear probe (best-AUROC config).\n")
+w("SOTA shown only where the paper uses our dataset. Brain-JEPA = fine-tuning, Acc/F1 "
+  "only; ours = linear probe (best-AUROC config). Green = per-metric winner.\n")
 rows = []
-for name, ds, lab, s_acc, s_f1 in [("ADNI / NC-MCI", "adni", "NC_vs_MCI", 0.768, 0.863),
-                                   ("ADNI / Amyloid", "adni", "Amyloid", 0.710, 0.760)]:
-    acc, f1v, auc = our_all(ds, lab)
-    rows.append([name, "Ours (lin.)", hc(acc), hc(f1v), hc(auc)])
-    rows.append(["", "Brain-JEPA (FT)", hc(s_acc), hc(s_f1), NR])
-acc, f1v, auc = our_all("adhd", "ADHD")
-rows.append(["ADHD-200", "Ours (lin.)", hc(acc), hc(f1v), hc(auc)])
-rows.append(["", "NeuroSTORM", hc(0.587), NR, NR])
+rows += pair("ADNI / NC-MCI", "adni", "NC_vs_MCI", 0.768, 0.863, "Brain-JEPA (FT)")
+rows += pair("ADNI / Amyloid", "adni", "Amyloid", 0.710, 0.760, "Brain-JEPA (FT)")
+rows += pair("ADHD-200", "adhd", "ADHD", 0.587, None, "NeuroSTORM")
 latex_table(["Benchmark", "Model", "Acc", "F1", "AUROC"], rows)
 
-w("### 5b. Our other downstream results (no same-dataset SOTA to compare)\n")
+w("### 5b. Our other downstream results (no same-dataset SOTA)\n")
 rows = []
 for name, ds, lab in [("ABIDE / Autism", "abide", "Autism"), ("ABIDE / Age", "abide", "Age"),
                       ("ABIDE / Sex", "abide", "Sex"), ("ADNI / AD-HC", "adni", "AD_vs_HC"),
                       ("HCP / Sex", "hcp", "Sex"), ("HCP / Age", "hcp", "Age"),
                       ("COBRE / Schizophrenia", "cobre", "Schizophrenia")]:
     acc, f1v, auc = our_all(ds, lab)
-    rows.append([name, hc(auc), hc(acc), hc(f1v)])
+    rows.append([name] + row_hl([auc, acc, f1v]))
 latex_table(["Benchmark", "AUROC", "Acc", "F1"], rows)
-
-w("\n*Only ADNI (Brain-JEPA) and ADHD-200 (NeuroSTORM) are same-dataset comparisons. "
-  "Everything in 5b is our own result with no matching same-dataset SOTA number.*\n")
+w("\n*Only ADNI (Brain-JEPA) and ADHD-200 (NeuroSTORM) are same-dataset comparisons.*\n")
+w("\n**SOTA sources:** Brain-JEPA (arXiv 2409.19407, Tables 2--3, fine-tuning; Acc/F1 only) · "
+  "NeuroSTORM (arXiv 2506.11167).\n")
 
 open(f"{HERE}/RESULTS.md", "w").write("\n".join(L))
 print("wrote RESULTS.md")
