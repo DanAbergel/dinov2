@@ -20,8 +20,10 @@ def split_masks(name, subjects):
     sp = json.loads((LAB / DEFAULT_SPLIT).read_text())["datasets"]
     if name in sp:                                   # in-corpus -> use the holdout split
         m = {s: k for k, subs in sp[name].items() for s in subs}
+        # train vs everything held out of pretraining (test; "val" is treated as
+        # test too, for backward compatibility with older 3-way split files).
         return (np.array([m.get(s) == "train" for s in subjects]),
-                np.array([m.get(s) in ("val", "test") for s in subjects]))
+                np.array([m.get(s) not in (None, "train") for s in subjects]))
     uniq = sorted(set(subjects))                     # external -> deterministic random 70:30
     np.random.RandomState(0).shuffle(uniq)
     train = set(uniq[:int(0.7 * len(uniq))])

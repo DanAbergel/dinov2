@@ -94,7 +94,7 @@ def write_corpus_manifest(out_path, lab_root=LAB_ROOT, datasets=CORPUS_DATASETS)
 
 
 def _load_split_map(split_file):
-    """subject_split.json -> {dataset: {subject_id: 'train'|'val'|'test'}}."""
+    """subject_split.json -> {dataset: {subject_id: 'train'|'test'}}."""
     d = json.loads(Path(split_file).read_text())
     return {ds: {s: name for name, subs in splits.items() for s in subs}
             for ds, splits in d.get("datasets", {}).items()}
@@ -105,7 +105,7 @@ def entries_from_manifest(manifest_path, datasets=CORPUS_DATASETS, min_upsampled
     """Build (entries, name->indices) from the corpus manifest CSV. Keeps rows whose
     dataset is requested and whose upsampled_T >= min_upsampled_t. If split_map is
     given, a holdout-dataset scan is kept only if its subject's split is in
-    pretrain_splits (val+test excluded from pretraining -> no leakage)."""
+    pretrain_splits (test excluded from pretraining -> no leakage)."""
     entries: list = []
     by_dataset: dict = {}
     n_short = n_holdout = 0
@@ -128,7 +128,7 @@ def entries_from_manifest(manifest_path, datasets=CORPUS_DATASETS, min_upsampled
     if n_short:
         logger.info(f"manifest: dropped {n_short} scans with upsampled_T < {min_upsampled_t}")
     if n_holdout:
-        logger.info(f"holdout: excluded {n_holdout} val+test scans of {holdout_datasets}")
+        logger.info(f"holdout: excluded {n_holdout} test scans of {holdout_datasets}")
     return entries, by_dataset
 
 

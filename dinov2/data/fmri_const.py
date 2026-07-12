@@ -21,7 +21,7 @@ DEFAULT_SPLIT = "subject_split.json"       # under LAB_ROOT; auto-used if presen
 # The five pretraining sources.
 CORPUS_DATASETS = ("HCP", "ABIDE", "OASIS", "AOMIC", "ADNI")
 
-# Holdout: val+test SUBJECTS of these are excluded from SSL pretraining (no
+# Holdout: the test SUBJECTS of these are excluded from SSL pretraining (no
 # leakage) so probes evaluate on subjects the encoder never saw. AOMIC stays
 # pretraining-only (no probe) -> kept whole.
 HOLDOUT_DATASETS = ("ADNI", "ABIDE", "OASIS", "HCP")
