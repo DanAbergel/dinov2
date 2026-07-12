@@ -79,6 +79,16 @@ def build_corpus_entries(lab_root=LAB_ROOT, datasets=CORPUS_DATASETS):
       entries    : flat list of {dataset, path, subject_id, tr}, one dict per scan.
       by_dataset : {name -> [indices into entries]} — feeds ProportionalBatchSampler
                    so each batch can be composed with a fixed per-dataset quota.
+
+    Example:
+      entries = [
+        {"dataset": "HCP",   "path": ".../subject_100206/...pt", "subject_id": "subject_100206", "tr": 0.72},
+        {"dataset": "HCP",   "path": ".../subject_100307/...pt", "subject_id": "subject_100307", "tr": 0.72},
+        {"dataset": "ABIDE", "path": ".../NYU_0051091.pt",       "subject_id": "NYU_0051091",    "tr": 2.0 },
+        ...
+      ]
+      by_dataset = {"HCP": [0, 1, ...], "ABIDE": [2, ...], ...}   # indices into `entries`
+
     The per-dataset details live in DATASET_SOURCES above; this loop is generic.
     """
     entries, by_dataset = [], {}
