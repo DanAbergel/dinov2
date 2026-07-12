@@ -111,9 +111,15 @@ def build_corpus_entries(lab_root=LAB_ROOT, datasets=CORPUS_DATASETS):
 
 
 def write_corpus_manifest(out_path, lab_root=LAB_ROOT, datasets=CORPUS_DATASETS):
-    """Offline: scan every scan's native T once and write the corpus manifest CSV
-    (dataset,path,subject_id,tr,T_native,upsampled_T). MixedFMRIDataset then reads
-    this instead of re-scanning shapes, using upsampled_T to drop too-short scans."""
+    """Offline: scan every scan's native T once and write the corpus manifest CSV.
+    MixedFMRIDataset then reads this instead of re-scanning shapes, using
+    upsampled_T to drop too-short scans. Returns the written path.
+
+    Example row (upsampled_T = round(T_native * tr / TARGET_TR)):
+      dataset,path,subject_id,tr,T_native,upsampled_T
+      ADNI,/.../I123456.pt,sub-4123,3.0,140,583        # 140 frames @ 3.0s -> 583 @ 0.72s
+      HCP,/.../subject_100206/...pt,subject_100206,0.72,1200,1200   # already 0.72s -> unchanged
+    """
     entries, _ = build_corpus_entries(lab_root, datasets)
     out_path = Path(out_path)
     out_path.parent.mkdir(parents=True, exist_ok=True)
@@ -131,7 +137,12 @@ def write_corpus_manifest(out_path, lab_root=LAB_ROOT, datasets=CORPUS_DATASETS)
 
 
 def _load_split_map(split_file):
-    """subject_split.json -> {dataset: {subject_id: 'train'|'test'}}."""
+    """Invert subject_split.json into a per-subject lookup (O(1) split membership).
+
+    Example:
+      file:   {"datasets": {"ADNI": {"train": ["s1", "s2"], "test": ["s3"]}}}
+      returns {"ADNI": {"s1": "train", "s2": "train", "s3": "test"}}
+    """
     d = json.loads(Path(split_file).read_text())
     return {ds: {s: name for name, subs in splits.items() for s in subs}
             for ds, splits in d.get("datasets", {}).items()}
@@ -139,10 +150,16 @@ def _load_split_map(split_file):
 
 def entries_from_manifest(manifest_path, datasets=CORPUS_DATASETS, min_upsampled_t=0,
                           split_map=None, holdout_datasets=(), pretrain_splits=("train",)):
-    """Build (entries, name->indices) from the corpus manifest CSV. Keeps rows whose
-    dataset is requested and whose upsampled_T >= min_upsampled_t. If split_map is
-    given, a holdout-dataset scan is kept only if its subject's split is in
-    pretrain_splits (test excluded from pretraining -> no leakage)."""
+    """Build (entries, by_dataset) from the corpus manifest CSV — same shape as
+    build_corpus_entries, but read from the CSV and with two filters applied:
+      1. drop scans whose upsampled_T < min_upsampled_t (too short for a window);
+      2. if split_map is given, drop holdout-dataset scans whose subject is NOT in
+         pretrain_splits (i.e. the test subjects) -> no leakage.
+
+    Returns (entries, by_dataset), e.g.:
+      entries    = [{"dataset": "HCP", "path": "...", "subject_id": "subject_100206", "tr": 0.72}, ...]
+      by_dataset = {"HCP": [0, 1, ...], "ABIDE": [2, ...], ...}   # indices into `entries`
+    """
     entries: list = []
     by_dataset: dict = {}
     n_short = n_holdout = 0
