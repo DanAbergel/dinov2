@@ -190,8 +190,9 @@ w("SOTA shown only where the paper uses our dataset. Brain-JEPA = fine-tuning, A
 rows = []
 rows += pair("ADNI / NC-MCI", "adni", "NC_vs_MCI", 0.768, 0.863, "Brain-JEPA (FT)")
 rows += pair("ADNI / Amyloid", "adni", "Amyloid", 0.710, 0.760, "Brain-JEPA (FT)")
-rows += pair("ADHD-200", "adhd", "ADHD", 0.587, None, "NeuroSTORM")
 latex_table(["Benchmark", "Model", "Acc", "F1", "AUROC"], rows)
+w("*ADHD-200 (vs NeuroSTORM) is left out: our probe barely discriminates there "
+  "(AUROC 0.56, F1 0.29 — near chance), so the accuracy is not a meaningful comparison.*\n")
 
 w("### 5b. Our other downstream results (no same-dataset SOTA)\n")
 rows = []
@@ -202,7 +203,7 @@ for name, ds, lab in [("ABIDE / Autism", "abide", "Autism"), ("ABIDE / Age", "ab
     acc, f1v, auc = our_all(ds, lab)
     rows.append([name] + row_hl([auc, acc, f1v]))
 latex_table(["Benchmark", "AUROC", "Acc", "F1"], rows)
-w("\n*Only ADNI (Brain-JEPA) and ADHD-200 (NeuroSTORM) are same-dataset comparisons.*\n")
+w("\n*The only same-dataset SOTA comparison shown is ADNI (Brain-JEPA).*\n")
 w("\n**SOTA sources:** Brain-JEPA (arXiv 2409.19407, Tables 2--3, fine-tuning; Acc/F1 only) · "
   "NeuroSTORM (arXiv 2506.11167).\n")
 

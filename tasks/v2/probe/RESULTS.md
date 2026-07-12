@@ -125,12 +125,12 @@ ADNI / NC-MCI & Ours (lin.) & 0.576 & 0.632 & 0.604 \\
  & Brain-JEPA (FT) & \cellcolor{OliveGreen!55}0.768 & \cellcolor{OliveGreen!55}0.863 & \cellcolor{gray!12}n/r \\
 ADNI / Amyloid & Ours (lin.) & 0.559 & 0.623 & 0.641 \\
  & Brain-JEPA (FT) & \cellcolor{OliveGreen!55}0.710 & \cellcolor{OliveGreen!55}0.760 & \cellcolor{gray!12}n/r \\
-ADHD-200 & Ours (lin.) & \cellcolor{OliveGreen!55}0.617 & 0.287 & 0.557 \\
- & NeuroSTORM & 0.587 & \cellcolor{gray!12}n/r & \cellcolor{gray!12}n/r \\
 \hline
 \end{tabular}
 \end{center}
 ```
+*ADHD-200 (vs NeuroSTORM) is left out: our probe barely discriminates there (AUROC 0.56, F1 0.29 — near chance), so the accuracy is not a meaningful comparison.*
+
 ### 5b. Our other downstream results (no same-dataset SOTA)
 
 ```{=latex}
@@ -151,7 +151,7 @@ COBRE / Schizophrenia & \cellcolor{OliveGreen!55}0.602 & 0.561 & 0.574 \\
 \end{center}
 ```
 
-*Only ADNI (Brain-JEPA) and ADHD-200 (NeuroSTORM) are same-dataset comparisons.*
+*The only same-dataset SOTA comparison shown is ADNI (Brain-JEPA).*
 
 
 **SOTA sources:** Brain-JEPA (arXiv 2409.19407, Tables 2--3, fine-tuning; Acc/F1 only) · NeuroSTORM (arXiv 2506.11167).
