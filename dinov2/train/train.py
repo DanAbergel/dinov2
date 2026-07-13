@@ -13,14 +13,14 @@
 #     student backbone (fmri_only / fmri_plus_last_3); default = official no-freeze.
 #   + optimizer_step_and_ema     (L208-235, framed): official step body (clip/step/
 #     EMA) extracted so the grad-accum guard in do_train stays readable.
-#   + freeze call in do_train    (L252 inline): invoke apply_freeze_policy pre-optim.
+#   + freeze call in do_train    (L254 inline): invoke apply_freeze_policy pre-optim.
 #   + fmri token-grid & masking  (L286-315, framed): (T_eff, N_spatial) token count
 #     and MAE/BeiT mask generator for PatchEmbed3DPlus1D; else = official 2D path.
-#   + fmri augmentation branch   (L325-339, framed): MaskingAugmentation3D transform.
-#   + proportional sampler       (L365-380, framed): fixed per-cohort batch quota over
+#   + fmri augmentation branch   (L325-335, framed): MaskingAugmentation3D transform.
+#   + proportional sampler       (L361-376, framed): fixed per-cohort batch quota over
 #     MixedFMRIDataset (SamplerType.PROPORTIONAL); else = official sharded-infinite.
-#     Plus proportional_quota forwarded to make_data_loader (L391 inline).
-#   + grad-accumulation step/EMA (L429-444, framed): accumulate N micro-steps, scale
+#     Plus proportional_quota forwarded to make_data_loader (L387 inline).
+#   + grad-accumulation step/EMA (L425-440, framed): accumulate N micro-steps, scale
 #     loss by N, step+EMA once per cycle (default N=1 = official single step).
 #   Everything else in this file is unchanged upstream DINOv2.
 # =============================================================================
@@ -329,13 +329,9 @@ def do_train(cfg, model, resume=False):
     # │ (meeting 2026-06-14, §2). Selected by cfg.train.fmri_augmentation.          │
     # └───────────────────────────────────────────────────────────────────────────┘
     elif getattr(cfg.train, "fmri_augmentation", False):
-        data_transform = MaskingAugmentation3D(
-            cfg.crops.global_crops_scale,
-            cfg.crops.local_crops_scale,
-            cfg.crops.local_crops_number,
-            global_crops_size=cfg.crops.global_crops_size,
-            local_crops_size=cfg.crops.local_crops_size,
-        )
+        # local_crops_number only: masking-only ignores scale/size; global=2 is a
+        # constant inside the class (GLOBAL_CROPS_NUMBER).
+        data_transform = MaskingAugmentation3D(cfg.crops.local_crops_number)
     # └── end FMRI ADDITION: fmri masking augmentation branch ─────────────────────┘
     else:
         data_transform = DataAugmentationDINO(

@@ -67,6 +67,7 @@ from torch.utils.data import Dataset
 from .fmri_const import (                       # noqa: F401  (re-exported)
     LAB_ROOT, TARGET_TR, TARGET_SHAPE, DEFAULT_T_FIXED, DEFAULT_MANIFEST,
     DEFAULT_SPLIT, CORPUS_DATASETS, HOLDOUT_DATASETS, PRETRAIN_SPLITS, DROP_SHORT,
+    GLOBAL_CROPS_NUMBER,
 )
 
 logger = logging.getLogger("dinov2")
@@ -403,13 +404,20 @@ class MixedFMRIDataset(Dataset):
 class MaskingAugmentation3D:
     """fMRI augmentation = MASKING ONLY (no spatial/temporal crop). All crops are
     the FULL volume; the per-token random masking in the collate (for iBOT) is the
-    only corruption. Matches DataAugmentationDINO's call contract so do_train uses
-    it as a drop-in. Scale/size args are accepted for API parity but unused."""
+    only corruption. Emits the dict do_train expects from DataAugmentationDINO.
 
-    def __init__(self, global_crops_scale=None, local_crops_scale=None,
-                 local_crops_number=3, global_crops_size=None, local_crops_size=None,
-                 global_crops_number=2):
-        self.global_crops_number = int(global_crops_number)
+    Crop counts (constants over arguments):
+      - global = GLOBAL_CROPS_NUMBER (fmri_const): the DINO invariant, 2 views.
+      - local  = local_crops_number: the ONLY argument, because it must equal
+        cfg.crops.local_crops_number — the same value the DINO loss reads
+        (ssl_meta_arch). Sourcing it from cfg keeps one source of truth; a
+        separate constant could silently diverge from the loss and break training.
+    DataAugmentationDINO's scale/size args are NOT accepted: masking-only never
+    crops, so they were dead. **_ignored absorbs them if a caller still passes them.
+    """
+
+    def __init__(self, local_crops_number, **_ignored):
+        self.global_crops_number = GLOBAL_CROPS_NUMBER
         self.local_crops_number = int(local_crops_number)
         logger.info(f"fMRI MASKING-ONLY augmentation: global={self.global_crops_number} "
                     f"local={self.local_crops_number} (masking applied in collate)")

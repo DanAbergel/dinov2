@@ -31,6 +31,12 @@ HOLDOUT_DATASETS = ("ADNI", "ABIDE", "OASIS", "HCP")
 PRETRAIN_SPLITS = ("train",)   # which splits enter pretraining (test is held out)
 DROP_SHORT = True              # drop scans too short to fill a T_FIXED window
 
+# Augmentation. The DINO teacher forward always uses 2 global views, so this is a
+# DINO invariant, not a config knob (nothing in cfg.crops carries it). local_crops
+# is NOT here: it must equal cfg.crops.local_crops_number, which the DINO loss reads
+# (ssl_meta_arch), so cfg is its single source of truth.
+GLOBAL_CROPS_NUMBER = 2
+
 # Native TR (seconds) per dataset. ABIDE varies per site (site = filename.split("_")[0]).
 ABIDE_SITE_TR = {
     "Caltech": 2.0, "CMU": 2.0, "KKI": 2.5, "Leuven": 1.6667, "MaxMun": 3.0,
