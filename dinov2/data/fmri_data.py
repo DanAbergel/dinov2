@@ -202,28 +202,27 @@ def _load_mmap(path):
     return torch.load(path, map_location="cpu", weights_only=True, mmap=True)
 
 
-def _native_window(T, tr_native, t_fixed, target_tr=TARGET_TR):
+def _native_window(T, tr_native, t_fixed):
     """Choose which slice of a scan to use — a window of fixed REAL duration.
 
     Every dataset must contribute the same amount of brain activity, but they have
     different TRs, so the same duration means a different number of frames per dataset.
-    We want a window spanning t_fixed * target_tr = 270 * 0.72 = 194.4 s of real time;
+    We want a window spanning t_fixed * TARGET_TR = 270 * 0.72 = 194.4 s of real time;
     at the scan's native TR that is `win = round(194.4 / tr_native)` frames (e.g. 270
     frames for HCP @ 0.72 s, but only ~65 for ADNI @ 3.0 s). The start is picked
     RANDOMLY, which acts as temporal augmentation (a different segment every epoch).
     If the scan is shorter than the window, take it whole — _temporal_resample then
-    stretches it up to t_fixed.
+    stretches it up to t_fixed. (TARGET_TR is a constant from fmri_const.)
 
     Args:
       T         : native number of frames of the scan.
       tr_native : the scan's native repetition time (s).
       t_fixed   : target window length in frames after harmonization (270).
-      target_tr : common TR after harmonization (0.72 s).
     Returns:
       (start, win): start index and window length, in NATIVE frames. _temporal_resample
       then brings `win` frames to exactly t_fixed (270).
     """
-    win = max(1, round(t_fixed * target_tr / tr_native))
+    win = max(1, round(t_fixed * TARGET_TR / tr_native))
     if T >= win:
         return int(np.random.randint(0, T - win + 1)), win
     return 0, T
@@ -261,30 +260,29 @@ def _temporal_resample(clip, n_out):
     return out.contiguous()
 
 
-def _finalize(clip, t_fixed, target_shape=TARGET_SHAPE):
+def _finalize(clip, t_fixed):
     """Turn a raw cropped window into the model-ready tensor.
 
     Small orchestrator called by _load right after the native window is cropped; it
     bundles the three finishing steps, in order:
       1. add a channel dim if the scan is stored as (n, X, Y, Z) -> (n, 1, X, Y, Z);
-      2. resize the spatial grid to (45, 54, 45) if it isn't already (trilinear);
+      2. resize the spatial grid to TARGET_SHAPE=(45, 54, 45) if it isn't already (trilinear);
       3. resample time to t_fixed=270 @ 0.72 s (_temporal_resample), then z-score each
          frame (_zscore_per_frame).
     After this, every scan — whatever its dataset, TR or native resolution — has the
     EXACT same shape (t_fixed, 1, 45, 54, 45), so a mixed batch can be stacked together.
 
     Args:
-      clip         : tensor (n, X, Y, Z) or (n, 1, X, Y, Z) — the cropped native window.
-      t_fixed      : target number of frames (270).
-      target_shape : target spatial size (45, 54, 45).
+      clip    : tensor (n, X, Y, Z) or (n, 1, X, Y, Z) — the cropped native window.
+      t_fixed : target number of frames (270).
     Returns:
-      tensor (t_fixed, 1, *target_shape), z-scored — ready for the model.
+      tensor (t_fixed, 1, *TARGET_SHAPE), z-scored — ready for the model.
     """
     clip = clip.float()
     if clip.ndim == 4:                                # (n,X,Y,Z) -> add channel
         clip = clip.unsqueeze(1)
-    if tuple(clip.shape[-3:]) != tuple(target_shape):
-        clip = F.interpolate(clip, size=tuple(target_shape), mode="trilinear", align_corners=False)
+    if tuple(clip.shape[-3:]) != tuple(TARGET_SHAPE):
+        clip = F.interpolate(clip, size=tuple(TARGET_SHAPE), mode="trilinear", align_corners=False)
     return _zscore_per_frame(_temporal_resample(clip, t_fixed))
 
 
