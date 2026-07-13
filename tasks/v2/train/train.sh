@@ -4,7 +4,7 @@
 #
 # 5-source corpus (HCP/ABIDE/OASIS/AOMIC/ADNI, 4627 scans) with:
 #   - online TR harmonization to 0.72s + T_fixed=270 window (MixedFMRIDataset)
-#   - ProportionalBatchSampler (HCP4/ABIDE4/OASIS4/ADNI3/AOMIC1 = 16)
+#   - ProportionalInfiniteSampler (HCP4/ABIDE4/OASIS4/ADNI3/AOMIC1 = 16)
 #   - masking-only augmentation (full-image crops + per-token random masking)
 #   - learned spatial pos (Fourier is a LATER ablation)
 #
