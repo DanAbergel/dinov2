@@ -320,23 +320,34 @@ class MixedFMRIDataset(Dataset):
             raise FileNotFoundError(f"No scans under {lab_root} for {CORPUS_DATASETS}")
 
     def _discover(self, lab_root):
-        """Build the scan list + its per-dataset index by reading the corpus manifest
-        (fast; it carries T_native so short scans AND holdout subjects are filtered
-        without opening the files). The manifest is REQUIRED — build it offline first
-        with dinov2.data.fmri_offline.write_corpus_manifest. The filters themselves
-        (HOLDOUT_DATASETS, PRETRAIN_SPLITS, DROP_SHORT) are constants in fmri_const.
+        """Turn the on-disk corpus into this dataset's scan list — the one-time setup
+        run by __init__, before any sample is read. Three steps:
+
+          1. Load the subject split (subject_split.json): {subject_id -> "train"/"test"}.
+             Its test subjects are the holdout kept OUT of pretraining. File absent -> keep all.
+          2. Read the corpus manifest (corpus_manifest.csv, one row per scan). Because each
+             row already carries the scan's native length, entries_from_manifest can drop
+             short scans AND holdout subjects here WITHOUT opening a single .pt file. The
+             manifest is REQUIRED (built offline by fmri_offline.write_corpus_manifest); this
+             never globs the disk itself.
+          3. Index the surviving scans by dataset ({dataset -> [row positions]}) so the
+             ProportionalBatchSampler can draw its per-dataset quota.
+
+        What is kept vs dropped is governed entirely by constants in fmri_const
+        (HOLDOUT_DATASETS, PRETRAIN_SPLITS, DROP_SHORT), never by arguments.
 
         Args:
-          lab_root : data root (holds corpus_manifest.csv and subject_split.json).
+          lab_root : data root holding corpus_manifest.csv and subject_split.json.
         Returns:
-          (entries, dataset_indices) — the scan list and {dataset: [indices]}.
+          (entries, dataset_indices) — the flat scan list and {dataset: [indices]}.
         Raises:
-          FileNotFoundError if the manifest does not exist.
+          FileNotFoundError : the manifest is missing (build it offline first).
         """
-        # Subject-level holdout via the split file (absent -> keep every subject).
+        # Step 1 — subject-level holdout map (absent file -> keep every subject).
         sf = Path(lab_root) / DEFAULT_SPLIT
         split_map = _load_split_map(sf) if sf.exists() else None
 
+        # Step 2 — read the manifest; drop short scans + holdout subjects from its rows.
         man = Path(lab_root) / DEFAULT_MANIFEST
         if not man.exists():
             raise FileNotFoundError(
@@ -344,7 +355,9 @@ class MixedFMRIDataset(Dataset):
                 "dinov2.data.fmri_offline.write_corpus_manifest.")
         entries = entries_from_manifest(
             man, min_upsampled_t=(self.t_fixed if DROP_SHORT else 0), split_map=split_map)
-        idx = _index_by_dataset(entries)                   # per-dataset indices for the sampler
+
+        # Step 3 — group the kept scans by dataset for the proportional sampler.
+        idx = _index_by_dataset(entries)
         counts = {k: len(v) for k, v in idx.items()}
         logger.info(f"MixedFMRIDataset: {len(entries)} scans  T_fixed={self.t_fixed}  "
                     f"target_TR={TARGET_TR}s  manifest={man.name}  per-dataset={counts}")
