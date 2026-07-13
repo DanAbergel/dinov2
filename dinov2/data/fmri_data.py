@@ -302,44 +302,24 @@ class MixedFMRIDataset(Dataset):
     `dataset_indices` ({name -> [global indices]}) is exposed so
     ProportionalBatchSampler can compose each batch with a per-dataset quota.
 
-    __init__ does three things (each a small helper below):
-        1. _apply_exclude : optionally drop whole datasets from pretraining
-        2. _discover      : build the scan list (from the manifest) + holdout
-        3. store transforms
+    __init__ is minimal: read the manifest into the scan list (_discover) and store
+    the transform. Everything else (which datasets, the holdout, the filters) is a
+    constant in fmri_const.py.
     """
 
-    def __init__(self, root=None, *, t_fixed=DEFAULT_T_FIXED, exclude=None,
+    def __init__(self, root=None, *, t_fixed=DEFAULT_T_FIXED,
                  transform=None, target_transform=None, **_ignored):
-        # Only the few knobs that actually vary are arguments (t_fixed / exclude come
-        # from the config string, transform from do_train). The rest are constants in
-        # fmri_const.py (CORPUS_DATASETS, HOLDOUT_DATASETS, PRETRAIN_SPLITS, DROP_SHORT).
+        # Only what actually varies is an argument (t_fixed from the config string,
+        # transform from do_train). Everything else is a constant in fmri_const.py.
         self.t_fixed = int(t_fixed)                          # window length in frames (270)
         self.transform, self.target_transform = transform, target_transform
         lab_root = root or LAB_ROOT
 
-        datasets = self._apply_exclude(CORPUS_DATASETS, exclude)
-        self.entries, self.dataset_indices = self._discover(lab_root, datasets)
+        self.entries, self.dataset_indices = self._discover(lab_root)
         if not self.entries:
-            raise FileNotFoundError(f"No scans under {lab_root} for datasets={datasets}")
+            raise FileNotFoundError(f"No scans under {lab_root} for {CORPUS_DATASETS}")
 
-    @staticmethod
-    def _apply_exclude(datasets, exclude):
-        """Drop whole datasets from pretraining, so a downstream probe can later use
-        the FULL held-out cohort, encoder unseen.
-
-        Args:
-          datasets : the current tuple of dataset names.
-          exclude  : names to drop, e.g. "ADNI" or "ADNI,ABIDE" (None -> keep all).
-        Returns:
-          `datasets` with the excluded names removed.
-        """
-        if not exclude:
-            return datasets
-        ex = {d.strip() for d in str(exclude).replace("-", ",").split(",")}
-        logger.info(f"MixedFMRIDataset: excluding whole datasets {ex}")
-        return tuple(d for d in datasets if d not in ex)
-
-    def _discover(self, lab_root, datasets):
+    def _discover(self, lab_root):
         """Build the scan list + its per-dataset index by reading the corpus manifest
         (fast; it carries T_native so short scans AND holdout subjects are filtered
         without opening the files). The manifest is REQUIRED — build it offline first
@@ -348,7 +328,6 @@ class MixedFMRIDataset(Dataset):
 
         Args:
           lab_root : data root (holds corpus_manifest.csv and subject_split.json).
-          datasets : cohorts to include (after exclude).
         Returns:
           (entries, dataset_indices) — the scan list and {dataset: [indices]}.
         Raises:
@@ -364,8 +343,7 @@ class MixedFMRIDataset(Dataset):
                 f"No corpus manifest at {man}. Build it offline first with "
                 "dinov2.data.fmri_offline.write_corpus_manifest.")
         entries = entries_from_manifest(
-            man, datasets, min_upsampled_t=(self.t_fixed if DROP_SHORT else 0),
-            split_map=split_map)
+            man, min_upsampled_t=(self.t_fixed if DROP_SHORT else 0), split_map=split_map)
         idx = _index_by_dataset(entries)                   # per-dataset indices for the sampler
         counts = {k: len(v) for k, v in idx.items()}
         logger.info(f"MixedFMRIDataset: {len(entries)} scans  T_fixed={self.t_fixed}  "
