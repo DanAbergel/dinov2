@@ -3,6 +3,15 @@
 # This source code is licensed under the Apache License, Version 2.0
 # found in the LICENSE file in the root directory of this source tree.
 
+# =============================================================================
+# FMRI PROJECT CHANGES (upstream DINOv2 file, modified for our fMRI pipeline)
+#   + ProportionalInfiniteSampler  (L242-338, framed below): an INFINITE, iteration-
+#     based sampler whose every batch_size-block has a fixed per-dataset quota
+#     (HCP4/ABIDE4/OASIS4/ADNI3/AOMIC1 = 16). Selected via SamplerType.PROPORTIONAL
+#     in loaders.py; needs a dataset exposing dataset_indices (MixedFMRIDataset).
+#   Everything else in this file is unchanged upstream DINOv2.
+# =============================================================================
+
 import itertools
 from typing import Any, Optional
 import warnings
@@ -229,6 +238,10 @@ class ShardedInfiniteSampler(Sampler):
             self._iter_count += 1
 
 
+# ┌───────────────────────────────────────────────────────────────────────────┐
+# │ FMRI ADDITION — not in upstream DINOv2.                                     │
+# │ ProportionalInfiniteSampler: per-batch dataset quota as an infinite stream. │
+# └───────────────────────────────────────────────────────────────────────────┘
 class ProportionalInfiniteSampler(Sampler):
     """Infinite index stream whose every consecutive ``batch_size`` block has a
     fixed per-dataset composition (the ``quota``). Drop-in for DINOv2's infinite,
@@ -322,3 +335,4 @@ class ProportionalInfiniteSampler(Sampler):
 
     def __iter__(self):
         yield from itertools.islice(self._iterator(), self._advance, None)
+# └── end FMRI ADDITION: ProportionalInfiniteSampler ──────────────────────────┘
