@@ -265,11 +265,19 @@ def _temporal_resample(clip, n_out):
 
 
 def _finalize(clip, t_fixed, target_shape=TARGET_SHAPE):
-    """Turn a raw native window into the model-ready tensor: resize spatially,
-    resample to t_fixed @ 0.72 s, then z-score (orchestrates steps 6-7 of the pipeline).
+    """Turn a raw cropped window into the model-ready tensor.
+
+    Small orchestrator called by _load right after the native window is cropped; it
+    bundles the three finishing steps, in order:
+      1. add a channel dim if the scan is stored as (n, X, Y, Z) -> (n, 1, X, Y, Z);
+      2. resize the spatial grid to (45, 54, 45) if it isn't already (trilinear);
+      3. resample time to t_fixed=270 @ 0.72 s (_temporal_resample), then z-score each
+         frame (_zscore_per_frame).
+    After this, every scan — whatever its dataset, TR or native resolution — has the
+    EXACT same shape (t_fixed, 1, 45, 54, 45), so a mixed batch can be stacked together.
 
     Args:
-      clip         : tensor (n, X, Y, Z) or (n, 1, X, Y, Z) — the cropped window.
+      clip         : tensor (n, X, Y, Z) or (n, 1, X, Y, Z) — the cropped native window.
       t_fixed      : target number of frames (270).
       target_shape : target spatial size (45, 54, 45).
     Returns:
