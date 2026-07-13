@@ -8,27 +8,45 @@ WHERE THE DATA COMES FROM (all on disk, prepared offline):
 WHAT WE WANT: one harmonized, z-scored window per scan, ready for the ViT:
                           (T_FIXED=270, 1, 45, 54, 45)
 
-THE PIPELINE (top = raw on disk, bottom = tensor fed to the model):
+THE PIPELINE (top = raw on disk, bottom = tensor fed to the model). Each box is one
+step: the function it calls, and what that function does.
 
-  corpus_manifest.csv ─┐
-  subject_split.json ──┤  entries_from_manifest (+ _load_split_map)
-                       ▼    · drop scans too short for a 270-window
-                    entries   · drop TEST subjects (holdout -> no leakage)
-                       │    = [{dataset, path, subject_id, tr}, ...]   (the scan list)
-                       │
-   ProportionalBatchSampler ◀─ _index_by_dataset(entries) = {dataset: [indices]}
-   decides which scan indices go in each batch (quota HCP4/ABIDE4/OASIS4/ADNI3/AOMIC1)
-                       │
-                       ▼  MixedFMRIDataset._load(i)                    [section 2: WINDOWING]
-                    _load_mmap         open entries[i]'s .pt lazily    -> (T, X, Y, Z)
-                    _native_window     crop a random 270-window (194.4 s of real time)
-                    _temporal_resample native TR -> 270 frames @ 0.72s (polyphase FIR)
-                    _zscore_per_frame  per-frame spatial z-score
-                       │
-                       ▼  = (270, 1, 45, 54, 45)
-                    MaskingAugmentation3D  full-volume views + per-token masking [section 3]
-                       │
-                       ▼  -> DINOv2 student/teacher (via do_train)
+     inputs on disk:  corpus_manifest.csv  ·  subject_split.json  ·  raw *.pt
+
+  ┌────────────────────────────────────────────────────────────────────────┐
+  │ 1. BUILD THE SCAN LIST      entries_from_manifest (+ _load_split_map)    │
+  │    Read the manifest CSV. Drop scans too short for a 270-window, and drop│
+  │    the TEST subjects (holdout -> no leakage).                           │
+  │    -> entries = [{dataset, path, subject_id, tr}, ...]   (the scan list) │
+  └────────────────────────────────────────────────────────────────────────┘
+                                     │
+  ┌────────────────────────────────────────────────────────────────────────┐
+  │ 2. INDEX BY DATASET         _index_by_dataset(entries)                   │
+  │    Group scan indices per dataset -> {dataset: [indices]} for the sampler│
+  └────────────────────────────────────────────────────────────────────────┘
+                                     │
+  ┌────────────────────────────────────────────────────────────────────────┐
+  │ 3. COMPOSE EACH BATCH       ProportionalBatchSampler                     │
+  │    Pick scan indices with a fixed quota HCP4/ABIDE4/OASIS4/ADNI3/AOMIC1. │
+  └────────────────────────────────────────────────────────────────────────┘
+                                     │  for each chosen index i: _load(i)
+  ┌────────────────────────────────────────────────────────────────────────┐
+  │ 4. OPEN THE SCAN            _load_mmap(path)   -> (T, X, Y, Z), lazy mmap │
+  ├────────────────────────────────────────────────────────────────────────┤
+  │ 5. CROP A WINDOW            _native_window()   random 270-window ~194.4 s │
+  ├────────────────────────────────────────────────────────────────────────┤
+  │ 6. HARMONIZE TR             _temporal_resample()  native TR -> 270 @ 0.72s│
+  ├────────────────────────────────────────────────────────────────────────┤
+  │ 7. NORMALIZE                _zscore_per_frame()   per-frame spatial z-score│
+  └────────────────────────────────────────────────────────────────────────┘
+                                     │  = (270, 1, 45, 54, 45)
+  ┌────────────────────────────────────────────────────────────────────────┐
+  │ 8. AUGMENT                  MaskingAugmentation3D                        │
+  │    Full-volume views + per-token random masking (for iBOT).             │
+  └────────────────────────────────────────────────────────────────────────┘
+                                     │
+                                     ▼
+                    DINOv2 student / teacher  (via do_train)
 
 Sections below: 1. corpus · 2. windowing · 3. dataset + sampler + augmentation.
 Offline tools (manifest / T_fixed) live in fmri_offline.py; constants in fmri_const.py.
