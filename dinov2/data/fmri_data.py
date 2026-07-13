@@ -119,32 +119,6 @@ def _index_by_dataset(entries):
     return by
 
 
-def write_corpus_manifest(out_path, lab_root=LAB_ROOT, datasets=CORPUS_DATASETS):
-    """Offline: scan every scan's native T once and write the corpus manifest CSV.
-    MixedFMRIDataset then reads this instead of re-scanning shapes, using
-    upsampled_T to drop too-short scans. Returns the written path.
-
-    Example row (upsampled_T = round(T_native * tr / TARGET_TR)):
-      dataset,path,subject_id,tr,T_native,upsampled_T
-      ADNI,/.../I123456.pt,sub-4123,3.0,140,583        # 140 frames @ 3.0s -> 583 @ 0.72s
-      HCP,/.../subject_100206/...pt,subject_100206,0.72,1200,1200   # already 0.72s -> unchanged
-    """
-    entries = build_corpus_entries(lab_root, datasets)
-    out_path = Path(out_path)
-    out_path.parent.mkdir(parents=True, exist_ok=True)
-    with open(out_path, "w", newline="") as f:
-        w = csv.writer(f)
-        w.writerow(["dataset", "path", "subject_id", "tr", "T_native", "upsampled_T"])
-        for n, e in enumerate(entries, 1):
-            T = int(_load_mmap(e["path"]).shape[0])
-            w.writerow([e["dataset"], e["path"], e["subject_id"], e["tr"], T,
-                        round(T * e["tr"] / TARGET_TR)])
-            if n % 200 == 0:
-                logger.info(f"  corpus manifest: {n}/{len(entries)}")
-    logger.info(f"corpus manifest written: {len(entries)} scans -> {out_path}")
-    return out_path
-
-
 def _load_split_map(split_file):
     """Invert subject_split.json into a per-subject lookup (O(1) split membership).
 
@@ -190,22 +164,6 @@ def entries_from_manifest(manifest_path, datasets=CORPUS_DATASETS, min_upsampled
     if n_holdout:
         logger.info(f"holdout: excluded {n_holdout} test scans of {holdout_datasets}")
     return entries
-
-
-def compute_t_fixed_max(lab_root=LAB_ROOT, datasets=CORPUS_DATASETS, margin=0):
-    """Offline: largest T_fixed that fits EVERY scan with no padding = global min
-    upsampled length. Returns (t_fixed_max - margin, per_dataset_min, shortest_entry,
-    per_dataset_all_upsampled). Use to pick DEFAULT_T_FIXED."""
-    entries = build_corpus_entries(lab_root, datasets)
-    per, per_all, g_min, argmin = {}, {}, None, None
-    for e in entries:
-        up = round(_load_mmap(e["path"]).shape[0] * e["tr"] / TARGET_TR)
-        d = e["dataset"]
-        per[d] = min(per.get(d, up), up)
-        per_all.setdefault(d, []).append(up)
-        if g_min is None or up < g_min:
-            g_min, argmin = up, e
-    return max(1, g_min - margin), per, argmin, per_all
 
 
 # =====================================================================

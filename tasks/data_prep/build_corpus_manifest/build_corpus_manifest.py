@@ -12,7 +12,8 @@ Usage:
 
 import argparse
 
-from dinov2.data.fmri_data import LAB_ROOT, DEFAULT_MANIFEST, write_corpus_manifest
+from dinov2.data.fmri_const import LAB_ROOT, DEFAULT_MANIFEST
+from dinov2.data.fmri_offline import write_corpus_manifest
 
 
 def main():

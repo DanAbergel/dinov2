@@ -11,7 +11,8 @@ Usage:
 
 import argparse
 
-from dinov2.data.fmri_data import compute_t_fixed_max, TARGET_TR
+from dinov2.data.fmri_const import TARGET_TR
+from dinov2.data.fmri_offline import compute_t_fixed_max
 
 
 def main():
