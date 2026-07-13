@@ -6,7 +6,7 @@
 # =============================================================================
 # FMRI PROJECT CHANGES (upstream DINOv2 file, modified for our fMRI pipeline)
 #   + fmri transform imports    (L38 inline): pull in RandomTokenMaskingGenerator
-#     + MaskingAugmentation3D for the fMRI augmentation/masking branches.
+#     + FullVolumeViews3D for the fMRI augmentation/masking branches.
 #   + int() cast of *_iters      (L94 inline): fractional warmup_epochs break
 #     np.linspace; cast scheduler iter counts to int.
 #   + apply_freeze_policy        (L151-205, framed): partial-freeze ablation of the
@@ -16,7 +16,7 @@
 #   + freeze call in do_train    (L254 inline): invoke apply_freeze_policy pre-optim.
 #   + fmri token-grid & masking  (L286-315, framed): (T_eff, N_spatial) token count
 #     and MAE/BeiT mask generator for PatchEmbed3DPlus1D; else = official 2D path.
-#   + fmri augmentation branch   (L325-335, framed): MaskingAugmentation3D transform.
+#   + fmri augmentation branch   (L325-335, framed): FullVolumeViews3D transform.
 #   + proportional sampler       (L361-376, framed): fixed per-cohort batch quota over
 #     MixedFMRIDataset (SamplerType.PROPORTIONAL); else = official sharded-infinite.
 #     Plus proportional_quota forwarded to make_data_loader (L387 inline).
@@ -35,11 +35,11 @@ from fvcore.common.checkpoint import PeriodicCheckpointer
 import torch
 
 from dinov2.data import SamplerType, make_data_loader, make_dataset
-# FMRI: RandomTokenMaskingGenerator + MaskingAugmentation3D added alongside the
+# FMRI: RandomTokenMaskingGenerator + FullVolumeViews3D added alongside the
 # official transforms for the fmri_augmentation / fmri_masking_only branches below.
 from dinov2.data import (
     collate_data_and_cast, DataAugmentationDINO, CellAugmentationDINO,
-    MaskingGenerator, RandomTokenMaskingGenerator, MaskingAugmentation3D,
+    MaskingGenerator, RandomTokenMaskingGenerator, FullVolumeViews3D,
 )
 import dinov2.distributed as distributed
 from dinov2.fsdp import FSDPCheckpointer
@@ -331,7 +331,7 @@ def do_train(cfg, model, resume=False):
     elif getattr(cfg.train, "fmri_augmentation", False):
         # local_crops_number only: masking-only ignores scale/size; global=2 is a
         # constant inside the class (GLOBAL_CROPS_NUMBER).
-        data_transform = MaskingAugmentation3D(cfg.crops.local_crops_number)
+        data_transform = FullVolumeViews3D(cfg.crops.local_crops_number)
     # └── end FMRI ADDITION: fmri masking augmentation branch ─────────────────────┘
     else:
         data_transform = DataAugmentationDINO(

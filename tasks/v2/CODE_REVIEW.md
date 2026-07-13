@@ -102,7 +102,7 @@ official file**. Each item = **What** / **Why** (vs official) / **Where** (`file
 - **What**: the DINO views are the **full volume** repeated (2 global + N local), i.e.
   NO spatial crop; the only corruption is per-token masking.
 - **Why**: a brain is a fixed anatomical structure, not a scene to crop (meeting §2).
-- **Where**: `MaskingAugmentation3D` L327 · `__call__` L341.
+- **Where**: `FullVolumeViews3D` L327 · `__call__` L341.
 
 **5.2 · Per-token random masking (for iBOT)** 🟢 `dinov2/data/masking.py`
 - **What**: MAE-style random token masking over the flattened (T_eff × N_spatial) grid,
@@ -173,7 +173,7 @@ official file**. Each item = **What** / **Why** (vs official) / **Where** (`file
   applied at L221.
 
 **7.2 · Augmentation selection** 🟠 `dinov2/train/train.py`
-- **What**: pick `MaskingAugmentation3D` when `fmri_augmentation` is set (else the
+- **What**: pick `FullVolumeViews3D` when `fmri_augmentation` is set (else the
   official DINO augmentation).
 - **Where**: `do_train` augmentation branch (~L294) · import L20.
 

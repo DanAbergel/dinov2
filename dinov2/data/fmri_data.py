@@ -41,8 +41,9 @@ step: the function it calls, and what that function does.
   └────────────────────────────────────────────────────────────────────────┘
                                      │  = (270, 1, 45, 54, 45)
   ┌────────────────────────────────────────────────────────────────────────┐
-  │ 8. AUGMENT                  MaskingAugmentation3D                        │
-  │    Full-volume views + per-token random masking (for iBOT).             │
+  │ 8. VIEWS                    FullVolumeViews3D                            │
+  │    Builds 2 global + N local views (all the full volume). The only aug, │
+  │    per-token masking (for iBOT), is applied later in collate.           │
   └────────────────────────────────────────────────────────────────────────┘
                                      │
                                      ▼
@@ -401,10 +402,16 @@ class MixedFMRIDataset(Dataset):
 # variant DINOv2's training loop needs; MixedFMRIDataset only has to expose dataset_indices.
 
 
-class MaskingAugmentation3D:
-    """fMRI augmentation = MASKING ONLY (no spatial/temporal crop). All crops are
-    the FULL volume; the per-token random masking in the collate (for iBOT) is the
-    only corruption. Emits the dict do_train expects from DataAugmentationDINO.
+class FullVolumeViews3D:
+    """Produces the DINO view dict (2 global + N local), each the FULL volume.
+
+    IMPORTANT: this class does NOT mask and does NOT crop. It only builds the
+    multi-view STRUCTURE that do_train expects from DataAugmentationDINO — here
+    every view is just a reference to the same preprocessed volume. The only
+    augmentation of the fMRI pipeline (per-token random masking, for iBOT) is
+    applied later, per batch, in collate_data_and_cast (via RandomTokenMasking
+    Generator) — NOT here. We drop DINO's spatial crops on purpose: a brain is a
+    fixed anatomical structure, not a scene to crop (meeting 2026-06-14, §2).
 
     Crop counts (constants over arguments):
       - global = GLOBAL_CROPS_NUMBER (fmri_const): the DINO invariant, 2 views.
@@ -419,8 +426,8 @@ class MaskingAugmentation3D:
     def __init__(self, local_crops_number, **_ignored):
         self.global_crops_number = GLOBAL_CROPS_NUMBER
         self.local_crops_number = int(local_crops_number)
-        logger.info(f"fMRI MASKING-ONLY augmentation: global={self.global_crops_number} "
-                    f"local={self.local_crops_number} (masking applied in collate)")
+        logger.info(f"fMRI full-volume views: global={self.global_crops_number} "
+                    f"local={self.local_crops_number} (masking applied later in collate)")
 
     def __call__(self, scan):
         """Build the DINO views. No cropping — every view is the FULL volume repeated
