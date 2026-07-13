@@ -57,7 +57,6 @@ import json
 import logging
 import math
 from pathlib import Path
-from typing import Any, Callable, Optional, Tuple
 
 import numpy as np
 import torch
@@ -292,8 +291,8 @@ def _finalize(clip, t_fixed):
 
 class MixedFMRIDataset(Dataset):
     """The five fMRI cohorts (HCP/ABIDE/OASIS/AOMIC/ADNI) presented as ONE dataset,
-    with the same (transform / target_transform) API as ImageNet so it drops into
-    DINOv2's do_train unchanged.
+    with the same (root / transform) API as ImageNet so it drops into DINOv2's
+    do_train unchanged. SSL-only: __getitem__ returns an empty target, no labels.
 
     Each __getitem__ returns one preprocessed window:
         image  : float tensor (T_fixed, 1, 45, 54, 45)   -- z-scored, TR-harmonized
@@ -307,12 +306,13 @@ class MixedFMRIDataset(Dataset):
     constant in fmri_const.py.
     """
 
-    def __init__(self, root=None, *, t_fixed=DEFAULT_T_FIXED,
-                 transform=None, target_transform=None, **_ignored):
+    def __init__(self, root=None, *, t_fixed=DEFAULT_T_FIXED, transform=None, **_ignored):
         # Only what actually varies is an argument (t_fixed from the config string,
         # transform from do_train). Everything else is a constant in fmri_const.py.
+        # target_transform is swallowed by **_ignored: we are SSL-only, so there is no
+        # label to transform (see __getitem__).
         self.t_fixed = int(t_fixed)                          # window length in frames (270)
-        self.transform, self.target_transform = transform, target_transform
+        self.transform = transform                           # image augmentation, or None
         lab_root = root or LAB_ROOT
 
         self.entries, self.dataset_indices = self._discover(lab_root)
@@ -385,15 +385,14 @@ class MixedFMRIDataset(Dataset):
         return _finalize(scan[start:start + win].clone(), self.t_fixed)    # 3. crop + prep
 
     def __getitem__(self, idx):
-        """Returns (image, target): image = preprocessed + augmented window
-        (T_fixed, 1, 45, 54, 45); target = 0 (unused — self-supervised)."""
+        """Returns (image, target). image = preprocessed window (T_fixed, 1, 45, 54, 45),
+        augmented if a transform is set. target is always the empty tuple (): we are
+        SSL-only, there is no label — () is the collate-safe "no label" placeholder the
+        DINO collator expects (it reads s[0] only, never the target)."""
         image = self._load(idx)
-        target: Any = 0                                    # unused (self-supervised)
         if self.transform is not None:
             image = self.transform(image)                  # augmentation (masking, Phase 5)
-        if self.target_transform is not None:
-            target = self.target_transform(target)
-        return image, target
+        return image, ()
 
 
 class ProportionalBatchSampler(Sampler):
