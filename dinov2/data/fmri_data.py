@@ -1,15 +1,37 @@
 """Multi-source fMRI training data for the DINOv2 pipeline.
 
-Three pieces, in order:
-  1. corpus       — discover scans (glob or manifest), apply subject holdout
-  2. windowing    — mmap a scan, crop a native window, resample to T_FIXED @ 0.72s
-  3. MixedFMRIDataset + ProportionalBatchSampler + MaskingAugmentation3D
+WHERE THE DATA COMES FROM (all on disk, prepared offline):
+  - raw scans          <lab>/<DATASET>_data/downsampled/.../*.pt  = (T, X, Y, Z) tensors
+  - corpus_manifest.csv  one row per scan: path, native TR, native length  [fmri_offline.py]
+  - subject_split.json   the 70/30 train/test split, by subject         [make_subject_split]
 
-MixedFMRIDataset yields ONE harmonized window per scan as a z-scored
-(T_FIXED, 1, 45, 54, 45) tensor; ProportionalBatchSampler composes each batch
-with a fixed per-dataset quota; MaskingAugmentation3D is the (masking-only)
-augmentation. All constants live in fmri_const.py (re-exported here for the
-probe and the data-prep tasks that import them from this module).
+WHAT WE WANT: one harmonized, z-scored window per scan, ready for the ViT:
+                          (T_FIXED=270, 1, 45, 54, 45)
+
+THE PIPELINE (top = raw on disk, bottom = tensor fed to the model):
+
+  corpus_manifest.csv ─┐
+  subject_split.json ──┤  entries_from_manifest (+ _load_split_map)
+                       ▼    · drop scans too short for a 270-window
+                    entries   · drop TEST subjects (holdout -> no leakage)
+                       │    = [{dataset, path, subject_id, tr}, ...]   (the scan list)
+                       │
+   ProportionalBatchSampler ◀─ _index_by_dataset(entries) = {dataset: [indices]}
+   decides which scan indices go in each batch (quota HCP4/ABIDE4/OASIS4/ADNI3/AOMIC1)
+                       │
+                       ▼  MixedFMRIDataset._load(i)                    [section 2: WINDOWING]
+                    _load_mmap         open entries[i]'s .pt lazily    -> (T, X, Y, Z)
+                    _native_window     crop a random 270-window (194.4 s of real time)
+                    _temporal_resample native TR -> 270 frames @ 0.72s (polyphase FIR)
+                    _zscore_per_frame  per-frame spatial z-score
+                       │
+                       ▼  = (270, 1, 45, 54, 45)
+                    MaskingAugmentation3D  full-volume views + per-token masking [section 3]
+                       │
+                       ▼  -> DINOv2 student/teacher (via do_train)
+
+Sections below: 1. corpus · 2. windowing · 3. dataset + sampler + augmentation.
+Offline tools (manifest / T_fixed) live in fmri_offline.py; constants in fmri_const.py.
 """
 
 import csv
