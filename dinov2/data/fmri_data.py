@@ -313,13 +313,12 @@ class MixedFMRIDataset(Dataset):
         3. store transforms
     """
 
-    def __init__(self, root=None, *, t_fixed=DEFAULT_T_FIXED, temporal_crop=None,
+    def __init__(self, root=None, *, t_fixed=DEFAULT_T_FIXED,
                  datasets=CORPUS_DATASETS, exclude=None, manifest=None, drop_short=True,
                  split_file=None, holdout_datasets=HOLDOUT_DATASETS,
                  pretrain_splits=("train",), transform=None, target_transform=None,
                  **_ignored):
-        # temporal_crop is a legacy alias for t_fixed.
-        self.t_fixed = int(temporal_crop if temporal_crop is not None else t_fixed)
+        self.t_fixed = int(t_fixed)                          # window length in frames (270)
         self.transform, self.target_transform = transform, target_transform
         lab_root = root or LAB_ROOT
 
