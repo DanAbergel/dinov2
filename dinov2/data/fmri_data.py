@@ -80,11 +80,15 @@ logger = logging.getLogger("dinov2")
 # =====================================================================
 
 def _index_by_dataset(entries):
-    """Group scan indices by dataset — what ProportionalBatchSampler needs to draw a
-    per-dataset quota. Derived from entries, so the discovery functions don't return it.
+    """Group the scans by dataset so the sampler can build balanced batches.
+
+    `entries` is a flat list; the ProportionalBatchSampler needs to know which indices
+    belong to which cohort to draw its per-dataset quota (4 HCP, 4 ABIDE, ...). This
+    returns {dataset: [indices into entries]}. It is DERIVED from entries in one pass,
+    so the loading functions don't have to carry it around — the dataset builds it once.
 
     Args:
-      entries : the scan list from build_corpus_entries / entries_from_manifest.
+      entries : the scan list from entries_from_manifest.
     Returns:
       {dataset name: [indices into entries]}.
 
@@ -99,7 +103,12 @@ def _index_by_dataset(entries):
 
 
 def _load_split_map(split_file):
-    """Invert subject_split.json into a per-subject lookup (O(1) split membership).
+    """Read subject_split.json and turn it into a fast per-subject lookup.
+
+    The split file lists, per dataset, which SUBJECTS are train vs test. We invert it
+    into {dataset: {subject_id: split}} so entries_from_manifest can check any subject's
+    membership in O(1) while filtering (for the holdout). Splitting by SUBJECT (not by
+    scan) is what prevents leakage: all scans of a held-out subject stay out together.
 
     Args:
       split_file : path to subject_split.json.
@@ -117,8 +126,17 @@ def _load_split_map(split_file):
 
 def entries_from_manifest(manifest_path, datasets=CORPUS_DATASETS, min_upsampled_t=0,
                           split_map=None, holdout_datasets=(), pretrain_splits=("train",)):
-    """Build `entries` from the corpus manifest CSV — same shape as build_corpus_entries,
-    but read from the CSV and with two filters applied.
+    """Read the corpus manifest and produce the exact list of scans training will see.
+
+    This is the NORMAL load path, run once at the start of every training run. It reads
+    corpus_manifest.csv row by row (one row = one scan, with its path, native TR and
+    pre-computed length) and keeps a scan only if it passes TWO filters:
+      1. LENGTH  — drop scans whose upsampled_T (length after TR harmonization) is below
+                   min_upsampled_t, i.e. too short to fill a 270-frame window.
+      2. HOLDOUT — for a holdout dataset, drop scans of TEST subjects (split not in
+                   pretrain_splits). The encoder never sees them -> no leakage.
+    Because upsampled_T is pre-computed (offline), both filters run WITHOUT opening any
+    scan file. Output is the same shape as build_corpus_entries.
 
     Args:
       manifest_path    : path to corpus_manifest.csv.
