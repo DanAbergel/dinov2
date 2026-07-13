@@ -75,23 +75,20 @@ DATASET_SOURCES = {
 def build_corpus_entries(lab_root=LAB_ROOT, datasets=CORPUS_DATASETS):
     """Discover every scan of the requested datasets on disk.
 
-    Returns (entries, by_dataset):
-      entries    : flat list of {dataset, path, subject_id, tr}, one dict per scan.
-      by_dataset : {name -> [indices into entries]} — feeds ProportionalBatchSampler
-                   so each batch can be composed with a fixed per-dataset quota.
+    Returns `entries`: a flat list of {dataset, path, subject_id, tr}, one dict per
+    scan. The DataLoader indexes this list directly. For the per-dataset grouping the
+    ProportionalBatchSampler needs, call _index_by_dataset(entries).
 
     Example:
-      entries = [
+      [
         {"dataset": "HCP",   "path": ".../subject_100206/...pt", "subject_id": "subject_100206", "tr": 0.72},
-        {"dataset": "HCP",   "path": ".../subject_100307/...pt", "subject_id": "subject_100307", "tr": 0.72},
         {"dataset": "ABIDE", "path": ".../NYU_0051091.pt",       "subject_id": "NYU_0051091",    "tr": 2.0 },
         ...
       ]
-      by_dataset = {"HCP": [0, 1, ...], "ABIDE": [2, ...], ...}   # indices into `entries`
 
     The per-dataset details live in DATASET_SOURCES above; this loop is generic.
     """
-    entries, by_dataset = [], {}
+    entries = []
     for name in datasets:
         src = DATASET_SOURCES.get(name)
         if src is None:                                    # unknown dataset name -> skip
@@ -102,12 +99,24 @@ def build_corpus_entries(lab_root=LAB_ROOT, datasets=CORPUS_DATASETS):
             if tr is None:                                 # e.g. an unmapped ABIDE site
                 logger.warning(f"{name}: no native TR for {p.name}; skipping")
                 continue
-            # record this scan's global index under its dataset (for the sampler)...
-            by_dataset.setdefault(name, []).append(len(entries))
-            # ...then append the scan itself.
             entries.append({"dataset": name, "path": str(p),
                             "subject_id": src["subject"](p), "tr": float(tr)})
-    return entries, by_dataset
+    return entries
+
+
+def _index_by_dataset(entries):
+    """Group scan indices by dataset -> {name: [indices into entries]}. This is what
+    ProportionalBatchSampler needs to draw a per-dataset quota. Derived from entries,
+    so the discovery functions don't have to return it.
+
+    Example:
+      [{"dataset": "HCP", ...}, {"dataset": "ABIDE", ...}, {"dataset": "HCP", ...}]
+      -> {"HCP": [0, 2], "ABIDE": [1]}
+    """
+    by = {}
+    for i, e in enumerate(entries):
+        by.setdefault(e["dataset"], []).append(i)
+    return by
 
 
 def write_corpus_manifest(out_path, lab_root=LAB_ROOT, datasets=CORPUS_DATASETS):
@@ -120,7 +129,7 @@ def write_corpus_manifest(out_path, lab_root=LAB_ROOT, datasets=CORPUS_DATASETS)
       ADNI,/.../I123456.pt,sub-4123,3.0,140,583        # 140 frames @ 3.0s -> 583 @ 0.72s
       HCP,/.../subject_100206/...pt,subject_100206,0.72,1200,1200   # already 0.72s -> unchanged
     """
-    entries, _ = build_corpus_entries(lab_root, datasets)
+    entries = build_corpus_entries(lab_root, datasets)
     out_path = Path(out_path)
     out_path.parent.mkdir(parents=True, exist_ok=True)
     with open(out_path, "w", newline="") as f:
@@ -150,47 +159,44 @@ def _load_split_map(split_file):
 
 def entries_from_manifest(manifest_path, datasets=CORPUS_DATASETS, min_upsampled_t=0,
                           split_map=None, holdout_datasets=(), pretrain_splits=("train",)):
-    """Build (entries, by_dataset) from the corpus manifest CSV — same shape as
+    """Build `entries` from the corpus manifest CSV — same shape as
     build_corpus_entries, but read from the CSV and with two filters applied:
       1. drop scans whose upsampled_T < min_upsampled_t (too short for a window);
       2. if split_map is given, drop holdout-dataset scans whose subject is NOT in
          pretrain_splits (i.e. the test subjects) -> no leakage.
 
-    Returns (entries, by_dataset), e.g.:
-      entries    = [{"dataset": "HCP", "path": "...", "subject_id": "subject_100206", "tr": 0.72}, ...]
-      by_dataset = {"HCP": [0, 1, ...], "ABIDE": [2, ...], ...}   # indices into `entries`
+    Returns `entries` (same shape as build_corpus_entries), e.g.:
+      [{"dataset": "HCP", "path": "...", "subject_id": "subject_100206", "tr": 0.72}, ...]
     """
     entries: list = []
-    by_dataset: dict = {}
     n_short = n_holdout = 0
     with open(manifest_path) as f:
         for row in csv.DictReader(f):
             ds = row["dataset"]
             if ds not in datasets:
                 continue
-            if int(row["upsampled_T"]) < min_upsampled_t:
+            if int(row["upsampled_T"]) < min_upsampled_t:     # filter 1: too short
                 n_short += 1
                 continue
-            if split_map and ds in holdout_datasets:
+            if split_map and ds in holdout_datasets:          # filter 2: holdout (no leakage)
                 sp = split_map.get(ds, {}).get(row["subject_id"])
                 if sp is not None and sp not in pretrain_splits:
                     n_holdout += 1
                     continue
-            by_dataset.setdefault(ds, []).append(len(entries))
             entries.append({"dataset": ds, "path": row["path"],
                             "subject_id": row["subject_id"], "tr": float(row["tr"])})
     if n_short:
         logger.info(f"manifest: dropped {n_short} scans with upsampled_T < {min_upsampled_t}")
     if n_holdout:
         logger.info(f"holdout: excluded {n_holdout} test scans of {holdout_datasets}")
-    return entries, by_dataset
+    return entries
 
 
 def compute_t_fixed_max(lab_root=LAB_ROOT, datasets=CORPUS_DATASETS, margin=0):
     """Offline: largest T_fixed that fits EVERY scan with no padding = global min
     upsampled length. Returns (t_fixed_max - margin, per_dataset_min, shortest_entry,
     per_dataset_all_upsampled). Use to pick DEFAULT_T_FIXED."""
-    entries, _ = build_corpus_entries(lab_root, datasets)
+    entries = build_corpus_entries(lab_root, datasets)
     per, per_all, g_min, argmin = {}, {}, None, None
     for e in entries:
         up = round(_load_mmap(e["path"]).shape[0] * e["tr"] / TARGET_TR)
@@ -316,15 +322,16 @@ class MixedFMRIDataset(Dataset):
 
         man = Path(manifest) if manifest else Path(lab_root) / DEFAULT_MANIFEST
         if man.exists():
-            entries, idx = entries_from_manifest(
+            entries = entries_from_manifest(
                 man, datasets, min_upsampled_t=(self.t_fixed if drop_short else 0),
                 split_map=split_map,
                 holdout_datasets=holdout_datasets if split_map else (),
                 pretrain_splits=pretrain_splits)
             src = f"manifest {man.name}"
         else:
-            entries, idx = build_corpus_entries(lab_root, datasets)
+            entries = build_corpus_entries(lab_root, datasets)
             src = "glob (no manifest; short scans stretched, not dropped)"
+        idx = _index_by_dataset(entries)                   # per-dataset indices for the sampler
         counts = {k: len(v) for k, v in idx.items()}
         logger.info(f"MixedFMRIDataset: {len(entries)} scans  T_fixed={self.t_fixed}  "
                     f"target_TR={TARGET_TR}s  src={src}  per-dataset={counts}")
