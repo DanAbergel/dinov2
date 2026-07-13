@@ -359,8 +359,15 @@ class MixedFMRIDataset(Dataset):
 
     @staticmethod
     def _apply_exclude(datasets, exclude):
-        """Drop whole datasets from pretraining, e.g. exclude="ADNI" (or "ADNI,ABIDE"),
-        so a downstream probe can later use the FULL held-out cohort, encoder unseen."""
+        """Drop whole datasets from pretraining, so a downstream probe can later use
+        the FULL held-out cohort, encoder unseen.
+
+        Args:
+          datasets : the current tuple of dataset names.
+          exclude  : names to drop, e.g. "ADNI" or "ADNI,ABIDE" (None -> keep all).
+        Returns:
+          `datasets` with the excluded names removed.
+        """
         if not exclude:
             return datasets
         ex = {d.strip() for d in str(exclude).replace("-", ",").split(",")}
@@ -369,9 +376,21 @@ class MixedFMRIDataset(Dataset):
 
     def _discover(self, lab_root, datasets, drop_short, manifest, split_file,
                   holdout_datasets, pretrain_splits):
-        """Build (entries, dataset_indices). Prefer the manifest (fast + carries
-        T_native, so short scans AND holdout subjects are filtered without opening
-        the files); fall back to a live glob if no manifest exists."""
+        """Build the scan list + its per-dataset index. Prefer the manifest (fast +
+        carries T_native, so short scans AND holdout subjects are filtered without
+        opening the files); fall back to a live glob if no manifest exists.
+
+        Args:
+          lab_root         : data root.
+          datasets         : cohorts to include.
+          drop_short       : if True, drop scans shorter than t_fixed after harmonization.
+          manifest         : manifest path (None -> <lab_root>/corpus_manifest.csv).
+          split_file       : split path (None -> <lab_root>/subject_split.json).
+          holdout_datasets : datasets on which the holdout filter applies.
+          pretrain_splits  : splits kept for holdout datasets (("train",)).
+        Returns:
+          (entries, dataset_indices) — the scan list and {dataset: [indices]}.
+        """
         # Subject-level holdout via the split file (absent -> keep every subject).
         sf = Path(split_file) if split_file else Path(lab_root) / DEFAULT_SPLIT
         split_map = _load_split_map(sf) if sf.exists() else None
@@ -397,15 +416,23 @@ class MixedFMRIDataset(Dataset):
         return len(self.entries)
 
     def _load(self, idx):
-        """One scan -> one preprocessed window (T_fixed, 1, 45, 54, 45). Crop the
-        native window FIRST (on the mmap) so a 500 MB HCP scan never fully loads;
-        then resize + resample-to-0.72s + z-score happen in _finalize."""
+        """Load one scan and preprocess it into a model-ready window.
+
+        Args:
+          idx : global index into self.entries.
+        Returns:
+          tensor (T_fixed, 1, 45, 54, 45). The native window is cropped FIRST (on the
+          mmap) so a 500 MB HCP scan never fully loads; resize + resample-to-0.72s +
+          z-score then happen in _finalize.
+        """
         e = self.entries[idx]
         scan = _load_mmap(e["path"])                       # lazy (T, X, Y, Z)
         start, win = _native_window(scan.shape[0], e["tr"], self.t_fixed)
         return _finalize(scan[start:start + win].clone(), self.t_fixed)
 
     def __getitem__(self, idx):
+        """Returns (image, target): image = preprocessed + augmented window
+        (T_fixed, 1, 45, 54, 45); target = 0 (unused — self-supervised)."""
         image = self._load(idx)
         target: Any = 0                                    # unused (self-supervised)
         if self.transform is not None:
@@ -426,6 +453,12 @@ class ProportionalBatchSampler(Sampler):
 
     def __init__(self, dataset_indices, quota=None, *, batches_per_epoch=None,
                  seed=0, rank=0, world_size=1):
+        """Args:
+          dataset_indices        : {dataset: [global indices]} (from MixedFMRIDataset).
+          quota                  : per-batch count per dataset (default DEFAULT_QUOTA).
+          batches_per_epoch      : override; else ceil(total scans / batch_size).
+          seed, rank, world_size : DDP — each rank draws a disjoint stream of batches.
+        """
         self.dataset_indices = {k: list(v) for k, v in dataset_indices.items() if v}
         self.quota = {k: q for k, q in (quota or self.DEFAULT_QUOTA).items()
                       if k in self.dataset_indices and q > 0}
@@ -446,6 +479,10 @@ class ProportionalBatchSampler(Sampler):
         return self.batches_per_epoch
 
     def __iter__(self):
+        """Yield one batch at a time: a list of scan indices with the per-dataset quota
+        (e.g. 4 HCP + 4 ABIDE + 4 OASIS + 3 ADNI + 1 AOMIC). Each dataset's pool is
+        shuffled; a pool that runs out mid-epoch is reshuffled and cycled (small
+        datasets cycle more often); the final batch order is shuffled too."""
         g = torch.Generator()
         g.manual_seed(self.seed + self.epoch * 1000 + self.rank)
         pools, ptr = {}, {}
@@ -482,6 +519,16 @@ class MaskingAugmentation3D:
                     f"local={self.local_crops_number} (masking applied in collate)")
 
     def __call__(self, scan):
+        """Build the DINO views. No cropping — every view is the FULL volume repeated
+        (the per-token masking in the collate is the only corruption).
+
+        Args:
+          scan : one preprocessed window (T_fixed, 1, 45, 54, 45).
+        Returns:
+          dict with `global_crops` / `global_crops_teacher` (x global_crops_number),
+          `local_crops` (x local_crops_number), and empty `offsets` — the contract
+          do_train expects from DataAugmentationDINO.
+        """
         return {"global_crops":         [scan] * self.global_crops_number,
                 "global_crops_teacher": [scan] * self.global_crops_number,
                 "local_crops":          [scan] * self.local_crops_number,
