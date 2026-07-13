@@ -75,78 +75,9 @@ logger = logging.getLogger("dinov2")
 
 
 # =====================================================================
-# 1. CORPUS — discover scans + subject-level holdout
+# 1. CORPUS — read the manifest, apply holdout, index by dataset.
+#    (scan discovery + manifest creation are OFFLINE -> dinov2/data/fmri_offline.py)
 # =====================================================================
-
-# ---------------------------------------------------------------------------
-# Where each source lives on disk, and how to read its subject id + native TR.
-# One declarative entry per dataset -> build_corpus_entries just loops over this,
-# so adding a cohort = adding one line here (no new if/elif branch).
-#   glob    : path pattern (under lab_root) matching every scan .pt of the cohort.
-#   subject : derive the subject id from a scan's Path. All scans of one subject
-#             MUST share the same id, so they never straddle the train/test split.
-#   tr      : the native repetition time (s). ABIDE differs per acquisition site,
-#             so its TR is looked up from the filename -> a function, not a constant.
-# ---------------------------------------------------------------------------
-DATASET_SOURCES = {
-    # HCP: one rest run per subject; subject id = the "subject_XXXXXX" folder name.
-    "HCP":   dict(glob="HCP_data/downsampled/subject_*/rfMRI_REST1_LR_downsampled.pt",
-                  subject=lambda p: p.parent.name,
-                  tr=lambda p: HCP_TR),
-    # ABIDE: multi-site; the site is the filename prefix and the TR is per site.
-    "ABIDE": dict(glob="ABIDE_data/downsampled/**/*.pt",
-                  subject=lambda p: p.stem,
-                  tr=lambda p: ABIDE_SITE_TR.get(p.name.split("_")[0])),
-    # OASIS-3: one file per session folder; a single documented TR.
-    "OASIS": dict(glob="OASIS3_data/downsampled/*/rest_*.pt",
-                  subject=lambda p: p.parent.name,
-                  tr=lambda p: OASIS_DEFAULT_TR),
-    # AOMIC: two protocols (piop1/piop2) with different TRs, told apart by the path.
-    "AOMIC": dict(glob="AOMIC_data/downsampled/*/sub-*/restingstate_downsampled.pt",
-                  subject=lambda p: p.parent.name,
-                  tr=lambda p: AOMIC_TR["piop1" if "piop1" in str(p).lower() else "piop2"]),
-    # ADNI: files named I<image_id>.pt inside a per-subject folder.
-    "ADNI":  dict(glob="ADNI_data/downsampled/*/I*.pt",
-                  subject=lambda p: p.parent.name,
-                  tr=lambda p: ADNI_TR),
-}
-
-
-def build_corpus_entries(lab_root=LAB_ROOT, datasets=CORPUS_DATASETS):
-    """Discover every scan of the requested datasets on disk.
-
-    Args:
-      lab_root : root dir holding the <DATASET>_data/downsampled/ folders.
-      datasets : which cohorts to include (subset of DATASET_SOURCES keys).
-    Returns:
-      `entries`: a flat list of {dataset, path, subject_id, tr}, one dict per scan.
-      The DataLoader indexes this list directly. For the per-dataset grouping the
-      ProportionalBatchSampler needs, call _index_by_dataset(entries).
-
-    Example:
-      [
-        {"dataset": "HCP",   "path": ".../subject_100206/...pt", "subject_id": "subject_100206", "tr": 0.72},
-        {"dataset": "ABIDE", "path": ".../NYU_0051091.pt",       "subject_id": "NYU_0051091",    "tr": 2.0 },
-        ...
-      ]
-
-    The per-dataset details live in DATASET_SOURCES above; this loop is generic.
-    """
-    entries = []
-    for name in datasets:
-        src = DATASET_SOURCES.get(name)
-        if src is None:                                    # unknown dataset name -> skip
-            continue
-        # sorted() makes the file order deterministic (reproducible corpus).
-        for p in sorted(Path(lab_root).glob(src["glob"])):
-            tr = src["tr"](p)
-            if tr is None:                                 # e.g. an unmapped ABIDE site
-                logger.warning(f"{name}: no native TR for {p.name}; skipping")
-                continue
-            entries.append({"dataset": name, "path": str(p),
-                            "subject_id": src["subject"](p), "tr": float(tr)})
-    return entries
-
 
 def _index_by_dataset(entries):
     """Group scan indices by dataset — what ProportionalBatchSampler needs to draw a
@@ -336,7 +267,7 @@ class MixedFMRIDataset(Dataset):
 
     __init__ does three things (each a small helper below):
         1. _apply_exclude : optionally drop whole datasets from pretraining
-        2. _discover      : build the scan list (manifest, else glob) + holdout
+        2. _discover      : build the scan list (from the manifest) + holdout
         3. store transforms
     """
 
@@ -376,9 +307,10 @@ class MixedFMRIDataset(Dataset):
 
     def _discover(self, lab_root, datasets, drop_short, manifest, split_file,
                   holdout_datasets, pretrain_splits):
-        """Build the scan list + its per-dataset index. Prefer the manifest (fast +
-        carries T_native, so short scans AND holdout subjects are filtered without
-        opening the files); fall back to a live glob if no manifest exists.
+        """Build the scan list + its per-dataset index by reading the corpus manifest
+        (fast; it carries T_native so short scans AND holdout subjects are filtered
+        without opening the files). The manifest is REQUIRED — build it offline first
+        with dinov2.data.fmri_offline.write_corpus_manifest.
 
         Args:
           lab_root         : data root.
@@ -390,26 +322,27 @@ class MixedFMRIDataset(Dataset):
           pretrain_splits  : splits kept for holdout datasets (("train",)).
         Returns:
           (entries, dataset_indices) — the scan list and {dataset: [indices]}.
+        Raises:
+          FileNotFoundError if the manifest does not exist.
         """
         # Subject-level holdout via the split file (absent -> keep every subject).
         sf = Path(split_file) if split_file else Path(lab_root) / DEFAULT_SPLIT
         split_map = _load_split_map(sf) if sf.exists() else None
 
         man = Path(manifest) if manifest else Path(lab_root) / DEFAULT_MANIFEST
-        if man.exists():
-            entries = entries_from_manifest(
-                man, datasets, min_upsampled_t=(self.t_fixed if drop_short else 0),
-                split_map=split_map,
-                holdout_datasets=holdout_datasets if split_map else (),
-                pretrain_splits=pretrain_splits)
-            src = f"manifest {man.name}"
-        else:
-            entries = build_corpus_entries(lab_root, datasets)
-            src = "glob (no manifest; short scans stretched, not dropped)"
+        if not man.exists():
+            raise FileNotFoundError(
+                f"No corpus manifest at {man}. Build it offline first with "
+                "dinov2.data.fmri_offline.write_corpus_manifest.")
+        entries = entries_from_manifest(
+            man, datasets, min_upsampled_t=(self.t_fixed if drop_short else 0),
+            split_map=split_map,
+            holdout_datasets=holdout_datasets if split_map else (),
+            pretrain_splits=pretrain_splits)
         idx = _index_by_dataset(entries)                   # per-dataset indices for the sampler
         counts = {k: len(v) for k, v in idx.items()}
         logger.info(f"MixedFMRIDataset: {len(entries)} scans  T_fixed={self.t_fixed}  "
-                    f"target_TR={TARGET_TR}s  src={src}  per-dataset={counts}")
+                    f"target_TR={TARGET_TR}s  manifest={man.name}  per-dataset={counts}")
         return entries, idx
 
     def __len__(self):
