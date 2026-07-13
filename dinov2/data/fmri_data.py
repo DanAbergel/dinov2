@@ -115,9 +115,13 @@ DATASET_SOURCES = {
 def build_corpus_entries(lab_root=LAB_ROOT, datasets=CORPUS_DATASETS):
     """Discover every scan of the requested datasets on disk.
 
-    Returns `entries`: a flat list of {dataset, path, subject_id, tr}, one dict per
-    scan. The DataLoader indexes this list directly. For the per-dataset grouping the
-    ProportionalBatchSampler needs, call _index_by_dataset(entries).
+    Args:
+      lab_root : root dir holding the <DATASET>_data/downsampled/ folders.
+      datasets : which cohorts to include (subset of DATASET_SOURCES keys).
+    Returns:
+      `entries`: a flat list of {dataset, path, subject_id, tr}, one dict per scan.
+      The DataLoader indexes this list directly. For the per-dataset grouping the
+      ProportionalBatchSampler needs, call _index_by_dataset(entries).
 
     Example:
       [
@@ -145,9 +149,13 @@ def build_corpus_entries(lab_root=LAB_ROOT, datasets=CORPUS_DATASETS):
 
 
 def _index_by_dataset(entries):
-    """Group scan indices by dataset -> {name: [indices into entries]}. This is what
-    ProportionalBatchSampler needs to draw a per-dataset quota. Derived from entries,
-    so the discovery functions don't have to return it.
+    """Group scan indices by dataset — what ProportionalBatchSampler needs to draw a
+    per-dataset quota. Derived from entries, so the discovery functions don't return it.
+
+    Args:
+      entries : the scan list from build_corpus_entries / entries_from_manifest.
+    Returns:
+      {dataset name: [indices into entries]}.
 
     Example:
       [{"dataset": "HCP", ...}, {"dataset": "ABIDE", ...}, {"dataset": "HCP", ...}]
@@ -162,6 +170,11 @@ def _index_by_dataset(entries):
 def _load_split_map(split_file):
     """Invert subject_split.json into a per-subject lookup (O(1) split membership).
 
+    Args:
+      split_file : path to subject_split.json.
+    Returns:
+      {dataset: {subject_id: "train"|"test"}}.
+
     Example:
       file:   {"datasets": {"ADNI": {"train": ["s1", "s2"], "test": ["s3"]}}}
       returns {"ADNI": {"s1": "train", "s2": "train", "s3": "test"}}
@@ -173,13 +186,21 @@ def _load_split_map(split_file):
 
 def entries_from_manifest(manifest_path, datasets=CORPUS_DATASETS, min_upsampled_t=0,
                           split_map=None, holdout_datasets=(), pretrain_splits=("train",)):
-    """Build `entries` from the corpus manifest CSV — same shape as
-    build_corpus_entries, but read from the CSV and with two filters applied:
-      1. drop scans whose upsampled_T < min_upsampled_t (too short for a window);
-      2. if split_map is given, drop holdout-dataset scans whose subject is NOT in
-         pretrain_splits (i.e. the test subjects) -> no leakage.
+    """Build `entries` from the corpus manifest CSV — same shape as build_corpus_entries,
+    but read from the CSV and with two filters applied.
 
-    Returns `entries` (same shape as build_corpus_entries), e.g.:
+    Args:
+      manifest_path    : path to corpus_manifest.csv.
+      datasets         : which cohorts to keep.
+      min_upsampled_t  : drop scans whose upsampled_T < this (too short for a window);
+                         set to t_fixed (270) at training time.
+      split_map        : {dataset: {subject: split}} from _load_split_map (or None to
+                         keep every subject, i.e. no holdout).
+      holdout_datasets : datasets on which the holdout filter applies.
+      pretrain_splits  : which splits are kept for holdout datasets (default: ("train",),
+                         so test subjects are excluded -> no leakage).
+    Returns:
+      `entries` (same shape as build_corpus_entries), e.g.:
       [{"dataset": "HCP", "path": "...", "subject_id": "subject_100206", "tr": 0.72}, ...]
     """
     entries: list = []
@@ -211,21 +232,43 @@ def entries_from_manifest(manifest_path, datasets=CORPUS_DATASETS, min_upsampled
 # =====================================================================
 
 def _zscore_per_frame(scan):
-    """Per-frame z-score on (T, 1, X, Y, Z)."""
+    """Per-frame spatial z-score: normalize each timepoint volume across its voxels.
+
+    Args:
+      scan : tensor (T, 1, X, Y, Z).
+    Returns:
+      tensor (T, 1, X, Y, Z), each frame zero-mean / unit-std over (1, X, Y, Z)
+      (a constant frame maps to zeros).
+    """
     mean = scan.mean(dim=(1, 2, 3, 4), keepdim=True)
     std = scan.std(dim=(1, 2, 3, 4), keepdim=True)
     return torch.where(std > 1e-6, (scan - mean) / std.clamp_min(1e-6), torch.zeros_like(scan))
 
 
 def _load_mmap(path):
-    """Memory-map a scan lazily (no RAM until sliced). Shape (T,X,Y,Z) or (T,1,X,Y,Z)."""
+    """Memory-map a scan lazily (no RAM used until it is sliced).
+
+    Args:
+      path : path to a .pt scan tensor.
+    Returns:
+      tensor (T, X, Y, Z) or (T, 1, X, Y, Z), memory-mapped on CPU.
+    """
     return torch.load(path, map_location="cpu", weights_only=True, mmap=True)
 
 
 def _native_window(T, tr_native, t_fixed, target_tr=TARGET_TR):
-    """(start, win): a native window of `win` frames spanning t_fixed*target_tr
-    seconds, at a random start. Scan shorter than the window -> take it whole
-    (it gets stretched up to t_fixed by _temporal_resample)."""
+    """Pick a native window that spans t_fixed * target_tr seconds of real time.
+
+    Args:
+      T         : native number of frames of the scan.
+      tr_native : the scan's native repetition time (s).
+      t_fixed   : target window length in frames after harmonization (270).
+      target_tr : common TR after harmonization (0.72 s).
+    Returns:
+      (start, win): random start index and window length, in NATIVE frames. If the
+      scan is shorter than the window, returns (0, T) (it is later stretched up to
+      t_fixed by _temporal_resample).
+    """
     win = max(1, round(t_fixed * target_tr / tr_native))
     if T >= win:
         return int(np.random.randint(0, T - win + 1)), win
@@ -233,9 +276,15 @@ def _native_window(T, tr_native, t_fixed, target_tr=TARGET_TR):
 
 
 def _temporal_resample(clip, n_out):
-    """(n_in,1,X,Y,Z) -> (n_out,1,X,Y,Z) by polyphase resampling along time
-    (scipy.signal.resample_poly — anti-aliased FIR, correct for band-limited BOLD).
-    Resamples the window from its native TR to TARGET_TR. HCP (n_in==n_out): no-op."""
+    """Resample a window along time from its native TR to TARGET_TR, with polyphase
+    (anti-aliased FIR) resampling — the correct tool for a band-limited BOLD signal.
+
+    Args:
+      clip  : tensor (n_in, 1, X, Y, Z) — the cropped native window.
+      n_out : target number of frames (t_fixed = 270).
+    Returns:
+      tensor (n_out, 1, X, Y, Z). HCP (n_in == n_out) is a no-op.
+    """
     n_in = clip.shape[0]
     if n_in == n_out:
         return clip
@@ -251,7 +300,16 @@ def _temporal_resample(clip, n_out):
 
 
 def _finalize(clip, t_fixed, target_shape=TARGET_SHAPE):
-    """Native window -> (t_fixed, 1, *target_shape), z-scored."""
+    """Turn a raw native window into the model-ready tensor: resize spatially,
+    resample to t_fixed @ 0.72 s, then z-score (orchestrates steps 6-7 of the pipeline).
+
+    Args:
+      clip         : tensor (n, X, Y, Z) or (n, 1, X, Y, Z) — the cropped window.
+      t_fixed      : target number of frames (270).
+      target_shape : target spatial size (45, 54, 45).
+    Returns:
+      tensor (t_fixed, 1, *target_shape), z-scored — ready for the model.
+    """
     clip = clip.float()
     if clip.ndim == 4:                                # (n,X,Y,Z) -> add channel
         clip = clip.unsqueeze(1)
