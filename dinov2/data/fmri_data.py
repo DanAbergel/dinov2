@@ -26,7 +26,7 @@ step: the function it calls, and what that function does.
   └────────────────────────────────────────────────────────────────────────┘
                                      │
   ┌────────────────────────────────────────────────────────────────────────┐
-  │ 3. COMPOSE EACH BATCH       ProportionalBatchSampler                     │
+  │ 3. COMPOSE EACH BATCH       ProportionalInfiniteSampler  [samplers.py]   │
   │    Pick scan indices with a fixed quota HCP4/ABIDE4/OASIS4/ADNI3/AOMIC1. │
   └────────────────────────────────────────────────────────────────────────┘
                                      │  for each chosen index i: _load(i)
@@ -62,7 +62,7 @@ import numpy as np
 import torch
 import torch.nn.functional as F
 from scipy.signal import resample_poly
-from torch.utils.data import Dataset, Sampler
+from torch.utils.data import Dataset
 
 from .fmri_const import (                       # noqa: F401  (re-exported)
     LAB_ROOT, TARGET_TR, TARGET_SHAPE, DEFAULT_T_FIXED, DEFAULT_MANIFEST,
@@ -80,7 +80,7 @@ logger = logging.getLogger("dinov2")
 def _index_by_dataset(entries):
     """Group the scans by dataset so the sampler can build balanced batches.
 
-    `entries` is a flat list; the ProportionalBatchSampler needs to know which indices
+    `entries` is a flat list; the ProportionalInfiniteSampler needs to know which indices
     belong to which cohort to draw its per-dataset quota (4 HCP, 4 ABIDE, ...). This
     returns {dataset: [indices into entries]}. It is DERIVED from entries in one pass,
     so the loading functions don't have to carry it around — the dataset builds it once.
@@ -299,7 +299,7 @@ class MixedFMRIDataset(Dataset):
         target : 0                                        -- unused (self-supervised)
 
     `dataset_indices` ({name -> [global indices]}) is exposed so
-    ProportionalBatchSampler can compose each batch with a per-dataset quota.
+    ProportionalInfiniteSampler can compose each batch with a per-dataset quota.
 
     __init__ is minimal: read the manifest into the scan list (_discover) and store
     the transform. Everything else (which datasets, the holdout, the filters) is a
@@ -331,7 +331,7 @@ class MixedFMRIDataset(Dataset):
              manifest is REQUIRED (built offline by fmri_offline.write_corpus_manifest); this
              never globs the disk itself.
           3. Index the surviving scans by dataset ({dataset -> [row positions]}) so the
-             ProportionalBatchSampler can draw its per-dataset quota.
+             ProportionalInfiniteSampler can draw its per-dataset quota.
 
         What is kept vs dropped is governed entirely by constants in fmri_const
         (HOLDOUT_DATASETS, PRETRAIN_SPLITS, DROP_SHORT), never by arguments.
@@ -392,69 +392,12 @@ class MixedFMRIDataset(Dataset):
         image = self._load(idx)
         if self.transform is not None:
             image = self.transform(image)                  # augmentation (masking, Phase 5)
-        return image, ()
+        return image, ()                                   # () instead of labels because we work on SSL
 
 
-class ProportionalBatchSampler(Sampler):
-    """Batches with a fixed per-dataset composition (default quota, batch 16:
-    HCP 4, ABIDE 4, OASIS 4, ADNI 3, AOMIC 1). Each dataset's indices are shuffled
-    and consumed without replacement; a dataset that runs out mid-epoch is
-    reshuffled and cycled (smaller datasets cycle more often). Use with
-    DataLoader(dataset, batch_sampler=sampler); pass rank/world_size for DDP."""
-
-    DEFAULT_QUOTA = {"HCP": 4, "ABIDE": 4, "OASIS": 4, "ADNI": 3, "AOMIC": 1}
-
-    def __init__(self, dataset_indices, quota=None, *, batches_per_epoch=None,
-                 seed=0, rank=0, world_size=1):
-        """Args:
-          dataset_indices        : {dataset: [global indices]} (from MixedFMRIDataset).
-          quota                  : per-batch count per dataset (default DEFAULT_QUOTA).
-          batches_per_epoch      : override; else ceil(total scans / batch_size).
-          seed, rank, world_size : DDP — each rank draws a disjoint stream of batches.
-        """
-        self.dataset_indices = {k: list(v) for k, v in dataset_indices.items() if v}
-        self.quota = {k: q for k, q in (quota or self.DEFAULT_QUOTA).items()
-                      if k in self.dataset_indices and q > 0}
-        if not self.quota:
-            raise ValueError(f"No dataset matches quota. Have {list(self.dataset_indices)}, "
-                             f"quota {list(quota or self.DEFAULT_QUOTA)}")
-        self.batch_size = sum(self.quota.values())
-        self.seed, self.rank, self.world_size, self.epoch = seed, rank, max(1, world_size), 0
-        if batches_per_epoch is None:
-            total = sum(len(self.dataset_indices[k]) for k in self.quota)
-            batches_per_epoch = math.ceil(total / self.batch_size)
-        self.batches_per_epoch = max(1, batches_per_epoch // self.world_size)
-
-    def set_epoch(self, epoch):
-        self.epoch = int(epoch)
-
-    def __len__(self):
-        return self.batches_per_epoch
-
-    def __iter__(self):
-        """Yield one batch at a time: a list of scan indices with the per-dataset quota
-        (e.g. 4 HCP + 4 ABIDE + 4 OASIS + 3 ADNI + 1 AOMIC). Each dataset's pool is
-        shuffled; a pool that runs out mid-epoch is reshuffled and cycled (small
-        datasets cycle more often); the final batch order is shuffled too."""
-        g = torch.Generator()
-        g.manual_seed(self.seed + self.epoch * 1000 + self.rank)
-        pools, ptr = {}, {}
-        for name in self.quota:
-            idxs = self.dataset_indices[name]
-            pools[name] = [idxs[i] for i in torch.randperm(len(idxs), generator=g).tolist()]
-            ptr[name] = 0
-        for _ in range(self.batches_per_epoch):
-            batch = []
-            for name, q in self.quota.items():
-                pool, p = pools[name], ptr[name]
-                for _ in range(q):
-                    if p >= len(pool):                     # epoch-local reshuffle + cycle
-                        pool = [pool[i] for i in torch.randperm(len(pool), generator=g).tolist()]
-                        pools[name], p = pool, 0
-                    batch.append(pool[p])
-                    p += 1
-                ptr[name] = p
-            yield [batch[i] for i in torch.randperm(len(batch), generator=g).tolist()]
+# NOTE: the per-batch quota sampler is ProportionalInfiniteSampler (dinov2/data/samplers.py),
+# built via SamplerType.PROPORTIONAL in loaders.py. It is the INFINITE (iteration-based)
+# variant DINOv2's training loop needs; MixedFMRIDataset only has to expose dataset_indices.
 
 
 class MaskingAugmentation3D:

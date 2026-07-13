@@ -48,7 +48,7 @@ and re-learned on fMRI).
 no spatial crop: a brain is a fixed anatomical structure); the only corruption is
 **per-token random masking** (MAE-style) applied in the collate for iBOT.
 
-**Batch composition — `ProportionalBatchSampler`.** Fixed per-batch quota
+**Batch composition — `ProportionalInfiniteSampler`.** Fixed per-batch quota
 **HCP 4 / ABIDE 4 / OASIS 4 / ADNI 3 / AOMIC 1 = 16**.
 
 **Corpus.** 5 sources, **4627 scans**. Subject-level **holdout**: the 30% val+test

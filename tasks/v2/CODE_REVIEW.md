@@ -44,9 +44,9 @@ official file**. Each item = **What** / **Why** (vs official) / **Where** (`file
 - **What**: every batch has a fixed composition — HCP 4 / ABIDE 4 / OASIS 4 / ADNI 3 /
   AOMIC 1 = 16 — instead of uniform sampling.
 - **Why**: the sources differ hugely in size; without a quota HCP dominates the batch.
-- **Where**: `fmri_data.py : ProportionalBatchSampler` L275 🟢 ·
-  `data/loaders.py` L84 (`name=="Mixed"`), L34/L137 (`SamplerType.PROPORTIONAL`) 🟠 ·
-  `data/samplers.py : ProportionalInfiniteSampler` L232 (DDP) 🟠.
+- **Where**: `data/samplers.py : ProportionalInfiniteSampler` L232 🟢 (the actual sampler —
+  INFINITE / iteration-based, as DINOv2's loop needs) · `data/loaders.py` L84 (`name=="Mixed"`),
+  L34/L137 (`SamplerType.PROPORTIONAL`) 🟠. `MixedFMRIDataset` only exposes `dataset_indices`.
 
 ---
 

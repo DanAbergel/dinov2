@@ -16,7 +16,7 @@ For every concept in the pipeline, the exact file and function/class that implem
 | Window → (270,1,45,54,45), z-scored | `dinov2/data/fmri_data.py : _finalize` |
 | **Per-frame spatial z-score** | `dinov2/data/fmri_data.py : _zscore_per_frame` |
 | Training dataset (5 sources) | `dinov2/data/fmri_data.py : MixedFMRIDataset` |
-| Per-batch dataset quota | `dinov2/data/fmri_data.py : ProportionalBatchSampler` |
+| Per-batch dataset quota | `dinov2/data/samplers.py : ProportionalInfiniteSampler` |
 | Masking-only augmentation | `dinov2/data/fmri_data.py : MaskingAugmentation3D` |
 | Patchify (3D spatial + 1D temporal) | `dinov2/layers/patch_embed_3d_plus_1d.py : PatchEmbed3DPlus1D` |
 | Model build (student/teacher, ViT-S) | `dinov2/models/__init__.py : build_model_from_cfg` |
