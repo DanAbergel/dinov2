@@ -57,6 +57,7 @@ import csv
 import json
 import logging
 import math
+import os
 from pathlib import Path
 
 import numpy as np
@@ -357,6 +358,17 @@ class MixedFMRIDataset(Dataset):
                 "dinov2.data.fmri_offline.write_corpus_manifest.")
         entries = entries_from_manifest(
             man, min_upsampled_t=(self.t_fixed if DROP_SHORT else 0), split_map=split_map)
+
+        # DEBUG overfit sanity check: FMRI_OVERFIT_N=k keeps only the first k scans, so
+        # the model is asked to MEMORIZE a handful of samples. A healthy model must drive
+        # the loss toward 0 here; if it does not, learning is mechanically broken (bad
+        # gradient flow / frozen weights / degenerate target), NOT a data problem. The
+        # first entries are HCP (CORPUS_DATASETS order) so the sampler needs one cohort.
+        overfit_n = int(os.environ.get("FMRI_OVERFIT_N", "0"))
+        if overfit_n > 0:
+            entries = entries[:overfit_n]
+            logger.warning(f"FMRI_OVERFIT_N={overfit_n}: corpus truncated to {len(entries)} "
+                           f"scan(s) for an overfit sanity check — NOT a normal run.")
 
         # Step 3 — group the kept scans by dataset for the proportional sampler.
         idx = _index_by_dataset(entries)

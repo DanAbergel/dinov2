@@ -93,6 +93,10 @@ fi
 # UNFROZEN=1 -> freeze policy A (none): ALL transformer layers train during SSL
 # (vs base's policy B which freezes blocks 0-8). Same DINOv2 init start.
 [ "${UNFROZEN:-0}" = "1" ]  && EXTRA="$EXTRA optim.freeze_pretrained=none"
+# OVERFIT_N=k -> DEBUG overfit sanity check: train on only k scans. Exported so the
+# dataset (fmri_data.py) sees it through srun. Pair with UNFROZEN=1 + a high LR and a
+# short run, e.g. OVERRIDES="optim.base_lr=1e-3 optim.epochs=4 train.OFFICIAL_EPOCH_LENGTH=500".
+[ -n "${OVERFIT_N:-}" ]     && export FMRI_OVERFIT_N="${OVERFIT_N}"
 # OVERRIDES -> any extra dinov2 config overrides, space-separated, e.g.
 #   OVERRIDES="optim.base_lr=1e-3 optim.freeze_pretrained=fmri_only"
 [ -n "${OVERRIDES:-}" ]     && EXTRA="$EXTRA ${OVERRIDES}"
