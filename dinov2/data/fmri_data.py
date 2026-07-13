@@ -206,7 +206,16 @@ def _load_mmap(path):
 
 
 def _native_window(T, tr_native, t_fixed, target_tr=TARGET_TR):
-    """Pick a native window that spans t_fixed * target_tr seconds of real time.
+    """Choose which slice of a scan to use — a window of fixed REAL duration.
+
+    Every dataset must contribute the same amount of brain activity, but they have
+    different TRs, so the same duration means a different number of frames per dataset.
+    We want a window spanning t_fixed * target_tr = 270 * 0.72 = 194.4 s of real time;
+    at the scan's native TR that is `win = round(194.4 / tr_native)` frames (e.g. 270
+    frames for HCP @ 0.72 s, but only ~65 for ADNI @ 3.0 s). The start is picked
+    RANDOMLY, which acts as temporal augmentation (a different segment every epoch).
+    If the scan is shorter than the window, take it whole — _temporal_resample then
+    stretches it up to t_fixed.
 
     Args:
       T         : native number of frames of the scan.
@@ -214,9 +223,8 @@ def _native_window(T, tr_native, t_fixed, target_tr=TARGET_TR):
       t_fixed   : target window length in frames after harmonization (270).
       target_tr : common TR after harmonization (0.72 s).
     Returns:
-      (start, win): random start index and window length, in NATIVE frames. If the
-      scan is shorter than the window, returns (0, T) (it is later stretched up to
-      t_fixed by _temporal_resample).
+      (start, win): start index and window length, in NATIVE frames. _temporal_resample
+      then brings `win` frames to exactly t_fixed (270).
     """
     win = max(1, round(t_fixed * target_tr / tr_native))
     if T >= win:
@@ -225,14 +233,22 @@ def _native_window(T, tr_native, t_fixed, target_tr=TARGET_TR):
 
 
 def _temporal_resample(clip, n_out):
-    """Resample a window along time from its native TR to TARGET_TR, with polyphase
-    (anti-aliased FIR) resampling — the correct tool for a band-limited BOLD signal.
+    """Change the number of time frames from n_in to n_out — the actual TR harmonization
+    that puts every dataset on the common 0.72 s sampling rate.
+
+    The window has n_in native frames covering 194.4 s; we need exactly n_out = 270
+    frames at 0.72 s, so we resample by the rational factor n_out/n_in (e.g. ADNI
+    65 -> 270, upsampling ~4.15x). We use scipy.signal.resample_poly (POLYPHASE,
+    anti-aliased FIR) rather than linear interpolation: BOLD is a band-limited signal,
+    and polyphase avoids the aliasing (spectral folding) that naive interpolation would
+    introduce (per Ariel). resample_poly can return +/-1 frame from rounding, so we trim
+    or pad the last frame to land on exactly n_out.
 
     Args:
       clip  : tensor (n_in, 1, X, Y, Z) — the cropped native window.
       n_out : target number of frames (t_fixed = 270).
     Returns:
-      tensor (n_out, 1, X, Y, Z). HCP (n_in == n_out) is a no-op.
+      tensor (n_out, 1, X, Y, Z). HCP (n_in == n_out, already 0.72 s) is a no-op.
     """
     n_in = clip.shape[0]
     if n_in == n_out:
