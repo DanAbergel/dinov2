@@ -367,19 +367,22 @@ class MixedFMRIDataset(Dataset):
         return len(self.entries)
 
     def _load(self, idx):
-        """Load one scan and preprocess it into a model-ready window.
+        """One scan -> one model-ready window (T_fixed, 1, 45, 54, 45). Three gestures:
+          1. mmap the file          — lazy, nothing loaded yet.
+          2. pick a native window   — random start, native length covering 194.4s.
+          3. crop it, then _finalize — resize + resample to 0.72s + z-score.
+        Cropping on the mmap BEFORE .clone() is what keeps a 500 MB HCP scan off RAM:
+        only the ~270-frame window is ever materialized.
 
         Args:
           idx : global index into self.entries.
         Returns:
-          tensor (T_fixed, 1, 45, 54, 45). The native window is cropped FIRST (on the
-          mmap) so a 500 MB HCP scan never fully loads; resize + resample-to-0.72s +
-          z-score then happen in _finalize.
+          tensor (T_fixed, 1, 45, 54, 45), ready for the augmentation transform.
         """
         e = self.entries[idx]
-        scan = _load_mmap(e["path"])                       # lazy (T, X, Y, Z)
-        start, win = _native_window(scan.shape[0], e["tr"], self.t_fixed)
-        return _finalize(scan[start:start + win].clone(), self.t_fixed)
+        scan = _load_mmap(e["path"])                       # 1. lazy (T, X, Y, Z)
+        start, win = _native_window(scan.shape[0], e["tr"], self.t_fixed)  # 2. window
+        return _finalize(scan[start:start + win].clone(), self.t_fixed)    # 3. crop + prep
 
     def __getitem__(self, idx):
         """Returns (image, target): image = preprocessed + augmented window
