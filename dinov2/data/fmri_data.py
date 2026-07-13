@@ -124,7 +124,7 @@ def _load_split_map(split_file):
 
 
 def entries_from_manifest(manifest_path, datasets=CORPUS_DATASETS, min_upsampled_t=0,
-                          split_map=None, holdout_datasets=(), pretrain_splits=("train",)):
+                          split_map=None):
     """Read the corpus manifest and produce the exact list of scans training will see.
 
     This is the NORMAL load path, run once at the start of every training run. It reads
@@ -132,23 +132,21 @@ def entries_from_manifest(manifest_path, datasets=CORPUS_DATASETS, min_upsampled
     pre-computed length) and keeps a scan only if it passes TWO filters:
       1. LENGTH  — drop scans whose upsampled_T (length after TR harmonization) is below
                    min_upsampled_t, i.e. too short to fill a 270-frame window.
-      2. HOLDOUT — for a holdout dataset, drop scans of TEST subjects (split not in
-                   pretrain_splits). The encoder never sees them -> no leakage.
+      2. HOLDOUT — for a dataset in HOLDOUT_DATASETS, drop scans of TEST subjects (split
+                   not in PRETRAIN_SPLITS). The encoder never sees them -> no leakage.
+    HOLDOUT_DATASETS and PRETRAIN_SPLITS are constants (fmri_const), not arguments.
     Because upsampled_T is pre-computed (offline), both filters run WITHOUT opening any
-    scan file. Output is the same shape as build_corpus_entries.
+    scan file.
 
     Args:
-      manifest_path    : path to corpus_manifest.csv.
-      datasets         : which cohorts to keep.
-      min_upsampled_t  : drop scans whose upsampled_T < this (too short for a window);
-                         set to t_fixed (270) at training time.
-      split_map        : {dataset: {subject: split}} from _load_split_map (or None to
-                         keep every subject, i.e. no holdout).
-      holdout_datasets : datasets on which the holdout filter applies.
-      pretrain_splits  : which splits are kept for holdout datasets (default: ("train",),
-                         so test subjects are excluded -> no leakage).
+      manifest_path   : path to corpus_manifest.csv.
+      datasets        : which cohorts to keep.
+      min_upsampled_t : drop scans whose upsampled_T < this (too short for a window);
+                        set to t_fixed (270) at training time.
+      split_map       : {dataset: {subject: split}} from _load_split_map (or None to
+                        keep every subject, i.e. no holdout).
     Returns:
-      `entries` (same shape as build_corpus_entries), e.g.:
+      `entries`, e.g.:
       [{"dataset": "HCP", "path": "...", "subject_id": "subject_100206", "tr": 0.72}, ...]
     """
     entries: list = []
@@ -161,9 +159,9 @@ def entries_from_manifest(manifest_path, datasets=CORPUS_DATASETS, min_upsampled
             if int(row["upsampled_T"]) < min_upsampled_t:     # filter 1: too short
                 n_short += 1
                 continue
-            if split_map and ds in holdout_datasets:          # filter 2: holdout (no leakage)
+            if split_map and ds in HOLDOUT_DATASETS:          # filter 2: holdout (no leakage)
                 sp = split_map.get(ds, {}).get(row["subject_id"])
-                if sp is not None and sp not in pretrain_splits:
+                if sp is not None and sp not in PRETRAIN_SPLITS:
                     n_holdout += 1
                     continue
             entries.append({"dataset": ds, "path": row["path"],
@@ -171,7 +169,7 @@ def entries_from_manifest(manifest_path, datasets=CORPUS_DATASETS, min_upsampled
     if n_short:
         logger.info(f"manifest: dropped {n_short} scans with upsampled_T < {min_upsampled_t}")
     if n_holdout:
-        logger.info(f"holdout: excluded {n_holdout} test scans of {holdout_datasets}")
+        logger.info(f"holdout: excluded {n_holdout} test scans of {HOLDOUT_DATASETS}")
     return entries
 
 
@@ -369,9 +367,7 @@ class MixedFMRIDataset(Dataset):
                 "dinov2.data.fmri_offline.write_corpus_manifest.")
         entries = entries_from_manifest(
             man, datasets, min_upsampled_t=(self.t_fixed if DROP_SHORT else 0),
-            split_map=split_map,
-            holdout_datasets=HOLDOUT_DATASETS if split_map else (),
-            pretrain_splits=PRETRAIN_SPLITS)
+            split_map=split_map)
         idx = _index_by_dataset(entries)                   # per-dataset indices for the sampler
         counts = {k: len(v) for k, v in idx.items()}
         logger.info(f"MixedFMRIDataset: {len(entries)} scans  T_fixed={self.t_fixed}  "
