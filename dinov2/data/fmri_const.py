@@ -26,6 +26,11 @@ CORPUS_DATASETS = ("HCP", "ABIDE", "OASIS", "AOMIC", "ADNI")
 # pretraining-only (no probe) -> kept whole.
 HOLDOUT_DATASETS = ("ADNI", "ABIDE", "OASIS", "HCP")
 
+# Training-time corpus filters. Kept here (not as MixedFMRIDataset arguments) so the
+# dataset takes almost no args — change these here to change training behavior.
+PRETRAIN_SPLITS = ("train",)   # which splits enter pretraining (test is held out)
+DROP_SHORT = True              # drop scans too short to fill a T_FIXED window
+
 # Native TR (seconds) per dataset. ABIDE varies per site (site = filename.split("_")[0]).
 ABIDE_SITE_TR = {
     "Caltech": 2.0, "CMU": 2.0, "KKI": 2.5, "Leuven": 1.6667, "MaxMun": 3.0,

@@ -67,8 +67,7 @@ from torch.utils.data import Dataset, Sampler
 
 from .fmri_const import (                       # noqa: F401  (re-exported)
     LAB_ROOT, TARGET_TR, TARGET_SHAPE, DEFAULT_T_FIXED, DEFAULT_MANIFEST,
-    DEFAULT_SPLIT, CORPUS_DATASETS, HOLDOUT_DATASETS, ABIDE_SITE_TR,
-    OASIS_DEFAULT_TR, AOMIC_TR, HCP_TR, ADNI_TR,
+    DEFAULT_SPLIT, CORPUS_DATASETS, HOLDOUT_DATASETS, PRETRAIN_SPLITS, DROP_SHORT,
 )
 
 logger = logging.getLogger("dinov2")
@@ -313,19 +312,17 @@ class MixedFMRIDataset(Dataset):
         3. store transforms
     """
 
-    def __init__(self, root=None, *, t_fixed=DEFAULT_T_FIXED,
-                 datasets=CORPUS_DATASETS, exclude=None, manifest=None, drop_short=True,
-                 split_file=None, holdout_datasets=HOLDOUT_DATASETS,
-                 pretrain_splits=("train",), transform=None, target_transform=None,
-                 **_ignored):
+    def __init__(self, root=None, *, t_fixed=DEFAULT_T_FIXED, exclude=None,
+                 transform=None, target_transform=None, **_ignored):
+        # Only the few knobs that actually vary are arguments (t_fixed / exclude come
+        # from the config string, transform from do_train). The rest are constants in
+        # fmri_const.py (CORPUS_DATASETS, HOLDOUT_DATASETS, PRETRAIN_SPLITS, DROP_SHORT).
         self.t_fixed = int(t_fixed)                          # window length in frames (270)
         self.transform, self.target_transform = transform, target_transform
         lab_root = root or LAB_ROOT
 
-        datasets = self._apply_exclude(datasets, exclude)
-        self.entries, self.dataset_indices = self._discover(
-            lab_root, datasets, drop_short, manifest, split_file,
-            holdout_datasets, pretrain_splits)
+        datasets = self._apply_exclude(CORPUS_DATASETS, exclude)
+        self.entries, self.dataset_indices = self._discover(lab_root, datasets)
         if not self.entries:
             raise FileNotFoundError(f"No scans under {lab_root} for datasets={datasets}")
 
@@ -346,40 +343,35 @@ class MixedFMRIDataset(Dataset):
         logger.info(f"MixedFMRIDataset: excluding whole datasets {ex}")
         return tuple(d for d in datasets if d not in ex)
 
-    def _discover(self, lab_root, datasets, drop_short, manifest, split_file,
-                  holdout_datasets, pretrain_splits):
+    def _discover(self, lab_root, datasets):
         """Build the scan list + its per-dataset index by reading the corpus manifest
         (fast; it carries T_native so short scans AND holdout subjects are filtered
         without opening the files). The manifest is REQUIRED — build it offline first
-        with dinov2.data.fmri_offline.write_corpus_manifest.
+        with dinov2.data.fmri_offline.write_corpus_manifest. The filters themselves
+        (HOLDOUT_DATASETS, PRETRAIN_SPLITS, DROP_SHORT) are constants in fmri_const.
 
         Args:
-          lab_root         : data root.
-          datasets         : cohorts to include.
-          drop_short       : if True, drop scans shorter than t_fixed after harmonization.
-          manifest         : manifest path (None -> <lab_root>/corpus_manifest.csv).
-          split_file       : split path (None -> <lab_root>/subject_split.json).
-          holdout_datasets : datasets on which the holdout filter applies.
-          pretrain_splits  : splits kept for holdout datasets (("train",)).
+          lab_root : data root (holds corpus_manifest.csv and subject_split.json).
+          datasets : cohorts to include (after exclude).
         Returns:
           (entries, dataset_indices) — the scan list and {dataset: [indices]}.
         Raises:
           FileNotFoundError if the manifest does not exist.
         """
         # Subject-level holdout via the split file (absent -> keep every subject).
-        sf = Path(split_file) if split_file else Path(lab_root) / DEFAULT_SPLIT
+        sf = Path(lab_root) / DEFAULT_SPLIT
         split_map = _load_split_map(sf) if sf.exists() else None
 
-        man = Path(manifest) if manifest else Path(lab_root) / DEFAULT_MANIFEST
+        man = Path(lab_root) / DEFAULT_MANIFEST
         if not man.exists():
             raise FileNotFoundError(
                 f"No corpus manifest at {man}. Build it offline first with "
                 "dinov2.data.fmri_offline.write_corpus_manifest.")
         entries = entries_from_manifest(
-            man, datasets, min_upsampled_t=(self.t_fixed if drop_short else 0),
+            man, datasets, min_upsampled_t=(self.t_fixed if DROP_SHORT else 0),
             split_map=split_map,
-            holdout_datasets=holdout_datasets if split_map else (),
-            pretrain_splits=pretrain_splits)
+            holdout_datasets=HOLDOUT_DATASETS if split_map else (),
+            pretrain_splits=PRETRAIN_SPLITS)
         idx = _index_by_dataset(entries)                   # per-dataset indices for the sampler
         counts = {k: len(v) for k, v in idx.items()}
         logger.info(f"MixedFMRIDataset: {len(entries)} scans  T_fixed={self.t_fixed}  "
