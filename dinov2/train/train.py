@@ -3,6 +3,28 @@
 # This source code is licensed under the Apache License, Version 2.0
 # found in the LICENSE file in the root directory of this source tree.
 
+# =============================================================================
+# FMRI PROJECT CHANGES (upstream DINOv2 file, modified for our fMRI pipeline)
+#   + fmri transform imports    (L38 inline): pull in RandomTokenMaskingGenerator
+#     + MaskingAugmentation3D for the fMRI augmentation/masking branches.
+#   + int() cast of *_iters      (L94 inline): fractional warmup_epochs break
+#     np.linspace; cast scheduler iter counts to int.
+#   + apply_freeze_policy        (L151-205, framed): partial-freeze ablation of the
+#     student backbone (fmri_only / fmri_plus_last_3); default = official no-freeze.
+#   + optimizer_step_and_ema     (L208-235, framed): official step body (clip/step/
+#     EMA) extracted so the grad-accum guard in do_train stays readable.
+#   + freeze call in do_train    (L252 inline): invoke apply_freeze_policy pre-optim.
+#   + fmri token-grid & masking  (L286-315, framed): (T_eff, N_spatial) token count
+#     and MAE/BeiT mask generator for PatchEmbed3DPlus1D; else = official 2D path.
+#   + fmri augmentation branch   (L325-339, framed): MaskingAugmentation3D transform.
+#   + proportional sampler       (L365-380, framed): fixed per-cohort batch quota over
+#     MixedFMRIDataset (SamplerType.PROPORTIONAL); else = official sharded-infinite.
+#     Plus proportional_quota forwarded to make_data_loader (L391 inline).
+#   + grad-accumulation step/EMA (L429-444, framed): accumulate N micro-steps, scale
+#     loss by N, step+EMA once per cycle (default N=1 = official single step).
+#   Everything else in this file is unchanged upstream DINOv2.
+# =============================================================================
+
 import argparse
 import logging
 import math
@@ -13,8 +35,8 @@ from fvcore.common.checkpoint import PeriodicCheckpointer
 import torch
 
 from dinov2.data import SamplerType, make_data_loader, make_dataset
-# FMRI CHANGE: import MaskingAugmentation3D alongside the official transforms
-# for the fmri_augmentation branch in do_train below.
+# FMRI: RandomTokenMaskingGenerator + MaskingAugmentation3D added alongside the
+# official transforms for the fmri_augmentation / fmri_masking_only branches below.
 from dinov2.data import (
     collate_data_and_cast, DataAugmentationDINO, CellAugmentationDINO,
     MaskingGenerator, RandomTokenMaskingGenerator, MaskingAugmentation3D,
@@ -69,9 +91,8 @@ def build_optimizer(cfg, params_groups):
 
 def build_schedulers(cfg):
     OFFICIAL_EPOCH_LENGTH = cfg.train.OFFICIAL_EPOCH_LENGTH
-    # FMRI CHANGE: cast iter counts to int. WHY: warmup_epochs can be
-    # fractional (e.g. 0.3) for short warmups; the resulting float breaks
-    # np.linspace which expects an int `num`.
+    # FMRI: wrap the four *_iters below in int(). Fractional warmup_epochs
+    # (e.g. 0.3) yield floats that break np.linspace (needs an int `num`).
     lr = dict(
         base_value=cfg.optim["lr"],
         final_value=cfg.optim["min_lr"],
@@ -127,6 +148,11 @@ def apply_optim_scheduler(optimizer, lr, wd, last_layer_lr):
         param_group["lr"] = (last_layer_lr if is_last_layer else lr) * lr_multiplier
 
 
+# ┌───────────────────────────────────────────────────────────────────────────┐
+# │ FMRI ADDITION — not in upstream DINOv2.                                     │
+# │ apply_freeze_policy: partial-freeze ablation of the student backbone         │
+# │ (fmri_only / fmri_plus_last_3); default no-freeze keeps official behavior.  │
+# └───────────────────────────────────────────────────────────────────────────┘
 def apply_freeze_policy(model, freeze_mode):
     """Freeze parts of the student backbone before training.
 
@@ -176,8 +202,14 @@ def apply_freeze_policy(model, freeze_mode):
         f"FMRI freeze_pretrained={freeze_mode!r}: backbone "
         f"trainable={n_train:,} params, frozen={n_frozen:,} params"
     )
+# └── end FMRI ADDITION: apply_freeze_policy ──────────────────────────────────┘
 
 
+# ┌───────────────────────────────────────────────────────────────────────────┐
+# │ FMRI ADDITION — not in upstream DINOv2.                                     │
+# │ optimizer_step_and_ema: the official step body (unscale/clip/step/EMA)       │
+# │ extracted into one function so the grad-accum guard in do_train stays clean.│
+# └───────────────────────────────────────────────────────────────────────────┘
 def optimizer_step_and_ema(model, optimizer, fp16_scaler, clip_grad, mom):
     """The official single optimizer step body, extracted into one named
     function: (unscale fp16 grads,) clip, step, update scaler, EMA teacher.
@@ -200,6 +232,7 @@ def optimizer_step_and_ema(model, optimizer, fp16_scaler, clip_grad, mom):
                 v.clip_grad_norm_(clip_grad)
         optimizer.step()
     model.update_teacher(mom)
+# └── end FMRI ADDITION: optimizer_step_and_ema ───────────────────────────────┘
 
 
 def do_test(cfg, model, iteration):
@@ -216,8 +249,8 @@ def do_test(cfg, model, iteration):
 
 def do_train(cfg, model, resume=False):
     model.train()
-    # FMRI CHANGE: optional partial-freeze before the optimizer is built. Default
-    # (no flag in YAML) = no freeze = official behavior. See apply_freeze_policy.
+    # FMRI: optional partial-freeze of the student backbone before the optimizer
+    # is built. Default (no YAML flag) = no freeze = official behavior. See apply_freeze_policy.
     apply_freeze_policy(model, getattr(cfg.optim, "freeze_pretrained", None))
     inputs_dtype = torch.half
     fp16_scaler = model.fp16_scaler  # for mixed precision training
@@ -250,20 +283,20 @@ def do_train(cfg, model, resume=False):
 
     # setup data preprocessing
 
-    # FMRI CHANGE: compute (n_tokens, mask_generator) differently when the
-    # token grid is (T_eff, N_spatial) instead of (img_size/patch_size)^2.
-    # OFFICIAL (kept in the else branch): n_tokens = (img/p)^2 and a 2D
-    # (img/p, img/p) MaskingGenerator. WHY: fMRI tokens come from
-    # PatchEmbed3DPlus1D so the official scalar `img_size` doesn't apply.
+    # ┌───────────────────────────────────────────────────────────────────────────┐
+    # │ FMRI ADDITION — not in upstream DINOv2.                                     │
+    # │ Compute (n_tokens, mask_generator) for a (T_eff, N_spatial) token grid from │
+    # │ PatchEmbed3DPlus1D, where the official scalar img_size does not apply.       │
+    # │ fmri_masking_only picks per-token (MAE) masking over BeiT-block masking,    │
+    # │ since the flattened order breaks 3D neighbourhoods (meeting 2026-06-14, §2).│
+    # │ The else-branch is the unchanged official 2D (img/p, img/p) computation.    │
+    # └───────────────────────────────────────────────────────────────────────────┘
     if getattr(cfg.train, "fmri_augmentation", False):
         patch_size = cfg.student.patch_size
         gx, gy, gz = (s // patch_size for s in cfg.student.fmri_img_size)
         n_spatial = gx * gy * gz
         t_eff = cfg.student.fmri_temporal_size // cfg.student.fmri_temporal_kernel
         n_tokens = t_eff * n_spatial
-        # FMRI CHANGE: per-token (MAE) random masking instead of BeiT block, since
-        # the flattened (T_eff, N_spatial) order doesn't respect 3D neighbourhoods
-        # (meeting 2026-06-14, §2). Enabled by cfg.train.fmri_masking_only.
         if getattr(cfg.train, "fmri_masking_only", False):
             mask_generator = RandomTokenMaskingGenerator(input_size=(t_eff, n_spatial))
         else:
@@ -279,10 +312,8 @@ def do_train(cfg, model, resume=False):
             input_size=(img_size // patch_size, img_size // patch_size),
             max_num_patches=0.5 * img_size // patch_size * img_size // patch_size,
         )
+    # └── end FMRI ADDITION: fmri token-grid & mask generator ─────────────────────┘
 
-    # FMRI CHANGE: third augmentation branch, symmetric to cell_augmentation.
-    # fMRI uses masking-only (full-image crops); the per-token masking happens in
-    # the collate (meeting 2026-06-14, §2).
     if cfg.train.cell_augmentation:
         data_transform = CellAugmentationDINO(
             cfg.crops.global_crops_scale,
@@ -291,6 +322,12 @@ def do_train(cfg, model, resume=False):
             global_crops_size=cfg.crops.global_crops_size,
             local_crops_size=cfg.crops.local_crops_size,
         )
+    # ┌───────────────────────────────────────────────────────────────────────────┐
+    # │ FMRI ADDITION — not in upstream DINOv2.                                     │
+    # │ Third augmentation branch (symmetric to cell_augmentation): masking-only    │
+    # │ full-image crops for fMRI; per-token masking is applied later in collate    │
+    # │ (meeting 2026-06-14, §2). Selected by cfg.train.fmri_augmentation.          │
+    # └───────────────────────────────────────────────────────────────────────────┘
     elif getattr(cfg.train, "fmri_augmentation", False):
         data_transform = MaskingAugmentation3D(
             cfg.crops.global_crops_scale,
@@ -299,6 +336,7 @@ def do_train(cfg, model, resume=False):
             global_crops_size=cfg.crops.global_crops_size,
             local_crops_size=cfg.crops.local_crops_size,
         )
+    # └── end FMRI ADDITION: fmri masking augmentation branch ─────────────────────┘
     else:
         data_transform = DataAugmentationDINO(
             cfg.crops.global_crops_scale,
@@ -324,11 +362,13 @@ def do_train(cfg, model, resume=False):
         transform=data_transform,
         target_transform=lambda _: (),
     )
-    # FMRI CHANGE: per-batch dataset proportions over MixedFMRIDataset. WHY: with
-    # 5 heterogeneous cohorts we want every batch to contain a fixed share of
-    # each (default HCP4/ABIDE4/OASIS4/ADNI3/AOMIC1 = 16). Enabled by
-    # cfg.train.proportional_sampler; the optional cfg.train.proportional_quota
-    # overrides the default. Falls back to the official sharded-infinite sampler.
+    # ┌───────────────────────────────────────────────────────────────────────────┐
+    # │ FMRI ADDITION — not in upstream DINOv2.                                     │
+    # │ Per-batch dataset proportions over MixedFMRIDataset: with 5 heterogeneous   │
+    # │ cohorts each batch gets a fixed share (default HCP4/ABIDE4/OASIS4/ADNI3/     │
+    # │ AOMIC1=16). Enabled by cfg.train.proportional_sampler; optional             │
+    # │ proportional_quota overrides. The else-branch is the official sampler.      │
+    # └───────────────────────────────────────────────────────────────────────────┘
     proportional_quota = None
     if getattr(cfg.train, "proportional_sampler", False) and hasattr(dataset, "dataset_indices"):
         sampler_type = SamplerType.PROPORTIONAL
@@ -336,7 +376,8 @@ def do_train(cfg, model, resume=False):
             if cfg.train.get("proportional_quota", None) else None
         logger.info(f"FMRI proportional sampler: quota={proportional_quota or 'default'}")
     else:
-        sampler_type = SamplerType.SHARDED_INFINITE
+        sampler_type = SamplerType.SHARDED_INFINITE  # official DINOv2 default
+    # └── end FMRI ADDITION: proportional sampler selection ───────────────────────┘
     data_loader = make_data_loader(
         dataset=dataset,
         batch_size=cfg.train.batch_size_per_gpu,
@@ -347,7 +388,7 @@ def do_train(cfg, model, resume=False):
         sampler_advance=0,  # TODO(qas): fix this -- start_iter * cfg.train.batch_size_per_gpu,
         drop_last=True,
         collate_fn=collate_fn,
-        proportional_quota=proportional_quota,
+        proportional_quota=proportional_quota,  # FMRI: forwarded to PROPORTIONAL sampler; None => official path
     )
 
     # training loop
@@ -370,11 +411,8 @@ def do_train(cfg, model, resume=False):
         if iteration > max_iter:
             return
 
-        # FMRI CHANGE: gradient accumulation over N=grad_accum_steps micro-steps
-        # (default 1 = official single-step). Zero grads at the start of each
-        # N-cycle, accumulate N backward passes (loss divided by N inside
-        # forward_backward), then step+EMA once at the end. The step body lives
-        # in optimizer_step_and_ema() so this loop stays readable.
+        # FMRI: gradient accumulation over N=grad_accum_steps micro-steps
+        # (default 1 = official single-step); consumed by the guard below.
         grad_accum_steps = int(cfg.optim.get("grad_accum_steps", 1))
 
         # apply schedules
@@ -388,6 +426,12 @@ def do_train(cfg, model, resume=False):
 
         # compute losses
 
+        # ┌───────────────────────────────────────────────────────────────────────────┐
+        # │ FMRI ADDITION — not in upstream DINOv2.                                     │
+        # │ Grad-accumulation guard: zero at the start of each N-cycle, scale the loss  │
+        # │ by N inside forward_backward, then step+EMA once at the cycle end.          │
+        # │ Upstream did zero_grad / forward_backward / step / EMA every iteration.     │
+        # └───────────────────────────────────────────────────────────────────────────┘
         if iteration % grad_accum_steps == 0:
             optimizer.zero_grad(set_to_none=True)
         loss_dict = model.forward_backward(
@@ -397,6 +441,7 @@ def do_train(cfg, model, resume=False):
             optimizer_step_and_ema(
                 model, optimizer, fp16_scaler, cfg.optim.clip_grad, mom,
             )
+        # └── end FMRI ADDITION: grad-accumulation step/EMA ───────────────────────────┘
 
         # logging
 

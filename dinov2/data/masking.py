@@ -3,11 +3,24 @@
 # This source code is licensed under the Apache License, Version 2.0
 # found in the LICENSE file in the root directory of this source tree.
 
+# =============================================================================
+# FMRI PROJECT CHANGES (upstream DINOv2 file, modified for our fMRI pipeline)
+#   + RandomTokenMaskingGenerator  (L20-54, framed below): MAE-style per-token
+#     random masking on the token grid instead of BeiT contiguous blocks, because
+#     the flattened (T_eff, N_spatial) fMRI token order ignores 3D anatomical
+#     neighbourhoods (meeting 2026-06-14, §2). Drop-in for MaskingGenerator.
+#   Everything else in this file is unchanged upstream DINOv2.
+# =============================================================================
+
 import random
 import math
 import numpy as np
 
 
+# ┌───────────────────────────────────────────────────────────────────────────┐
+# │ FMRI ADDITION — not in upstream DINOv2.                                     │
+# │ Per-token (MAE-style) random masking; drop-in for MaskingGenerator.         │
+# └───────────────────────────────────────────────────────────────────────────┘
 class RandomTokenMaskingGenerator:
     """Per-token (MAE-style) random masking on a (height, width) token grid.
 
@@ -38,6 +51,7 @@ class RandomTokenMaskingGenerator:
             idx = np.random.choice(self.num_patches, size=num, replace=False)
             mask[idx] = True
         return mask.reshape(self.height, self.width)
+# └── end FMRI ADDITION: RandomTokenMaskingGenerator ──────────────────────────┘
 
 
 class MaskingGenerator:

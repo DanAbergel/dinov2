@@ -3,6 +3,15 @@
 # This source code is licensed under the Apache License, Version 2.0
 # found in the LICENSE file in the root directory of this source tree.
 
+# =============================================================================
+# FMRI PROJECT CHANGES (upstream DINOv2 file, modified for our fMRI pipeline)
+#   + grad_accum in sqrt LR scaling  (L36-47, framed below): fold
+#     `grad_accum_steps` into the effective batch size used by the
+#     "sqrt_wrt_1024" scaling rule, so the learning rate reflects the true
+#     (accumulated) batch rather than the per-iter dataloader batch.
+#   Everything else in this file is unchanged upstream DINOv2.
+# =============================================================================
+
 import math
 import logging
 import os
@@ -21,6 +30,10 @@ logger = logging.getLogger("dinov2")
 def apply_scaling_rules_to_cfg(cfg):  # to fix
     if cfg.optim.scaling_rule == "sqrt_wrt_1024":
         base_lr = cfg.optim.base_lr
+        # ┌───────────────────────────────────────────────────────────────────────────┐
+        # │ FMRI ADDITION — not in upstream DINOv2.                                     │
+        # │ Fold grad_accum_steps into the effective batch for sqrt LR scaling.         │
+        # └───────────────────────────────────────────────────────────────────────────┘
         # FMRI CHANGE: include `grad_accum_steps` in the effective batch size
         # so the sqrt scaling rule "knows" we're actually optimising on a
         # larger batch than what the dataloader returns per iter.
@@ -31,6 +44,7 @@ def apply_scaling_rules_to_cfg(cfg):  # to fix
             f"sqrt scaling learning rate; base: {base_lr}, grad_accum: {grad_accum}, "
             f"effective_batch: {effective_batch}, new lr: {cfg.optim.lr}"
         )
+        # └── end FMRI ADDITION: grad_accum in sqrt LR scaling ─────────────────────────┘
     else:
         raise NotImplementedError
     return cfg

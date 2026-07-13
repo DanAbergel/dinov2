@@ -3,6 +3,23 @@
 # This source code is licensed under the Apache License, Version 2.0
 # found in the LICENSE file in the root directory of this source tree.
 
+# =============================================================================
+# FMRI PROJECT CHANGES (upstream DINOv2 file, modified for our fMRI pipeline)
+#   + MixedFMRIDataset / ProportionalInfiniteSampler imports  (L30-45, framed
+#     below): pull in the multi-source fMRI dataset and its sampler.
+#   + SamplerType.PROPORTIONAL enum member  (L57, inline): selects the per-batch
+#     dataset-quota sampler over MixedFMRIDataset.
+#   + "t_fixed" dataset-string key  (L85, inline): lets "Mixed:t_fixed=270" reach
+#     MixedFMRIDataset.
+#   + "Mixed" branch in _parse_dataset_str  (L104-113, framed below): resolves the
+#     "Mixed" dataset string to MixedFMRIDataset.
+#   + proportional_quota param + PROPORTIONAL branch in _make_sampler
+#     (L161, L165-186, framed below): builds ProportionalInfiniteSampler.
+#   + proportional_quota param + block-size validation in make_data_loader
+#     (L255, L284-306, framed below): asserts batch_size divides the quota block.
+#   Everything else in this file is unchanged upstream DINOv2.
+# =============================================================================
+
 import logging
 from enum import Enum
 from typing import Any, Callable, List, Optional, TypeVar
@@ -10,6 +27,11 @@ from typing import Any, Callable, List, Optional, TypeVar
 import torch
 from torch.utils.data import Sampler
 
+# ┌───────────────────────────────────────────────────────────────────────────┐
+# │ FMRI ADDITION — not in upstream DINOv2.                                     │
+# │ Import MixedFMRIDataset and ProportionalInfiniteSampler alongside the       │
+# │ upstream datasets/samplers (upstream imports neither).                      │
+# └───────────────────────────────────────────────────────────────────────────┘
 # FMRI CHANGE: MixedFMRIDataset is re-exported from .datasets with the same
 # import surface as ImageNet, so make_dataset / do_train stay fMRI-agnostic.
 from .datasets import (
@@ -20,6 +42,7 @@ from .samplers import (
     EpochSampler, InfiniteSampler, ShardedInfiniteSampler,
     ProportionalInfiniteSampler,
 )
+# └── end FMRI ADDITION: fMRI dataset/sampler imports ─────────────────────────┘
 
 
 logger = logging.getLogger("dinov2")
@@ -78,11 +101,16 @@ def _parse_dataset_str(dataset_str: str):
         class_ = CHAMMI_WTC
     elif name == "CHAMMI_HPA":
         class_ = CHAMMI_HPA
+    # ┌───────────────────────────────────────────────────────────────────────────┐
+    # │ FMRI ADDITION — not in upstream DINOv2.                                     │
+    # │ Resolve the "Mixed" dataset string to the multi-source MixedFMRIDataset.   │
+    # └───────────────────────────────────────────────────────────────────────────┘
     # FMRI CHANGE: the multi-source corpus. WHY: lets us write
     # `cfg.train.dataset_path: "Mixed"` (or "Mixed:exclude=ADNI") in the fMRI YAML
     # and have `make_dataset` resolve it like any other dataset.
     elif name == "Mixed":
         class_ = MixedFMRIDataset
+    # └── end FMRI ADDITION: "Mixed" dataset branch ───────────────────────────────┘
     else:
         raise ValueError(f'Unsupported dataset "{name}"')
 
@@ -130,10 +158,15 @@ def _make_sampler(
     seed: int = 0,
     size: int = -1,
     advance: int = 0,
-    proportional_quota: Optional[dict] = None,
+    proportional_quota: Optional[dict] = None,  # FMRI: quota for ProportionalInfiniteSampler
 ) -> Optional[Sampler]:
     sample_count = len(dataset)
 
+    # ┌───────────────────────────────────────────────────────────────────────────┐
+    # │ FMRI ADDITION — not in upstream DINOv2.                                     │
+    # │ PROPORTIONAL branch: build ProportionalInfiniteSampler from the dataset's   │
+    # │ dataset_indices, giving each DDP rank its own quota-composed stream.        │
+    # └───────────────────────────────────────────────────────────────────────────┘
     if type == SamplerType.PROPORTIONAL:
         # FMRI: per-batch dataset composition over MixedFMRIDataset. The dataset
         # exposes dataset_indices = {name: [global indices]}. Each DDP rank gets
@@ -150,6 +183,7 @@ def _make_sampler(
             seed=seed,
             advance=advance,
         )
+    # └── end FMRI ADDITION: PROPORTIONAL branch ──────────────────────────────────┘
     elif type == SamplerType.INFINITE:
         logger.info("sampler: infinite")
         if size > 0:
@@ -218,7 +252,7 @@ def make_data_loader(
     drop_last: bool = True,
     persistent_workers: bool = False,
     collate_fn: Optional[Callable[[List[T]], Any]] = None,
-    proportional_quota: Optional[dict] = None,
+    proportional_quota: Optional[dict] = None,  # FMRI: forwarded to _make_sampler
 ):
     """
     Creates a data loader with the specified parameters.
@@ -244,9 +278,14 @@ def make_data_loader(
         seed=seed,
         size=sampler_size,
         advance=sampler_advance,
-        proportional_quota=proportional_quota,
+        proportional_quota=proportional_quota,  # FMRI: forward proportional quota
     )
 
+    # ┌───────────────────────────────────────────────────────────────────────────┐
+    # │ FMRI ADDITION — not in upstream DINOv2.                                     │
+    # │ Validate that batch_size divides the proportional sampler's quota block so  │
+    # │ micro-batches align with block boundaries; log the grad_accum guidance.     │
+    # └───────────────────────────────────────────────────────────────────────────┘
     # FMRI: the proportional sampler yields a quota-composed block of
     # sum(quota) indices at a time. The loader batch_size must DIVIDE that
     # block so micro-batches align with block boundaries — then the proportional
@@ -264,6 +303,7 @@ def make_data_loader(
             f"-> proportional effective batch over {n_micro} micro-batches "
             f"(set grad_accum_steps={n_micro} for a fully proportional step)."
         )
+    # └── end FMRI ADDITION: proportional block-size validation ────────────────────┘
 
     logger.info("using PyTorch data loader")
     data_loader = torch.utils.data.DataLoader(

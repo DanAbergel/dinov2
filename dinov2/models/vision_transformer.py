@@ -7,6 +7,16 @@
 #   https://github.com/facebookresearch/dino/blob/main/vision_transformer.py
 #   https://github.com/rwightman/pytorch-image-models/tree/master/timm/models/vision_transformer.py
 
+# =============================================================================
+# FMRI PROJECT CHANGES (upstream DINOv2 file, modified for our fMRI pipeline)
+#   + 6D input branch in prepare_tokens_with_masks  (L227-264, framed below):
+#     early-return path for 6D fMRI input (B, T, C, X, Y, Z) that uses a
+#     factorised pos embedding (pos_temporal + pos_spatial + pos_cls, carried
+#     by PatchEmbed3DPlus1D) instead of the flat 4D `self.pos_embed`. The
+#     original 4D (B, C, H, W) path below is unchanged.
+#   Everything else in this file is unchanged upstream DINOv2.
+# =============================================================================
+
 from functools import partial
 import math
 import logging
@@ -214,6 +224,10 @@ class DinoVisionTransformer(nn.Module):
         return torch.cat((class_pos_embed.unsqueeze(0), patch_pos_embed), dim=1).to(previous_dtype)
 
     def prepare_tokens_with_masks(self, x, masks=None):
+        # ┌───────────────────────────────────────────────────────────────────────────┐
+        # │ FMRI ADDITION — not in upstream DINOv2.                                     │
+        # │ 6D-input early-return branch: factorised pos embed for fMRI volumes.        │
+        # └───────────────────────────────────────────────────────────────────────────┘
         # FMRI CHANGE: early-return branch for 6D input (B, T, C, X, Y, Z).
         # OFFICIAL (kept below, untouched): handles 4D input (B, C, H, W)
         # and adds `self.pos_embed` flat to (CLS + patches), with optional
@@ -247,6 +261,7 @@ class DinoVisionTransformer(nn.Module):
                     dim=1,
                 )
             return x
+        # └── end FMRI ADDITION: 6D-input branch ──────────────────────────────────────┘
 
         B, nc, w, h = x.shape
         x = self.patch_embed(x)

@@ -3,6 +3,20 @@
 # This source code is licensed under the Apache License, Version 2.0
 # found in the LICENSE file in the root directory of this source tree.
 
+# =============================================================================
+# FMRI PROJECT CHANGES (upstream DINOv2 file, modified for our fMRI pipeline)
+#   + loss_scale arg on forward_backward  (L146-151): new `loss_scale` param
+#     that divides the accumulated loss before backward, so do_train's
+#     gradient-accumulation loop keeps gradient magnitude consistent with a
+#     single-step run. loss_scale=1.0 (default) is a no-op = upstream.
+#   + loss_scale divide before backprop_loss  (L361-366): applies loss_scale
+#     to loss_accumulator (loss_dict stays unscaled for printing).
+#   + _streams guard in fsdp_synchronize_streams  (L376-396, framed below):
+#     wrap the FSDP `_streams` sharing hack in a hasattr() guard so it is
+#     skipped on PyTorch >= ~2.3 where the attribute was removed.
+#   Everything else in this file is unchanged upstream DINOv2.
+# =============================================================================
+
 from functools import partial
 import logging
 
@@ -358,6 +372,11 @@ class SSLMetaArch(nn.Module):
     def fsdp_synchronize_streams(self):
         if self.need_to_synchronize_fsdp_streams:
             torch.cuda.synchronize()
+            # ┌───────────────────────────────────────────────────────────────────────────┐
+            # │ FMRI ADDITION — not in upstream DINOv2.                                     │
+            # │ hasattr() guard around the FSDP `_streams` sharing hack (skipped on         │
+            # │ PyTorch >= ~2.3 where the attribute was removed).                           │
+            # └───────────────────────────────────────────────────────────────────────────┘
             # FMRI CHANGE: guard `_streams` access. WHY: this workaround
             # comes from FSDP's PyTorch-2.0 internals where each wrapped
             # module exposed a `_streams` attribute. PyTorch >= ~2.3
@@ -374,6 +393,7 @@ class SSLMetaArch(nn.Module):
                 self.student.dino_head._streams = (
                     self.teacher.dino_head._streams
                 ) = self.student.backbone._streams = self.teacher.backbone._streams
+            # └── end FMRI ADDITION: _streams guard ───────────────────────────────────────┘
             self.need_to_synchronize_fsdp_streams = False
 
     def update_teacher(self, m):
