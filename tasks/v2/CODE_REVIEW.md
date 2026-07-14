@@ -1,8 +1,9 @@
 # Code review — our fMRI changes on top of DINOv2
 
 Every change we made to the official DINOv2 (`facebookresearch/dinov2`), traced in
-the **order the data flows through the pipeline**. Tags: 🟢 **new file**, 🟠 **modified
-official file**. Each item = **What** / **Why** (vs official) / **Where** (`file : symbol`, line).
+the **order the data flows through the pipeline**. Tags (**verified against `upstream/main`**):
+🟢 **new file** (entirely ours) · 🟠 **official file we modified** · 🔵 **config**.
+Each item = **What** / **Why** (vs official) / **Where** (`file : symbol`).
 
 ---
 
@@ -24,7 +25,7 @@ official file**. Each item = **What** / **Why** (vs official) / **Where** (`file
   (writes the CSV). These run ONCE at data-prep, never during training. At training,
   `MixedFMRIDataset._discover` REQUIRES the manifest (raises if missing — no glob fallback).
 
-**1.3 · Subject-level holdout, 70/30 train/test (no leakage)** 🟠 `dinov2/data/fmri_data.py`
+**1.3 · Subject-level holdout, 70/30 train/test (no leakage)** 🟢 `dinov2/data/fmri_data.py`
 - **What**: a subject-level **70/30 train/test** split (`subject_split.json`); the 30 %
   **test subjects** of the downstream datasets are excluded from pretraining, so the
   probe later evaluates on subjects the encoder never saw.
@@ -40,7 +41,7 @@ official file**. Each item = **What** / **Why** (vs official) / **Where** (`file
 - **Why**: replaces the ImageNet dataset.
 - **Where**: `MixedFMRIDataset` L209.
 
-**1.5 · Per-batch dataset quota (proportional sampling)** 🟢 + 🟠
+**1.5 · Per-batch dataset quota (proportional sampling)** 🟠 (new class in modified files)
 - **What**: an INFINITE index stream whose every consecutive `batch_size` block has a fixed
   composition — HCP 4 / ABIDE 4 / OASIS 4 / ADNI 3 / AOMIC 1 = 16 — instead of uniform sampling.
 - **Why**: the sources differ hugely in size; without a quota HCP dominates every batch and
@@ -52,9 +53,9 @@ official file**. Each item = **What** / **Why** (vs official) / **Where** (`file
   does NOT `[start::step]`-stride — each DDP rank seeds its OWN full stream (via `rank`). Contract:
   the loader `batch_size` must divide `sum(quota)` so a micro-batch aligns with a quota block.
 - **Cleanup**: dropped the dead `world_size` param (assigned, never read — we don't stride).
-- **Where**: `data/samplers.py : ProportionalInfiniteSampler` 🟢 · `data/loaders.py`
-  (`name=="Mixed"`, `SamplerType.PROPORTIONAL`, block-size validation) 🟠. `MixedFMRIDataset`
-  only exposes `dataset_indices`.
+- **Where**: `data/samplers.py : ProportionalInfiniteSampler` (new class added to the official
+  `samplers.py`) · `data/loaders.py` (edits: `name=="Mixed"`, `SamplerType.PROPORTIONAL`,
+  block-size validation). `MixedFMRIDataset` only exposes `dataset_indices`.
 
 ---
 
@@ -80,7 +81,7 @@ official file**. Each item = **What** / **Why** (vs official) / **Where** (`file
 
 ## Phase 3 — Upsampling / TR harmonization (`_finalize`)
 
-**3.1 · Spatial resize to (45, 54, 45)** 🟠 `dinov2/data/fmri_data.py`
+**3.1 · Spatial resize to (45, 54, 45)** 🟢 `dinov2/data/fmri_data.py`
 - **What**: trilinear resize of the window to the fixed spatial grid (only if needed).
 - **Why**: all sources must share one spatial shape to batch together.
 - **Where**: `_finalize` L195 · `F.interpolate(...)` L201.
@@ -112,12 +113,13 @@ official file**. Each item = **What** / **Why** (vs official) / **Where** (`file
 - **Why**: a brain is a fixed anatomical structure, not a scene to crop (meeting §2).
 - **Where**: `FullVolumeViews3D` L327 · `__call__` L341.
 
-**5.2 · Per-token random masking (for iBOT)** 🟢 `dinov2/data/masking.py`
-- **What**: MAE-style random token masking over the flattened (T_eff × N_spatial) grid,
-  instead of DINOv2's 2D BeiT block masking.
+**5.2 · Per-token random masking (for iBOT)** 🟠 `dinov2/data/masking.py`
+- **What**: a NEW class `RandomTokenMaskingGenerator` added to the official `masking.py` —
+  MAE-style random token masking over the flattened (T_eff × N_spatial) grid, instead of
+  DINOv2's 2D BeiT block masking (`MaskingGenerator`, kept unchanged).
 - **Why**: the fMRI token order doesn't respect 2D neighborhoods, so block masking
   doesn't apply.
-- **Where**: `RandomTokenMaskingGenerator` L11.
+- **Where**: `RandomTokenMaskingGenerator`.
 
 **5.3 · Mask-generator wiring for fMRI** 🟠 `dinov2/train/train.py`
 - **What**: compute `n_tokens` and pick the mask generator from the fMRI token grid
@@ -128,44 +130,101 @@ official file**. Each item = **What** / **Why** (vs official) / **Where** (`file
 
 ## Phase 6 — Embedding: the 3D+1D patchify
 
-**6.1 · Conv3Plus1d — the atomic op** 🟢 `dinov2/layers/patch_embed_3d_plus_1d.py`
-- **What**: a factorized conv = **3D spatial conv** then **1D temporal conv** (the fMRI
-  analogue of MovieGen's Conv2Plus1d).
-- **Why**: separates spatial and temporal patchification cheaply.
-- **Where**: `Conv3Plus1d` L31.
+*Where DINOv2 has one `Conv2d` that cuts a 2D image into patches, we need to cut a 4D
+`(T, X, Y, Z)` volume into tokens. This whole file (`patch_embed_3d_plus_1d.py`) is ours.*
+
+**6.1 · `Conv3Plus1d` — the atomic op** 🟢 `dinov2/layers/patch_embed_3d_plus_1d.py`
+- **What**: a **factorised 4D conv** = a 3D spatial conv **then** a 1D temporal conv. PyTorch
+  has no `Conv4d` (and a true one would be huge), so we split it — the fMRI analogue of
+  MovieGen's `Conv2Plus1d` (video = 2D spatial + 1D temporal).
+- **How** (the reshape trick): fold every other axis into the batch so each PyTorch op only
+  sees the axis it acts on.
+  ```
+  (B, C, T, X, Y, Z)
+     │  fold T into batch
+  (B·T,  C,  X,Y,Z)   ──Conv3d spatial──►  (B·T,  C', X',Y',Z')   ← same 3D filter per frame
+     │  fold space into batch
+  (B·X'Y'Z',  C',  T) ──Conv1d temporal──► (B·X'Y'Z', C', T')     ← same 1D filter per voxel
+     │  unfold
+  (B, C', T', X', Y', Z')
+  ```
+- **Why**: a separable 4D conv — far fewer params than Conv4d, only standard ops. `K/S/P_s`
+  tune the spatial axis, `K/S/P_t` the temporal axis, independently.
+- **Where**: `Conv3Plus1d`.
 
 **6.2 · Hierarchical patchify** 🟢 `dinov2/layers/patch_embed_3d_plus_1d.py`
-- **What**: `conv_in → block_0 → down_0 → block_1 → down_1 → block_2` turns
-  (B, 270, 1, 45, 54, 45) into a token grid **27 (temporal) × 150 (spatial) = 4050**
-  tokens of dim 384. `_ResBlock3Plus1d` = two Conv3Plus1d.
-- **Why**: hierarchical spatial+temporal downsampling into transformer tokens.
-- **Where**: `PatchEmbed3DPlus1D` L181 · `conv_in` L227 · `block_0` L233 · `down_0` L236 ·
-  `_ResBlock3Plus1d` L70.
+- **What**: stack `Conv3Plus1d` into 3 levels that alternate **process** (`_ResBlock3Plus1d` =
+  two Conv3Plus1d + residual) and **reduce** (down + AvgPool), channels growing as resolution
+  shrinks (1 → 32 → 64 → 384):
+  ```
+  input                      (B,  1,  270, 45, 54, 45)
+  conv_in + pool /3 spatial  (B, 32,  270, 15, 18, 15)
+  block_0  (ResBlock @32)    (B, 32,  270, 15, 18, 15)
+  down_0 + pool /3, /2       (B, 64,  135,  5,  6,  5)
+  block_1  (ResBlock @64)    (B, 64,  135,  5,  6,  5)
+  down_1 + pool /5 temporal  (B, 384,  27,  5,  6,  5)
+  block_2  (ResBlock @384)   (B, 384,  27,  5,  6,  5)
+     │  rearrange → tokens
+  output                     (B, 4050, 384)      = 27 temporal × 150 spatial
+  ```
+  Spatial /9 total = `patch_size 9` (→ 5×6×5 = 150). Temporal /10 total = `temporal_kernel`
+  (→ 27). `down_1_kt = temporal_kernel // 2` is **derived from the config** (not hardcoded) so
+  a checkpoint is rebuildable from its saved `config.yaml`.
+- **Why**: turn the volume into the 4050-token grid the ViT consumes.
+- **Where**: `PatchEmbed3DPlus1D` · `_ResBlock3Plus1d` · `_encoder_forward`.
 
 **6.3 · AvgPool downsampling** 🟢 `dinov2/layers/patch_embed_3d_plus_1d.py`
-- **What**: every conv is stride-1; the spatial and temporal reductions are done by
-  `AvgPool` (`_spool` / `_tpool`) in `_encoder_forward`.
-- **Why**: pooling instead of strided conv for the downsampling.
-- **Where**: `_encoder_forward` (`_spool` / `_tpool` calls) · `_spool` / `_tpool`.
+- **What**: every conv is **stride-1**; all spatial/temporal reduction is done by **AvgPool**
+  (`_spool` / `_tpool`) — a fixed average of a `k` block, **no learned params** (vs a learned
+  strided conv). Same fold-into-batch trick (`avg_pool3d` for space, `avg_pool1d` for time).
+- **Why**: our design choice — pooling instead of strided conv for the downsampling.
+- **Where**: `_spool` · `_tpool`, called in `_encoder_forward` (`spool_k=3`, `pool0_k=2`,
+  `pool1_k=down_1_kt`).
 
 **6.4 · Positional embedding (learned, factorised)** 🟢 `dinov2/layers/patch_embed_3d_plus_1d.py`
-- **What**: spatial + temporal positions come from two small learned tables, broadcast
-  and summed (`pos_temporal + pos_spatial`), plus a separate `pos_cls`.
-- **Why**: give the transformer position at O(T_eff + N_spatial) params, not O(product).
-- **Where**: `PositionEmbedding3D` · `combined_patch_pos`.
+- **What**: the transformer sees tokens as a set (no order), so we ADD a learned position vector.
+  Instead of one flat table `(4050 × 384)`, we keep **two small tables** and broadcast-sum them:
+  ```
+  pos_temporal (27) ─ repeated over the 150 spatial slots ─┐
+                                                            ├─ sum → 4050 positions
+  pos_spatial (150) ─ repeated over the 27 time slots ─────┘
+  token(t, n) = pos_temporal[t] + pos_spatial[n]     (+ a separate pos_cls for CLS)
+  ```
+- **Why**: `(27+150+1)×384 = 68 352` params instead of `4050×384 ≈ 1.55 M` — **O(T+N)** not
+  **O(T·N)**. The `(t n)` order MUST match the token order `'b (t x y z) c'` from 6.2.
+- **Where**: `PositionEmbedding3D` · `combined_patch_pos` (carried by the module, added by the
+  ViT in 6.6 — NOT in the patchify forward).
 
 **6.5 · Bind the patchify into the model** 🟠 `dinov2/models/__init__.py`
-- **What**: when `cfg.student.fmri_mode` is set, build the `PatchEmbed3DPlus1D` (with all
-  fMRI flags) and pass it as the ViT's `embed_layer`, and set `img_size` from the fMRI dims.
-- **Why**: swap the official 2D `PatchEmbed` (Conv2d) for our 3D+1D one.
-- **Where**: `build_model_from_cfg` — embed_layer forwarding L32 · fmri branch L54–L74.
+- **What**: the official ViT already has an `embed_layer=` hook (default = 2D `PatchEmbed`). When
+  `cfg.student.fmri_mode` is set we inject `partial(PatchEmbed3DPlus1D, temporal_size,
+  temporal_kernel)` as `embed_layer`, and override `img_size` with the 3D `(45,54,45)`.
+  ```
+  official :  ViT(embed_layer = PatchEmbed [Conv2d, 2D])
+  fMRI     :  ViT(embed_layer = partial(PatchEmbed3DPlus1D, temporal_size, temporal_kernel))
+  ```
+- **Why**: swap the 2D patchify for our 3D+1D one **without forking the ViT or the loop**. The
+  ViT calls `embed_layer(img_size, patch_size, in_chans, embed_dim)` — the standard `PatchEmbed`
+  contract; `functools.partial` pre-binds the extra fMRI args (`temporal_size`/`temporal_kernel`)
+  the ViT doesn't know about, so our richer class fits the standard contract.
+- **Where**: `build_model_from_cfg` (fmri branch builds the partial) · `build_model` (forwards
+  `embed_layer` to the ViT).
 
 **6.6 · ViT accepts 6D fMRI input** 🟠 `dinov2/models/vision_transformer.py`
-- **What**: an early branch handles input shaped (B, T, C, X, Y, Z) and uses the
-  factorized positional embedding carried by `PatchEmbed3DPlus1D` instead of the flat
-  `self.pos_embed`.
-- **Why**: the official ViT expects 2D images; fMRI is 6D.
-- **Where**: `prepare_tokens...` L217 (6D branch) · factorized pos L234.
+- **What**: an early `if x.ndim == 6` branch in `prepare_tokens_with_masks` handles
+  `(B, T, C, X, Y, Z)`. Same steps as the official 2D path, but with our factorised pos:
+  ```
+  patch_embed → (B, 4050, D)
+    1. torch.where(masks, mask_token, x)      ← iBOT masking (BEFORE pos, as official)
+    2. + combined_patch_pos()                 ← factorised pos (NOT the flat self.pos_embed)
+    3. prepend CLS (+ pos_cls)
+    4. insert register tokens (no pos)
+  → transformer blocks
+  ```
+- **Why**: the official ViT expects 2D images + a flat `self.pos_embed`; fMRI is 6D and uses the
+  factorised pos carried by `PatchEmbed3DPlus1D`. The official 4D path below is untouched;
+  `self.pos_embed` is still allocated but unused in fMRI mode (harmless dead weight).
+- **Where**: `prepare_tokens_with_masks` (6D branch).
 
 ---
 
