@@ -35,11 +35,15 @@ Each item = **What** / **Why** (vs official) / **Where** (`file : symbol`).
 - **Where**: `entries_from_manifest` L103 (holdout filter) · `_load_split_map` L96 ·
   split built by `tasks/data_prep/make_subject_split/make_subject_split.py`.
 
-**1.4 · The training dataset** 🟢 `dinov2/data/fmri_data.py`
-- **What**: one `Dataset` presenting the 5 sources as one; exposes `dataset_indices`
-  (name → global indices) for the sampler.
-- **Why**: replaces the ImageNet dataset.
-- **Where**: `MixedFMRIDataset` L209.
+**1.4 · The training dataset + its loader plumbing** 🟢 `fmri_data.py` + 🟠 `data/loaders.py`
+- **What**: one `Dataset` (`MixedFMRIDataset`) presenting the 5 sources as one; exposes
+  `dataset_indices` (name → global indices) for the sampler. The loader wires it in:
+  `_parse_dataset_str` gets a **`"Mixed"` branch** that resolves the dataset string `"Mixed"`
+  → `MixedFMRIDataset`, an allowed **`t_fixed` key** so `"Mixed:t_fixed=270"` reaches it, and the
+  `MixedFMRIDataset` / sampler **imports**.
+- **Why**: replaces the ImageNet dataset; the loader stays generic (any dataset string resolves).
+- **Where**: `fmri_data.py : MixedFMRIDataset` 🟢 · `loaders.py : _parse_dataset_str` (`"Mixed"`
+  branch, `t_fixed` key), imports 🟠.
 
 **1.5 · Per-batch dataset quota (proportional sampling)** 🟠 (new class in modified files)
 - **What**: an INFINITE index stream whose every consecutive `batch_size` block has a fixed
@@ -286,6 +290,14 @@ Each item = **What** / **Why** (vs official) / **Where** (`file : symbol`).
   dino/ibot heads (4096 prototypes), teacher-temp schedule.
 - **Why**: keeps every fMRI knob declarative; run variants are one-line overrides.
 - **Where**: whole file.
+
+**7.6 · Fractional-epoch scheduler robustness (`int()` cast)** 🟠 `dinov2/train/train.py`
+*(setup helper `build_schedulers`, runs once before the loop)*
+- **What it does**: wraps the scheduler lengths `total_iters` / `warmup_iters` in `int()`. A
+  fractional `warmup_epochs` (e.g. 0.3) × `OFFICIAL_EPOCH_LENGTH` is a **float**, and `np.linspace`
+  (inside `CosineScheduler`) needs an **integer** `num` → it would crash without the cast.
+- **Why**: we use a fractional warmup (0.3 epoch) for fast feedback; the cast makes it safe.
+- **Where**: `build_schedulers` (the four `int(...)` casts on the `*_iters`).
 
 > **Known limitation (see `tasks/v3/FINDINGS.md`):** Phase 5's masking-only design (all views =
 > the same full volume) leaves DINO/iBOT with no augmentation gap, so the SSL loss does not
