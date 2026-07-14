@@ -5,7 +5,7 @@ Every change we made to the official DINOv2 (`facebookresearch/dinov2`), traced 
 🟢 **new file** (entirely ours) · 🟠 **official file we modified** · 🔵 **config**.
 
 Each block is shown as: the **actual code** · its **exact location** (path + lines) · a
-**complete explanation** of what it does (nothing skipped) · **where & why it's used**.
+**complete explanation** of what it does · what it **returns** · **where & why it's used**.
 
 > **Known limitation (see `tasks/v3/FINDINGS.md`):** the masking-only design of Phase 5 (all
 > DINO views = the same full volume) leaves DINO/iBOT with no augmentation gap, so the SSL loss
@@ -113,6 +113,8 @@ def build_corpus_entries(lab_root=LAB_ROOT, datasets=CORPUS_DATASETS):
 - Resolves each scan's native TR; if `None` (unmapped ABIDE site) logs a warning and skips.
 - Appends one dict per scan `{dataset, path (str), subject_id, tr (float)}`; returns the flat list.
 
+**Returns:** a flat `list[dict]`, one dict per discovered scan with keys `dataset`, `path` (str), `subject_id`, `tr` (float) — e.g. `[{"dataset": "HCP", "path": ".../subject_100206/...pt", "subject_id": "subject_100206", "tr": 0.72}, {"dataset": "ABIDE", "path": ".../NYU_0051091.pt", "subject_id": "NYU_0051091", "tr": 2.0}, ...]`.
+
 **Where & why it's used:**
 - **Called by** `write_corpus_manifest` and `compute_t_fixed_max`.
 - **Why:** the single offline discovery pass; both the manifest writer and the T_fixed calculator build on the same deterministic scan list so they agree on the corpus.
@@ -145,6 +147,8 @@ def write_corpus_manifest(out_path, lab_root=LAB_ROOT, datasets=CORPUS_DATASETS)
 - For each scan: mmaps it and reads only `shape[0]` = native frame count `T` (no full load).
 - Computes `upsampled_T = round(T * tr / TARGET_TR)` (frame count after harmonization to 0.72 s), writes one row per scan; logs progress every 200; returns the path.
 
+**Returns:** the written manifest path as a `Path` (side effect: writes `corpus_manifest.csv`) — e.g. `PosixPath("/sci/labs/arieljaffe/dan.abergel1/corpus_manifest.csv")`.
+
 **Where & why it's used:**
 - **Offline entry point** (no in-repo caller) — run once/when the corpus changes; its CSV is read at training time by `entries_from_manifest`.
 - **Why:** pre-computes each scan's native and upsampled length so training-time filtering (drop-short, holdout) runs without opening any `.pt` file.
@@ -173,6 +177,8 @@ def compute_t_fixed_max(lab_root=LAB_ROOT, datasets=CORPUS_DATASETS, margin=0):
 - Tracks per-dataset minimum (`per`), all per-dataset lengths (`per_all`), the global minimum (`g_min`) and the shortest scan (`argmin`).
 - Returns `(max(1, g_min - margin), per, argmin, per_all)` — the largest T_fixed fitting every scan with no padding (minus an optional margin) + diagnostics.
 
+**Returns:** a 4-tuple `(t_fixed_max: int, per_dataset_min: dict, shortest_entry: dict, per_dataset_all: dict)` — the largest window (`max(1, g_min - margin)`), the per-dataset minimum upsampled length, the single shortest scan's entry dict, and every dataset's full list of upsampled lengths — e.g. `(271, {"HCP": 1200, "ABIDE": 271, "OASIS": 268, ...}, {"dataset": "OASIS", "path": ".../rest_1.pt", "subject_id": "OAS30001", "tr": 2.2}, {"HCP": [1200, 1200, ...], "ABIDE": [271, 296, ...], ...})`.
+
 **Where & why it's used:**
 - **Offline analysis helper** (no in-repo caller) — run manually to justify `DEFAULT_T_FIXED = 270`.
 - **Why:** determines the window-length knee so 270 keeps all of ABIDE while dropping only the two short OASIS outliers.
@@ -191,6 +197,8 @@ def _index_by_dataset(entries):
 ```
 
 **What it does:** single pass over the flat `entries`, bucketing each entry's position `i` by `dataset` → `{dataset: [indices]}` (e.g. `{"HCP": [0, 2], "ABIDE": [1]}`).
+
+**Returns:** a `dict` mapping each dataset name to the list of its indices into `entries` — e.g. `{"HCP": [0, 2], "ABIDE": [1]}`.
 
 **Where & why it's used:**
 - **Called by** `MixedFMRIDataset._discover`, stored as `self.dataset_indices`.
@@ -212,6 +220,8 @@ def _load_split_map(split_file):
 - Reads/parses `subject_split.json` shaped `{"datasets": {<ds>: {"train": [...], "test": [...]}}}`.
 - Inverts each per-dataset `{split: [subjects]}` into `{subject: split}` → `{dataset: {subject_id: "train"|"test"}}` for O(1) checks.
 - `d.get("datasets", {})` → a file without a `datasets` key yields an empty map rather than erroring.
+
+**Returns:** a nested `dict` `{dataset: {subject_id: "train"|"test"}}` (empty `{}` if the file has no `datasets` key) — e.g. `{"ADNI": {"s1": "train", "s2": "train", "s3": "test"}}`.
 
 **Where & why it's used:**
 - **Called by** `MixedFMRIDataset._discover`; the map is passed to `entries_from_manifest`.
@@ -247,14 +257,16 @@ def entries_from_manifest(manifest_path, datasets=CORPUS_DATASETS, min_upsampled
 - **Filter 2 (HOLDOUT):** only for `HOLDOUT_DATASETS` and only with a `split_map` — looks up the subject's split; if defined and not in `PRETRAIN_SPLITS` (i.e. "test"), drops it; counts `n_holdout`. A subject absent from the map (`sp is None`) is kept.
 - Survivors become `{dataset, path, subject_id, tr (float)}`; both filters run without opening any scan (length pre-computed offline). Logs how many each filter dropped.
 
+**Returns:** the filtered flat `list[dict]` of surviving scans, each `{dataset, path (str), subject_id, tr (float)}` — e.g. `[{"dataset": "HCP", "path": "...", "subject_id": "subject_100206", "tr": 0.72}, ...]`.
+
 **Where & why it's used:**
 - **Called by** `MixedFMRIDataset._discover` (`min_upsampled_t = self.t_fixed if DROP_SHORT else 0`).
 - **Why:** the normal load path — turns the offline manifest into the exact filtered scan list the model sees, enforcing both the window-length requirement and the no-leakage holdout.
 
 ---
 
-### `MixedFMRIDataset.__init__` — minimal dataset constructor
-📁 `dinov2/data/fmri_data.py` · lines **310–320** · 🟢 new file
+### `MixedFMRIDataset.__init__` (and `__len__`) — minimal dataset constructor
+📁 `dinov2/data/fmri_data.py` · lines **310–320** (`__init__`), **353–354** (`__len__`) · 🟢 new file
 
 ```python
 def __init__(self, root=None, *, t_fixed=DEFAULT_T_FIXED, transform=None, **_ignored):
@@ -264,15 +276,21 @@ def __init__(self, root=None, *, t_fixed=DEFAULT_T_FIXED, transform=None, **_ign
     self.entries, self.dataset_indices = self._discover(lab_root)
     if not self.entries:
         raise FileNotFoundError(f"No scans under {lab_root} for {CORPUS_DATASETS}")
+
+def __len__(self):
+    return len(self.entries)
 ```
 
 **What it does:**
 - Takes only what varies: `t_fixed` (from the config string) and `transform` (from `do_train`); `root` defaults to `LAB_ROOT`.
 - `**_ignored` swallows any other kwargs — notably `target_transform`, since SSL-only means no label to transform.
 - Stores `t_fixed` (int) + `transform`, runs `_discover` → `self.entries` (scan list) and `self.dataset_indices` (the sampler's contract); raises if no scans survive.
+- `__len__` — the standard `Dataset` size method, the number of scans in the (filtered) corpus.
+
+**Returns:** `__init__` → nothing — sets `self.t_fixed` (int), `self.transform`, `self.entries` (scan list) and `self.dataset_indices` (`{dataset: [indices]}`); raises `FileNotFoundError` if no scans survive. `__len__` → an `int`, `len(self.entries)` (e.g. `4627`).
 
 **Where & why it's used:**
-- **Instantiated by** `make_dataset` (loaders.py) after `_parse_dataset_str` resolves `"Mixed"`.
+- **Instantiated by** `make_dataset` (loaders.py) after `_parse_dataset_str` resolves `"Mixed"`; `__len__` is read by the loader (`sample_count = len(dataset)`).
 - **Why:** presents the five cohorts as one dataset with the same `(root/transform)` API as ImageNet so it drops into `do_train` unchanged, pushing corpus policy into constants. Exposing `dataset_indices` is what enables the proportional sampler.
 
 ---
@@ -307,6 +325,8 @@ def _discover(self, lab_root):
 - **Overfit hook** — if env `FMRI_OVERFIT_N=k > 0`, truncates to the first `k` HCP scans for a memorization sanity check (raises if no HCP), logging each retained scan's dataset/subject/tr/path. Debug-only.
 - **Step 3** — indexes survivors by dataset (`_index_by_dataset`), logs counts, returns `(entries, idx)`.
 
+**Returns:** a 2-tuple `(entries, dataset_indices)` — the filtered flat scan list and the `{dataset: [indices]}` map — e.g. `([{"dataset": "HCP", "path": "...", "subject_id": "subject_100206", "tr": 0.72}, ...], {"HCP": [0, 2], "ABIDE": [1]})`; raises `FileNotFoundError` if the manifest is missing.
+
 **Where & why it's used:**
 - **Called by** `MixedFMRIDataset.__init__`.
 - **Why:** the complete one-time corpus assembly (holdout + length filters + sampler index) before any sample is read, governed entirely by `fmri_const` constants.
@@ -330,6 +350,8 @@ def _discover(self, lab_root):
 **What it does:**
 - Adds `"t_fixed"` to the allowed dataset-string keys, so `"Mixed:t_fixed=270"` passes the assertion and forwards `t_fixed` to the dataset (`__init__` casts to int).
 - Adds an `elif name == "Mixed":` branch resolving the dataset name `"Mixed"` → `MixedFMRIDataset`.
+
+**Returns:** a 2-tuple `(class_, kwargs)` — the resolved dataset class and the parsed keyword args — e.g. `(MixedFMRIDataset, {"t_fixed": "270"})` for `"Mixed:t_fixed=270"`.
 
 **Where & why it's used:**
 - **Called by** `make_dataset`; `cfg.train.dataset_path: "Mixed"` in the fMRI YAML flows here.
@@ -394,6 +416,8 @@ class ProportionalInfiniteSampler(Sampler):
 - `_iterator()` — inits a shuffled pool + read pointer + cycle counter per dataset; loops forever building one quota block at a time (draws `q` from each dataset, reshuffling with an incremented cycle when a pool empties = sampling without replacement within a cycle); each block is then shuffled by a batch-index-seeded permutation (datasets interleaved, not grouped) and yielded index by index.
 - `__iter__()` — wraps `_iterator()` with `islice(..., advance, None)` to skip `advance` indices for resumption.
 
+**Returns:** per method — `__init__`: nothing (sets `_indices`, `_quota`, `_batch_size`, `_seed`, `_advance`, `_rank`, `_offset`; raises `ValueError` if no quota matches); `batch_size`: the block size `int` (default 16); `_pool`: a `list[int]` of one dataset's indices in shuffled order, e.g. `[2, 0, 5, 3, ...]`; `_iterator`/`__iter__`: an infinite generator yielding one dataset index (`int`) at a time, e.g. `4, 1, 7, 2, ...`.
+
 **Where & why it's used:**
 - **Constructed in** `_make_sampler` under `SamplerType.PROPORTIONAL`, selected in `train.py` when `cfg.train.proportional_sampler` is set and the dataset exposes `dataset_indices`.
 - **Why:** the infinite, iteration-based sampler DINOv2's loop needs, giving every batch a fixed cohort composition so the five wildly-different-sized datasets each contribute a controlled share.
@@ -425,6 +449,8 @@ class ProportionalInfiniteSampler(Sampler):
 - `make_data_loader` gains a `proportional_quota` param, forwarded to `_make_sampler`.
 - Block-size validation: requires `sampler.batch_size` (= `sum(quota)`) to be a multiple of the loader `batch_size` (else `ValueError`); logs `n_micro = sum(quota)//batch_size` and advises `grad_accum_steps = n_micro` so the quota composition realizes over that many micro-batches.
 
+**Returns:** `_make_sampler`'s PROPORTIONAL branch returns the constructed `ProportionalInfiniteSampler` instance (or raises `ValueError` if the dataset lacks `dataset_indices`); the `make_data_loader` block-size check returns nothing — it only validates (raising `ValueError` on misalignment) and logs `n_micro = sum(quota)//batch_size`.
+
 **Where & why it's used:**
 - **Called from** `train.py`, which sets `sampler_type = PROPORTIONAL` + passes `proportional_quota` when `cfg.train.proportional_sampler` is on (else falls back to `SHARDED_INFINITE`).
 - **Why:** lets the loop opt into per-batch quotas while guaranteeing the micro-batch size aligns with the quota block so the intended composition materializes.
@@ -454,6 +480,10 @@ class ProportionalInfiniteSampler(Sampler):
 - `_load(idx)`: `e = self.entries[idx]` fetches the record; `_load_mmap` memory-maps the tensor (nothing in RAM yet); `_native_window` chooses a native-frame window (random start, native length ≈ 194.4 s); `scan[start:start+win]` slices ON THE MMAP first, then `.clone()` materializes only that slice (keeps a ~500 MB scan off RAM); `_finalize` produces `(T_fixed, 1, 45, 54, 45)`.
 - `__getitem__(idx)`: `_load(idx)`; apply `self.transform` (multi-view + masking) only if wired; return `(image, ())` — the SSL-only empty target the DINO collator tolerates (it reads `s[0]` only).
 
+**Returns:**
+- `_load(idx)`: a preprocessed tensor `(T_fixed, 1, 45, 54, 45)` — z-scored, TR-harmonized, ready for the transform. example: `(270, 1, 45, 54, 45)`.
+- `__getitem__(idx)`: the tuple `(image, ())` — `image` is the (possibly transform-augmented) tensor, and `()` is the empty SSL target.
+
 **Where & why it's used:**
 - **Called by** PyTorch's `DataLoader` for every sampled index (from `ProportionalInfiniteSampler`).
 - **Why:** the single per-sample loading path — converts any scan (arbitrary TR/length/resolution) into the fixed `(T_fixed, 1, 45, 54, 45)` tensor a mixed batch can stack, returning the SSL-safe empty target.
@@ -473,6 +503,8 @@ def _load_mmap(path):
 - `map_location="cpu"`: keeps it on CPU (never touches the GPU at load).
 - `weights_only=True`: safe deserialization (only tensor data, no arbitrary pickled objects).
 - `mmap=True`: memory-maps the file — bytes are paged in only when actually indexed, so opening a large scan costs almost nothing until it is sliced.
+
+**Returns:** a memory-mapped CPU tensor of the whole scan, shape `(T, X, Y, Z)` or `(T, 1, X, Y, Z)` (no data paged in until it is indexed). example: `(1200, 45, 54, 45)` for an HCP scan.
 
 **Where & why it's used:**
 - **Called by** `MixedFMRIDataset._load` (step 1).
@@ -499,6 +531,8 @@ def _native_window(T, tr_native, t_fixed):
   - `FMRI_FIXED_WINDOW`: debug hook → pin start to 0 (identical input every load, for overfit tests — no temporal augmentation).
   - `np.random.randint(0, T - win + 1)`: else a RANDOM start in `[0, T-win]` → temporal augmentation.
 - `return 0, T`: scan shorter than the window → take it whole (`_temporal_resample` stretches to 270).
+
+**Returns:** a tuple `(start, win)` — the start index and window length, both in NATIVE frames (`start=0` when pinned or when the scan is shorter than the window). example: `(start=312, win=270)` for HCP, or `(start=0, win=65)` for a short ADNI scan.
 
 **Where & why it's used:**
 - **Called by** `MixedFMRIDataset._load` (every sample load).
@@ -528,6 +562,8 @@ def _finalize(clip, t_fixed):
   - `F.interpolate(..., size=(45,54,45), mode="trilinear", align_corners=False)`: trilinear 3D resize per (frame, channel) — harmonizes SPATIAL resolution across cohorts.
 - `return _zscore_per_frame(_temporal_resample(clip, t_fixed))`: chains temporal resample (Phase 3.2) then per-frame z-score (Phase 4.1) → `(t_fixed, 1, 45, 54, 45)`.
 - Net effect: whatever the dataset/TR/native resolution, every scan leaves with the SAME shape so a mixed batch stacks.
+
+**Returns:** a float tensor `(t_fixed, 1, *TARGET_SHAPE)` — spatially resized, temporally resampled to `t_fixed` frames, and per-frame z-scored. example: `(270, 1, 45, 54, 45)`.
 
 **Where & why it's used:**
 - **Called by** `MixedFMRIDataset._load`.
@@ -564,6 +600,8 @@ def _temporal_resample(clip, n_out):
 - `elif out.shape[0] < n_out:`: pad by repeating the last frame (`out[-1:].expand(...)` + `cat`) to land on exactly `n_out`.
 - `return out.contiguous()`.
 
+**Returns:** a contiguous float tensor with exactly `n_out` frames, same spatial dims as the input — `(n_out, 1, X, Y, Z)`; for HCP (`n_in == n_out`) it returns the input unchanged. example: `(270, 1, 45, 54, 45)`.
+
 **Where & why it's used:**
 - **Called by** `_finalize`.
 - **Why:** the actual TR harmonization — puts every cohort onto the common 0.72 s rate at exactly 270 frames, so mixed windows are temporally comparable/stackable. The trim/pad guard makes the length deterministic despite `resample_poly` rounding.
@@ -587,6 +625,8 @@ def _zscore_per_frame(scan):
 - `mean`: per-frame mean over channel + all spatial dims (1–4), `keepdim=True` to broadcast; frame axis 0 preserved so each of T frames gets its own mean.
 - `std`: per-frame std over the same voxels.
 - `torch.where(std > 1e-6, (scan - mean)/std.clamp_min(1e-6), zeros)`: where a frame has real variance, z-score it (`clamp_min` guards even the true branch); where a frame is (near-)constant, output zeros instead of NaN/Inf.
+
+**Returns:** a tensor of the SAME shape as the input `(T, 1, X, Y, Z)`, each frame zero-mean / unit-std over its `(1, X, Y, Z)` voxels (a constant frame maps to all zeros). example: `(270, 1, 45, 54, 45)`.
 
 **Where & why it's used:**
 - **Called by** `_finalize`, as the OUTERMOST call (run last, after resize + resample).
@@ -623,6 +663,15 @@ class FullVolumeViews3D:
 - `__call__(scan)`: given one preprocessed `(T_fixed, 1, 45, 54, 45)` window, returns the view dict where EVERY view is the SAME object `scan` repeated — 2 global, 2 teacher, N local references; `offsets = ()`.
 - Performs NO cropping and NO masking — only builds the multi-view structure; all views alias the identical tensor (not copies).
 
+**Returns:** the DINO view dict `{"global_crops", "global_crops_teacher", "local_crops", "offsets"}` — three lists holding repeated REFERENCES to the same input `scan` (`global_crops` and `global_crops_teacher` each length `global_crops_number`=2, `local_crops` length `local_crops_number`=N), plus `offsets = ()`. No tensor is copied; all entries alias `scan`.
+`example` (for `local_crops_number=6`, `scan` = one `(T_fixed, 1, 45, 54, 45)` tensor):
+```python
+{"global_crops":         [scan, scan],               # 2 refs to the SAME tensor
+ "global_crops_teacher": [scan, scan],               # 2 refs
+ "local_crops":          [scan, scan, scan, scan, scan, scan],  # 6 refs
+ "offsets":              ()}
+```
+
 **Where & why it's used:**
 - **Constructed in** `train.py:334` inside the `elif getattr(cfg.train, "fmri_augmentation", False):` branch; the dict is consumed by `collate_data_and_cast` (`collate.py`).
 - **Why:** the fMRI substitute for DINOv2 spatial-crop augmentation. Spatial crops were dropped on purpose (a brain is a fixed anatomical structure, not a scene to crop; meeting §2), so the "augmentation" reduces to structurally-correct view replication, deferring the only real corruption (per-token masking) to the collate.
@@ -658,6 +707,14 @@ class RandomTokenMaskingGenerator:
 - `__init__(input_size, **_ignored)`: `input_size` tuple `(height, width)` (a scalar is broadcast to `(n, n)`); stores `height`, `width`, `num_patches = h·w`; `**_ignored` swallows extra kwargs (e.g. `max_num_patches`) for true drop-in compatibility.
 - `__call__`: builds a flat all-`False` mask of length `num_patches`; clamps `num = min(request, num_patches)`; if `num > 0` draws `num` DISTINCT indices uniformly (`np.random.choice(..., replace=False)`), sets them `True`; reshapes to `(H, W)`.
 - Key difference from `MaskingGenerator`: masks tokens INDEPENDENTLY at random (MAE-style) over the FLATTENED `(T_eff, N_spatial)` grid — no spatial/temporal contiguity, unlike BeiT blocks.
+
+**Returns:** a `(height, width)` boolean `np.ndarray` with exactly `min(num_masking_patches, num_patches)` `True` entries at uniformly-random DISTINCT positions (all `False` when `num_masking_patches <= 0`).
+`example` (`input_size=(2, 3)`, `num_masking_patches=2`):
+```python
+mask_generator((2, 3))(2)
+# -> array([[False,  True, False],
+#           [ True, False, False]])   # exactly 2 True, random positions; shape (2, 3)
+```
 
 **Where & why it's used:**
 - **Instantiated in** `train.py:301` when `cfg.train.fmri_masking_only`; bound into `collate_data_and_cast` via `partial` and INVOKED PER BATCH in `collate.py` (unchanged upstream) — `mask_generator(int(N·uniform(prob_min, prob_max)))` for masked samples, `mask_generator(0)` otherwise.
@@ -697,6 +754,8 @@ class RandomTokenMaskingGenerator:
 - **Collate binding:** `n_tokens` + the selected `mask_generator` (+ iBOT ratios) are frozen into `collate_data_and_cast` via `partial`.
 - All fMRI additions use `getattr(cfg.train, ..., False)` so configs without the flags default to upstream.
 
+**Produces:** this is code inside `do_train`, not a return. It binds three local values: `n_tokens` (int `t_eff·n_spatial`, the flattened token count for the fMRI grid), `mask_generator` (a `RandomTokenMaskingGenerator` when `fmri_masking_only` else a BeiT `MaskingGenerator`, both over `(t_eff, n_spatial)`), `data_transform` (a `FullVolumeViews3D(cfg.crops.local_crops_number)` instance), and finally `collate_fn` (`partial(collate_data_and_cast, ...)` with `n_tokens`, `mask_generator`, and the iBOT ratios frozen in). Nothing is returned; these bindings flow into the data loader.
+
 **Where & why it's used:**
 - **In** `do_train`; the `partial` `collate_fn` feeds the data loader, so every batch `collate_data_and_cast` (UNCHANGED upstream) invokes the bound `mask_generator` with `N = n_tokens`.
 - **Why:** the single point adapting DINOv2's iBOT masking from the 2D `(img/p, img/p)` grid to the fMRI 6D `(T_eff, N_spatial)` grid and swapping in per-token masking, keeping the collate untouched.
@@ -732,6 +791,8 @@ class Conv3Plus1d(nn.Module):
 - **Spatial pass:** `rearrange('b c t x y z -> (b t) c x y z')` folds time into batch → each frame convolved independently → `(B*T, C', X', Y', Z')`; re-reads new spatial dims.
 - **Temporal pass:** `rearrange('(b t) c x y z -> (b x y z) c t')` folds batch+space into batch → each voxel's length-`T` series convolved independently → `(B*X'Y'Z', C', T')`.
 - **Refold:** back to 6D for the next block.
+
+**Returns:** `forward` → the refolded 6D tensor `(B, C', T', X', Y', Z')` (channels set by `out_c`; each axis reduced per its conv's kernel/stride/padding — with the default `K=3,S=1,P=1` the spatial and temporal sizes are unchanged). `__init__` → nothing — builds the `spatial` `Conv3d` and `temporal` `Conv1d` submodules.
 
 **Where & why it's used:**
 - **Instantiated in** `_ResBlock3Plus1d` (`conv1`/`conv2`) and directly as `conv_in`/`down_0`/`down_1` in `PatchEmbed3DPlus1D`.
@@ -796,6 +857,8 @@ class _ResBlock3Plus1d(nn.Module):
 - **`_encoder_forward`:** realizes spatial 45→15→5 and temporal 270→135→27 via `conv_in → spool → block_0 → down_0 → spool → tpool → block_1 → down_1 → tpool → block_2`.
 - **`forward`:** validates 6D (else `ValueError`); permutes `(B,T,C,X,Y,Z)→(B,C,T,X,Y,Z)`; runs `_encoder_forward` under `torch.utils.checkpoint(..., use_reentrant=False)` when training (recompute-in-backward to save memory) else directly; flattens to tokens `'b c t x y z -> b (t x y z) c'` (t outer, space inner — matching `combined_patch_pos`).
 
+**Returns:** `_ResBlock3Plus1d.forward` → the residual sum `x + h`, same 6D shape `(B, ch, T, X, Y, Z)` as its input. `PatchEmbed3DPlus1D.__init__` → nothing — builds the conv/resblock stack, stores the pool factors and token counts (`num_spatial_patches=150`, `num_temporal_patches=27`, `num_patches=4050`), and creates `self.pos`. `_encoder_forward` → the encoded 6D tensor `(B, embed_dim=384, T_eff=27, gx=5, gy=6, gz=5)`. `forward` → the flattened token sequence `(B, 4050, embed_dim=384)`.
+
 **Where & why it's used:**
 - **Turned into a `partial` in** `models/__init__.py` and passed as the ViT `embed_layer`; the ViT calls `self.patch_embed(x)` in the 6D branch.
 - **Why:** the entire fMRI patchifier — a raw 4D volume-time tensor → the fixed 4050-token sequence the transformer consumes, with reductions/token-count derived purely from config.
@@ -826,6 +889,8 @@ class _ResBlock3Plus1d(nn.Module):
 - **`_tpool`:** folds every non-temporal axis into batch, `.unsqueeze(1)` → `(N,1,T)`, `F.avg_pool1d(k,k)`, `.squeeze(1)`, refold → `(B,C,T//k,X,Y,Z)`.
 - **`_spool`:** folds `(B,C,T)` into batch, `.unsqueeze(1)` → `(N,1,X,Y,Z)`, `F.avg_pool3d(k,k)`, `.squeeze(1)`, refold → `(B,C,T,X/k,Y/k,Z/k)`.
 - The fold-into-batch trick lets 1D/3D pooling act on exactly the intended axes without a 4D pooling primitive; both preserve the 6D layout.
+
+**Returns:** `_tpool` → the 6D tensor with only the temporal axis divided by `k`: `(B, C, T//k, X, Y, Z)`. `_spool` → the 6D tensor with only the three spatial axes divided by `k`: `(B, C, T, X//k, Y//k, Z//k)`.
 
 **Where & why it's used:**
 - **Called only from** `_encoder_forward` (`_spool` ×2, `_tpool` ×2).
@@ -858,6 +923,8 @@ class PositionEmbedding3D(nn.Module):
 **What it does:**
 - `__init__` stores the two counts and creates three learned tables: `pos_temporal (1, T_eff, D)`, `pos_spatial (1, N_spatial, D)`, `pos_cls (1, 1, D)` — total O(T_eff + N_spatial) params instead of O(T_eff · N_spatial) for a flat table. All zero-init then `trunc_normal_(std=0.02)` (dinov2 convention).
 - `combined_patch_pos` broadcasts `pos_temporal` across space and `pos_spatial` across time, summing into `(1, T_eff·N_spatial, D)`. The `(t n)` grouping fixes token order as time-outer, space-inner — matching the flatten order in `PatchEmbed3DPlus1D.forward`. `pos_cls` is NOT folded in here — the ViT adds it to the CLS token separately.
+
+**Returns:** `__init__` → nothing — creates the three learned parameter tables `pos_temporal (1, 27, 384)`, `pos_spatial (1, 150, 384)`, `pos_cls (1, 1, 384)`. `combined_patch_pos` → the broadcast-sum patch positions `(1, 4050, 384)` (time-outer, space-inner); `pos_cls` is not included.
 
 **Where & why it's used:**
 - **Instantiated as** `self.pos` in `PatchEmbed3DPlus1D.__init__`; `combined_patch_pos()` and `pos_cls` are read by the ViT 6D branch.
@@ -892,6 +959,8 @@ def build_model_from_cfg(cfg, only_teacher=False):
 - **`build_model`:** adds an `embed_layer=None` param; if not `None`, injects it into `vit_kwargs["embed_layer"]` before both teacher and student are built via `vits.__dict__[args.arch](**vit_kwargs)`. `None` → identical to upstream (ViT picks its default 2D `PatchEmbed`).
 - **`build_model_from_cfg`:** defaults `embed_layer=None`, `img_size=cfg.crops.global_crops_size` (upstream). fMRI branch gated by `getattr(cfg.student, "fmri_mode", False)`: lazily imports `PatchEmbed3DPlus1D` + `partial`, binds `temporal_size`/`temporal_kernel` (leaving `img_size` for the ViT's `**vit_kwargs`), and overrides `img_size = tuple(cfg.student.fmri_img_size)` (the 3D `(X,Y,Z)` instead of a scalar). Returns `build_model(..., img_size, embed_layer)`.
 
+**Returns:** `build_model` → `(student, teacher, embed_dim)` normally, or `(teacher, teacher.embed_dim)` when `only_teacher=True`. `build_model_from_cfg` → whatever `build_model(...)` returns, i.e. the same `(student, teacher, embed_dim)` (or `(teacher, embed_dim)`) triple/pair, built with the fMRI `embed_layer` and 3D `img_size` when `fmri_mode` is set.
+
 **Where & why it's used:**
 - **Called by** `SSLMetaArch`; the `partial` becomes the ViT `embed_layer`, consumed inside `DinoVisionTransformer.__init__` as `self.patch_embed = embed_layer(img_size, patch_size, in_chans, embed_dim)`.
 - **Why:** the single config-driven switch turning the stock 2D DINOv2 into the 4D fMRI model — all plumbing stays in `models/__init__.py` + the config, no changes to `SSLMetaArch` or `do_train`.
@@ -922,6 +991,8 @@ def build_model_from_cfg(cfg, only_teacher=False):
 - **CLS token:** `cls = self.cls_token.expand(B,-1,-1) + self.patch_embed.pos.pos_cls` (CLS gets its own position), prepended with `torch.cat`.
 - **Register tokens:** if present, spliced right after the CLS token (registers get no positional embedding — official convention).
 - Returns `[CLS, (registers), patches]` and short-circuits the rest.
+
+**Returns:** the assembled token sequence `(B, 1 + [num_register_tokens] + 4050, D)` — CLS token first (with its `pos_cls`), then any register tokens, then the 4050 masked-and-positioned patch tokens; with no registers this is `(B, 4051, D)`.
 
 **Where & why it's used:**
 - **Invoked by** `forward_features_list`, `forward_features`, and the intermediate-layer getters; the 6D dispatch fires whenever `PatchEmbed3DPlus1D` feeds 6D volumes.
@@ -969,6 +1040,8 @@ def apply_freeze_policy(model, freeze_mode):
 - Calls `p.requires_grad_(trainable)` on every param, tallies trainable vs frozen, logs both.
 - The call in `do_train` runs BEFORE `build_optimizer`, so the optimizer only receives params still requiring grad; `getattr(..., None)` default = official full-training for configs without the flag.
 
+**Returns:** nothing — sets `requires_grad` in place on the backbone params (logs the trainable/frozen parameter counts).
+
 **Where & why it's used:**
 - **Called once** in `do_train` (before the optimizer is built).
 - **Why:** the freeze ablation (variants A/B/C) — lets a filtered ImageNet DINOv2 backbone be partially frozen while the fMRI `patch_embed` and heads adapt, isolating how much of the pretrained transformer to fine-tune on fMRI.
@@ -992,6 +1065,8 @@ def apply_freeze_policy(model, freeze_mode):
 - Passes only `cfg.crops.local_crops_number`: masking-only ignores crop scale/size, and the global count is a class constant (`GLOBAL_CROPS_NUMBER = 2`).
 - Sits between the `cell_augmentation` branch and the official `DataAugmentationDINO` else, so official behavior is preserved when the flag is absent.
 - **The `getattr(..., False)` default:** `cfg.train.fmri_augmentation` is absent from the upstream config schema; a direct attribute access on a pre-fork config would raise `AttributeError`. `getattr(..., False)` returns `False` for any config lacking the key → the branch is skipped and the fork stays backward-compatible with every upstream config.
+
+**Produces:** not a function return — it assigns the local `data_transform = FullVolumeViews3D(cfg.crops.local_crops_number)` (the fMRI view builder), which `do_train` then passes to `make_dataset(..., transform=data_transform)`.
 
 **Where & why it's used:**
 - **In** `do_train`; the resulting `data_transform` is handed to `make_dataset(..., transform=...)`.
@@ -1041,6 +1116,8 @@ def optimizer_step_and_ema(model, optimizer, fp16_scaler, clip_grad, mom):
 - Extracting the step body keeps the accumulation guard a readable two-liner; the logic is unchanged from upstream. `loss_scale=1.0` default makes `forward_backward` a drop-in.
 - **`_streams` guard:** the one-shot FSDP stream-sharing assignment is wrapped in `if hasattr(self.teacher.backbone, "_streams")`; PyTorch ≥ ~2.3 removed that attribute, so the guard skips the workaround on newer torch (FSDP syncs streams itself) while preserving it for older versions.
 
+**Returns:** `optimizer_step_and_ema` → nothing (steps the optimizer + updates the EMA teacher in place). `forward_backward` → the `loss_dict`, a dict of unscaled per-term loss tensors kept for display — e.g. `{"dino_local_crops_loss": tensor, "dino_global_crops_loss": tensor, "koleo_loss": tensor, "ibot_loss": tensor}`.
+
 **Where & why it's used:**
 - **In** the `do_train` loop; `optimizer_step_and_ema` (1 call), `forward_backward` (1 call), `fsdp_synchronize_streams` (end of `forward_backward`).
 - **Why:** fMRI volumes are large → per-GPU micro-batch is only 2; accumulating over 8 gives an effective batch of 16 without exceeding memory, while `loss_scale` keeps the gradient identical to a true batch-16 step. The `_streams` guard is required because this fork runs on a newer PyTorch than upstream assumed.
@@ -1069,6 +1146,8 @@ def apply_scaling_rules_to_cfg(cfg):
 - Reads `grad_accum_steps` via `.get(..., 1)` (default 1).
 - Computes `effective_batch = batch_size_per_gpu * global_size * grad_accum` — folding in the accumulation factor (upstream used only `batch_size_per_gpu * global_size`).
 - Sets `cfg.optim.lr = base_lr * sqrt(effective_batch / 1024)`; logs base_lr, grad_accum, effective_batch, lr.
+
+**Returns:** the mutated `cfg` (same object) with `cfg.optim.lr` now set to the scaled learning rate — e.g. `cfg.optim.lr = 3e-4 * sqrt(16/1024) ≈ 3.75e-5`.
 
 **Where & why it's used:**
 - **Called by** `setup(args)` (config.py), the entry invoked by `main` in `train.py`.
@@ -1138,6 +1217,8 @@ def build_schedulers(cfg):
 
 **What it does:**
 - Builds the five cosine schedules (lr, wd, momentum, teacher_temp, last_layer_lr) as upstream, but wraps the four derived iteration counts in `int()`: `lr.total_iters`, `lr.warmup_iters` (the load-bearing one), `wd.total_iters`, `momentum.total_iters`, and `teacher_temp.total_iters` / `.warmup_iters`. All other fields unchanged; the `lr` dict is reused for both `lr_schedule` and `last_layer_lr_schedule`.
+
+**Returns:** a 5-tuple of `CosineScheduler` objects `(lr_schedule, wd_schedule, momentum_schedule, teacher_temp_schedule, last_layer_lr_schedule)`.
 
 **Where & why it's used:**
 - **Called by** `do_train` (unpacks the five schedules); the schedules feed `CosineScheduler`, which internally uses `np.linspace(..., num=warmup_iters)`.
