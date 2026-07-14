@@ -79,6 +79,9 @@ fi
 # OVERFIT_N=k -> DEBUG: train on only the first k scans (dataset prints their paths).
 # Exported so the dataset (fmri_data.py) sees it through srun.
 [ -n "${OVERFIT_N:-}" ]     && export FMRI_OVERFIT_N="${OVERFIT_N}"
+# FIXED_WINDOW=1 -> DEBUG: pin the temporal window start to 0 so every load returns the
+# EXACT same window (no temporal augmentation) — strictly identical input for overfit.
+[ "${FIXED_WINDOW:-0}" = "1" ] && export FMRI_FIXED_WINDOW=1
 # OVERRIDES -> any extra dinov2 config overrides, space-separated.
 [ -n "${OVERRIDES:-}" ]     && EXTRA="$EXTRA ${OVERRIDES}"
 

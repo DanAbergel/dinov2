@@ -226,6 +226,11 @@ def _native_window(T, tr_native, t_fixed):
     """
     win = max(1, round(t_fixed * TARGET_TR / tr_native))
     if T >= win:
+        # DEBUG: FMRI_FIXED_WINDOW pins the start to 0 so every load of a scan returns
+        # the EXACT same window (no temporal augmentation) — used to feed a strictly
+        # identical input in the overfit sanity checks.
+        if os.environ.get("FMRI_FIXED_WINDOW"):
+            return 0, win
         return int(np.random.randint(0, T - win + 1)), win
     return 0, T
 
