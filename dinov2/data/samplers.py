@@ -260,7 +260,10 @@ class ProportionalInfiniteSampler(Sampler):
         quota: ``{dataset_name: count_per_batch}``. Keys absent from
             dataset_indices (or with count 0) are ignored.
         seed, advance: as in InfiniteSampler.
-        rank, world_size: default to the DDP rank/size.
+        rank: defaults to the DDP rank; seeds this rank's private stream. (No
+            world_size: unlike InfiniteSampler we do not [start::step]-stride, so
+            the number of ranks is never needed — each rank generates its own
+            full proportional stream.)
     """
 
     DEFAULT_QUOTA = {"HCP": 4, "ABIDE": 4, "OASIS": 4, "ADNI": 3, "AOMIC": 1}
@@ -273,7 +276,6 @@ class ProportionalInfiniteSampler(Sampler):
         seed: int = 0,
         advance: int = 0,
         rank: Optional[int] = None,
-        world_size: Optional[int] = None,
     ):
         self._indices = {k: list(v) for k, v in dataset_indices.items() if v}
         quota = quota or self.DEFAULT_QUOTA
@@ -287,7 +289,6 @@ class ProportionalInfiniteSampler(Sampler):
         self._seed = seed
         self._advance = advance
         self._rank = distributed.get_global_rank() if rank is None else rank
-        self._world_size = distributed.get_global_size() if world_size is None else world_size
         # stable per-dataset seed offset, independent of dict insertion order
         self._offset = {name: i for i, name in enumerate(sorted(self._quota))}
 
