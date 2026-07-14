@@ -6,20 +6,19 @@
 #     a separable spatial-3D + temporal-1D conv used as the basic block
 #     at every level of the encoder (NOT just split between two phases).
 #   - ResBlocks contain TWO Conv3Plus1d each (same as TemporalResnetBlock).
-#   - Downsamples are Conv3Plus1d with strided spatial AND temporal.
-#   - Each hierarchical level uses Conv3Plus1d-based blocks; we never have
-#     a "pure spatial then pure temporal" phase.
+#   - Downsampling is done by AvgPool (spatial AND temporal), NOT strided
+#     conv: every conv is stride-1 and a following AvgPool does the reduction.
 #
-# Strides for fMRI (Mixed HCP+ADNI at T=140):
-#   conv_in: spatial stride 3 (45 -> 15)
-#   Level 0 -> Level 1: spatial stride 3, temporal stride 2  (140 -> 70, 15 -> 5)
-#   Level 1 -> Level 2: spatial stride 1, temporal stride 7  (70 -> 10)
-# Total: 9x spatial (matches patch_size=9), 14x temporal (= temporal_kernel).
+# Reductions for the live config (T=270, temporal_kernel=10, img 45x54x45,
+# patch_size=9):
+#   conv_in:  spatial /3               (45 -> 15)
+#   down_0:   spatial /3, temporal /2  (15 -> 5,  270 -> 135)
+#   down_1:   temporal /5              (135 -> 27)
+# Total: 9x spatial (= patch_size), 10x temporal (= temporal_kernel).
+# Token grid: 27 (temporal) x 150 (5*6*5 spatial) = 4050 tokens per crop.
 #
 # Carries the factorised positional embedding (pos_temporal + pos_spatial
 # + pos_cls) added by the ViT's 6D branch in `prepare_tokens_with_masks`.
-
-import math
 
 import torch
 import torch.nn as nn
@@ -84,97 +83,35 @@ class _ResBlock3Plus1d(nn.Module):
         return x + h
 
 
-class FourierFeatures3D(nn.Module):
-    """Fourier-feature map of 3D coordinates (Tancik et al., NeurIPS 2020).
-
-        gamma(v) = [cos(2*pi * B v), sin(2*pi * B v)],  v in R^3, B in R^{F x 3}
-
-    B is sampled once from N(0, sigma^2) and registered as a buffer (fixed,
-    NOT learned) for the first iteration. Nearby 3D positions map to similar
-    features at low frequencies but become distinguishable at high frequencies.
-    """
-
-    def __init__(self, num_freqs: int = 32, sigma: float = 10.0):
-        super().__init__()
-        self.register_buffer("B", torch.randn(num_freqs, 3) * sigma)
-
-    def forward(self, positions: torch.Tensor) -> torch.Tensor:   # (N, 3) -> (N, 2*F)
-        proj = 2 * math.pi * positions @ self.B.t()               # (N, F)
-        return torch.cat([torch.cos(proj), torch.sin(proj)], dim=-1)
-
-
 class PositionEmbedding3D(nn.Module):
-    """Factorised positional embedding for the fMRI token grid.
+    """Factorised (learned) positional embedding for the fMRI token grid.
 
     Instead of one flat table of size (T_eff * N_spatial) like a 2D ViT, we
-    keep two small tables that are broadcast and summed:
+    keep two small learned tables that are broadcast and summed:
         pos = pos_temporal (broadcast over space) + pos_spatial (broadcast over time)
     plus a separate pos_cls for the CLS token. This is O(T_eff + N_spatial)
     parameters instead of O(T_eff * N_spatial).
-
-    spatial_mode:
-      'learned' (default) -> pos_spatial is a learned table (original behaviour).
-      'fourier'           -> pos_spatial is computed from Fourier features of the
-                             3D patch-grid coordinates + a small MLP (meeting
-                             2026-06-14 §3). pos_temporal and pos_cls stay learned.
 
     Kept as its own nn.Module so positional encoding is a separate concern
     from the patchify conv stack (PatchEmbed3DPlus1D holds one of these).
     """
 
-    def __init__(self, num_temporal_patches: int, num_spatial_patches: int, embed_dim: int,
-                 grid=None, spatial_mode: str = "learned",
-                 num_freqs: int = 32, sigma: float = 10.0):
+    def __init__(self, num_temporal_patches: int, num_spatial_patches: int, embed_dim: int):
         super().__init__()
         self.num_temporal_patches = num_temporal_patches
         self.num_spatial_patches = num_spatial_patches
-        self.spatial_mode = spatial_mode
         self.pos_temporal = nn.Parameter(torch.zeros(1, num_temporal_patches, embed_dim))
+        self.pos_spatial  = nn.Parameter(torch.zeros(1, num_spatial_patches, embed_dim))
         self.pos_cls      = nn.Parameter(torch.zeros(1, 1, embed_dim))
         trunc_normal_(self.pos_temporal, std=0.02)
+        trunc_normal_(self.pos_spatial,  std=0.02)
         trunc_normal_(self.pos_cls,      std=0.02)
-
-        if spatial_mode == "learned":
-            self.pos_spatial = nn.Parameter(torch.zeros(1, num_spatial_patches, embed_dim))
-            trunc_normal_(self.pos_spatial, std=0.02)
-        elif spatial_mode == "fourier":
-            assert grid is not None, "fourier spatial pos needs the (gx, gy, gz) grid"
-            gx, gy, gz = grid
-            assert gx * gy * gz == num_spatial_patches, "grid does not match N_spatial"
-            self.register_buffer("coords", self._make_grid_coords(gx, gy, gz))
-            self.fourier = FourierFeatures3D(num_freqs, sigma)
-            self.spatial_proj = nn.Sequential(
-                nn.Linear(2 * num_freqs, embed_dim),
-                nn.GELU(),
-                nn.Linear(embed_dim, embed_dim),
-            )
-        else:
-            raise ValueError(f"unknown spatial_mode {spatial_mode!r}")
-
-    @staticmethod
-    def _make_grid_coords(gx, gy, gz) -> torch.Tensor:
-        """(N_spatial, 3) coords in [-1, 1], in the SAME order the patchify
-        flattens spatial tokens: 'b c t x y z -> b (t x y z) c' (x outer, z inner)."""
-        xs, ys, zs = (torch.linspace(-1, 1, g) for g in (gx, gy, gz))
-        gxx, gyy, gzz = torch.meshgrid(xs, ys, zs, indexing="ij")
-        return torch.stack([gxx.flatten(), gyy.flatten(), gzz.flatten()], dim=-1)
-
-    def get_spatial(self) -> torch.Tensor:
-        """(1, N_spatial, embed_dim) — learned table or Fourier-derived."""
-        if self.spatial_mode == "learned":
-            return self.pos_spatial
-        # coords/B are float32 buffers; the model runs in fp16, so the cos/sin
-        # features are float32 while spatial_proj weights are half -> dtype
-        # mismatch. Compute Fourier in float32 (precise), then cast to the
-        # Linear's dtype.
-        feats = self.fourier(self.coords).to(self.spatial_proj[0].weight.dtype)
-        return self.spatial_proj(feats).unsqueeze(0)
 
     def combined_patch_pos(self) -> torch.Tensor:
         """(1, T_eff * N_spatial, embed_dim) — broadcast sum of the two
         factorised embeddings. Order: (t outer, n inner)."""
         pos_t = repeat(self.pos_temporal, '1 t d -> 1 (t n) d', n=self.num_spatial_patches)
-        pos_s = repeat(self.get_spatial(), '1 n d -> 1 (t n) d', t=self.num_temporal_patches)
+        pos_s = repeat(self.pos_spatial,  '1 n d -> 1 (t n) d', t=self.num_temporal_patches)
         return pos_t + pos_s
 
 
@@ -185,6 +122,10 @@ class PatchEmbed3DPlus1D(nn.Module):
     in as the `embed_layer=` of DinoVisionTransformer; the fMRI-specific
     `temporal_size` and `temporal_kernel` are bound via `functools.partial`
     in `build_model_from_cfg`.
+
+    Downsampling is done by AvgPool on stride-1 conv outputs (spatial and
+    temporal), so the token grid is a pure function of img_size / patch_size
+    and temporal_size / temporal_kernel.
     """
 
     def __init__(
@@ -194,13 +135,7 @@ class PatchEmbed3DPlus1D(nn.Module):
         patch_size: int = 9,
         in_chans: int = 1,
         embed_dim: int = 384,
-        temporal_kernel: int = 14,
-        fourier_pos: bool = False,        # spatial pos: Fourier features vs learned table
-        fourier_num_freqs: int = 32,
-        fourier_sigma: float = 10.0,
-        remove_block2: bool = False,      # point 2: drop the final ResBlock (~83% of params)
-        pool_downsample: bool = False,    # point 2: ALL downsampling (spatial AND temporal)
-                                          # by stride-1 conv + AvgPool, not strided conv
+        temporal_kernel: int = 10,
     ) -> None:
         super().__init__()
         self.img_size = tuple(img_size)
@@ -209,64 +144,43 @@ class PatchEmbed3DPlus1D(nn.Module):
         self.embed_dim = embed_dim
         self.temporal_size = temporal_size
         self.temporal_kernel = temporal_kernel
-        self.pool_downsample = pool_downsample
 
         # ----- 3 hierarchical levels with Conv3Plus1d throughout ----------
-        # Strides per level transition (spatial, temporal):
-        #   conv_in -> level_0: (3, 1)       first spatial downsample baked in
-        #   level_0 -> level_1: (3, 2)       9x spatial so far, 2x temporal
-        #   level_1 -> level_2: (1, 7)       9x spatial, 14x temporal (= temporal_kernel)
-        # Channels: 1 -> 32 -> 64 -> embed_dim.
+        # Every conv is stride-1; each level's reduction is a following AvgPool
+        # (spatial and/or temporal). Channels: 1 -> 32 -> 64 -> embed_dim.
         #
-        # For mixed-dataset training at T=140 (HCP random window + ADNI native):
-        #   T=140 -> down_0 -> 70 -> down_1 -> 10 (= T_eff)
-        # Token grid: 10 x 150 = 1500 per crop. Much smaller than T=1200 -> 9000.
+        # Reductions (spatial, temporal) for T=270, temporal_kernel=10:
+        #   conv_in -> level_0: (/3, /1)   first spatial /3            (45 -> 15)
+        #   level_0 -> level_1: (/3, /2)   9x spatial, 2x temporal     (15 -> 5, 270 -> 135)
+        #   level_1 -> level_2: (/1, /5)   9x spatial, 10x temporal    (135 -> 27)
+        # -> token grid 27 x 150 = 4050 per crop.
 
-        # Initial projection + first spatial /3. Strided conv (default) OR stride-1
-        # conv keeping full res (+ AvgPool /3 in forward) when pool_downsample.
-        self.conv_in = Conv3Plus1d(in_chans, 32,
-                                   K_s=3, S_s=(1 if pool_downsample else 3),
-                                   P_s=(1 if pool_downsample else 0),
-                                   K_t=3, S_t=1, P_t=1)
+        # Initial projection, stride-1 (spatial /3 by AvgPool in forward).
+        self.conv_in = Conv3Plus1d(in_chans, 32, K_s=3, S_s=1, P_s=1, K_t=3, S_t=1, P_t=1)
 
         # Level 0 (at /3 spatial, full temporal; 32 ch).
         self.block_0 = _ResBlock3Plus1d(32)
-        # Downsample: spatial /3 (total /9) and temporal /2. Either strided conv
-        # (default) or stride-1 conv + AvgPool (pool_downsample) on BOTH axes.
-        self.down_0 = Conv3Plus1d(32, 64,
-                                  K_s=3, S_s=(1 if pool_downsample else 3),
-                                  P_s=(1 if pool_downsample else 0),
-                                  K_t=3, S_t=(1 if pool_downsample else 2), P_t=1)
+        # Stride-1; spatial /3 and temporal /2 by AvgPool in forward.
+        self.down_0 = Conv3Plus1d(32, 64, K_s=3, S_s=1, P_s=1, K_t=3, S_t=1, P_t=1)
 
         # Level 1 (at /9 spatial, /2 temporal; 64 ch).
         self.block_1 = _ResBlock3Plus1d(64)
-        # Spatial-stride-1 (already at target) + temporal stride down_1_kt.
-        # Total temporal stride = conv_in(1) * down_0(2) * down_1(down_1_kt)
-        # = 2 * down_1_kt, which must equal temporal_kernel. So:
-        #   down_1_kt = temporal_kernel // 2.
-        # Deriving this from temporal_kernel (instead of hardcoding) makes the
-        # whole architecture a function of the config, so a checkpoint trained
-        # with temporal_kernel=20 (down_1 K_t=10) and one with 14 (K_t=7) are
-        # both rebuildable from their saved config.yaml. WHY THIS MATTERS:
-        # previously down_1 K_t was hardcoded, so probing an old checkpoint
-        # with a different kernel raised a state_dict size mismatch.
+        # Total temporal reduction = conv_in(1) * down_0(2) * down_1(down_1_kt)
+        # must equal temporal_kernel, so down_1_kt = temporal_kernel // 2. Deriving
+        # it from temporal_kernel (not hardcoding) makes the whole architecture a
+        # function of the config, so a checkpoint trained with temporal_kernel=20
+        # and one with 10 are both rebuildable from their saved config.yaml.
         down_1_kt = temporal_kernel // 2
-        if pool_downsample:
-            # stride-1 conv (preserve T), temporal /down_1_kt done by AvgPool below.
-            self.down_1 = Conv3Plus1d(64, embed_dim, K_s=3, S_s=1, P_s=1,
-                                      K_t=3, S_t=1, P_t=1)
-        else:
-            self.down_1 = Conv3Plus1d(64, embed_dim, K_s=3, S_s=1, P_s=1,
-                                      K_t=down_1_kt, S_t=down_1_kt, P_t=0)
-        # AvgPool factors (only used if pool_downsample). Spatial: /3 after conv_in
-        # and /3 after down_0 (patch_size 9 = 3x3). Temporal: /2 after down_0,
-        # /down_1_kt after down_1 (product = temporal_kernel). Token grid unchanged.
+        # Stride-1; temporal /down_1_kt by AvgPool in forward.
+        self.down_1 = Conv3Plus1d(64, embed_dim, K_s=3, S_s=1, P_s=1, K_t=3, S_t=1, P_t=1)
+        # AvgPool factors. Spatial: /3 after conv_in and /3 after down_0 (patch_size
+        # 9 = 3x3). Temporal: /2 after down_0, /down_1_kt after down_1 (product =
+        # temporal_kernel).
         self.spool_k = 3
         self.pool0_k, self.pool1_k = 2, down_1_kt
 
         # Level 2 (target resolution = token grid: (T_eff, gx, gy, gz)).
-        # point 2: block_2 is ~83% of the patchify params -> optionally dropped.
-        self.block_2 = None if remove_block2 else _ResBlock3Plus1d(embed_dim)
+        self.block_2 = _ResBlock3Plus1d(embed_dim)
 
         # Token-grid sizes. num_patches is read by the ViT __init__ to size
         # its (unused-in-fMRI) flat pos_embed, so we expose it here.
@@ -275,14 +189,9 @@ class PatchEmbed3DPlus1D(nn.Module):
         self.num_temporal_patches = temporal_size // temporal_kernel
         self.num_patches = self.num_temporal_patches * self.num_spatial_patches
 
-        # Factorised positional embedding (separate nn.Module). Spatial part is
-        # either a learned table or Fourier features of the 3D grid coords.
+        # Factorised (learned) positional embedding, a separate nn.Module.
         self.pos = PositionEmbedding3D(
-            self.num_temporal_patches, self.num_spatial_patches, embed_dim,
-            grid=(gx, gy, gz),
-            spatial_mode="fourier" if fourier_pos else "learned",
-            num_freqs=fourier_num_freqs, sigma=fourier_sigma,
-        )
+            self.num_temporal_patches, self.num_spatial_patches, embed_dim)
 
     @staticmethod
     def _tpool(x: torch.Tensor, k: int) -> torch.Tensor:
@@ -302,23 +211,19 @@ class PatchEmbed3DPlus1D(nn.Module):
 
     def _encoder_forward(self, x: torch.Tensor) -> torch.Tensor:
         """Single pass through the hierarchical encoder. Wrapped by checkpoint
-        in `forward` when in training mode. In pool_downsample mode, every strided
-        downsample is done here as AvgPool instead (spatial after conv_in and down_0,
-        temporal after down_0 and down_1)."""
+        in `forward` when training. Every downsample is an AvgPool on a stride-1
+        conv output: spatial after conv_in and down_0, temporal after down_0 and
+        down_1."""
         x = self.conv_in(x)
-        if self.pool_downsample:
-            x = self._spool(x, self.spool_k)              # spatial /3
+        x = self._spool(x, self.spool_k)              # spatial /3
         x = self.block_0(x)
         x = self.down_0(x)
-        if self.pool_downsample:
-            x = self._spool(x, self.spool_k)          # spatial /3 by AvgPool
-            x = self._tpool(x, self.pool0_k)          # temporal /2 by AvgPool
+        x = self._spool(x, self.spool_k)              # spatial /3
+        x = self._tpool(x, self.pool0_k)              # temporal /2
         x = self.block_1(x)
         x = self.down_1(x)
-        if self.pool_downsample:
-            x = self._tpool(x, self.pool1_k)          # temporal /down_1_kt by AvgPool
-        if self.block_2 is not None:
-            x = self.block_2(x)
+        x = self._tpool(x, self.pool1_k)              # temporal /down_1_kt
+        x = self.block_2(x)
         return x
 
     def forward(self, x: torch.Tensor) -> torch.Tensor:

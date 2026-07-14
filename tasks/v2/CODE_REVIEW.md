@@ -134,17 +134,17 @@ official file**. Each item = **What** / **Why** (vs official) / **Where** (`file
 - **Where**: `PatchEmbed3DPlus1D` L181 · `conv_in` L227 · `block_0` L233 · `down_0` L236 ·
   `_ResBlock3Plus1d` L70.
 
-**6.3 · Architecture ablation flags** 🟢 `dinov2/layers/patch_embed_3d_plus_1d.py`
-- **What**: `remove_block2` (drop the last ResBlock) and `pool_downsample` (do all
-  downsampling with AvgPool instead of strided convs).
-- **Why**: the point-2 ablations (noblock2 / pool runs).
-- **Where**: `PatchEmbed3DPlus1D.__init__` — `remove_block2` L201 · `pool_downsample` L202.
+**6.3 · AvgPool downsampling** 🟢 `dinov2/layers/patch_embed_3d_plus_1d.py`
+- **What**: every conv is stride-1; the spatial and temporal reductions are done by
+  `AvgPool` (`_spool` / `_tpool`) in `_encoder_forward`.
+- **Why**: pooling instead of strided conv for the downsampling.
+- **Where**: `_encoder_forward` (`_spool` / `_tpool` calls) · `_spool` / `_tpool`.
 
-**6.4 · Positional embedding (learned or Fourier)** 🟢 `dinov2/layers/patch_embed_3d_plus_1d.py`
-- **What**: spatial positions come from a learned table (default) or **Fourier features**
-  of 3D coordinates (the `fourier` ablation).
-- **Why**: give the transformer spatial position; test Fourier vs learned.
-- **Where**: `PositionEmbedding3D` L106 · `FourierFeatures3D` L87.
+**6.4 · Positional embedding (learned, factorised)** 🟢 `dinov2/layers/patch_embed_3d_plus_1d.py`
+- **What**: spatial + temporal positions come from two small learned tables, broadcast
+  and summed (`pos_temporal + pos_spatial`), plus a separate `pos_cls`.
+- **Why**: give the transformer position at O(T_eff + N_spatial) params, not O(product).
+- **Where**: `PositionEmbedding3D` · `combined_patch_pos`.
 
 **6.5 · Bind the patchify into the model** 🟠 `dinov2/models/__init__.py`
 - **What**: when `cfg.student.fmri_mode` is set, build the `PatchEmbed3DPlus1D` (with all

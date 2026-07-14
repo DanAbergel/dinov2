@@ -3,7 +3,7 @@
 # Re-run ALL probes: every run x every dataset x every head, to compare
 # against Brain-JEPA AND NeuroSTORM in one shot.
 #
-#   runs     : base fourier noblock2 pool unfrozen
+#   runs     : base unfrozen
 #   datasets : ADNI ABIDE HCP OASIS  (Brain-JEPA)  +  ADHD HCP_TASK COBRE HCP_COG (NeuroSTORM)
 #   heads    : linear  +  mlp (point-3: tests 5 MLP archs x 4 alphas, keeps best by CV)
 #
@@ -42,7 +42,7 @@ RES_DIR="$TASK_DIR/json_results"
 RUNS_DIR="$LAB_DIR/runs/v2"
 VENV="${VENV:-$LAB_DIR/torch_env}"
 
-RUNS="${RUNS:-base fourier noblock2 pool unfrozen}"
+RUNS="${RUNS:-base unfrozen}"
 DATASETS="${DATASETS:-ADNI ABIDE HCP OASIS ADHD HCP_TASK COBRE HCP_COG}"
 HEADS="${HEADS:-linear mlp}"
 # these datasets ignore --head (own classifier) -> probe once, linear only

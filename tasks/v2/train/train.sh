@@ -6,7 +6,7 @@
 #   - online TR harmonization to 0.72s + T_fixed=270 window (MixedFMRIDataset)
 #   - ProportionalInfiniteSampler (HCP4/ABIDE4/OASIS4/ADNI3/AOMIC1 = 16)
 #   - masking-only augmentation (full-image crops + per-token random masking)
-#   - learned spatial pos (Fourier is a LATER ablation)
+#   - learned factorised spatial+temporal pos; AvgPool downsampling
 #
 # Config: dinov2/configs/train/fmri_vits.yaml
 #
@@ -20,11 +20,9 @@
 #
 # Smoke test FIRST (cheap, ~10 iters, catches build/shape bugs; no probe):
 #   SMOKE=1 sbatch -A arieljaffe tasks/v2/train/train.sh
-# Pretraining ablation runs (one factor each):
+# Runs:
 #   RUN=base                 sbatch -A arieljaffe tasks/v2/train/train.sh   # reference
-#   RUN=fourier  FOURIER=1   sbatch -A arieljaffe tasks/v2/train/train.sh   # Fourier spatial pos
-#   RUN=noblock2 NOBLOCK2=1  sbatch -A arieljaffe tasks/v2/train/train.sh   # point 2: drop block_2 (1 factor)
-#   RUN=pool     POOL=1      sbatch -A arieljaffe tasks/v2/train/train.sh   # point 2: all downsampling by AvgPool (1 factor)
+#   RUN=unfrozen UNFROZEN=1  sbatch -A arieljaffe tasks/v2/train/train.sh   # freeze policy A (none)
 # =====================================================================
 
 #SBATCH --job-name=fmri-v2
@@ -82,14 +80,6 @@ fi
 # proportional sampler caps batch_size_per_gpu at sum(quota)=16 (must divide 16).
 [ -n "${BATCH_PER_GPU:-}" ] && EXTRA="$EXTRA train.batch_size_per_gpu=${BATCH_PER_GPU}"
 [ -n "${GRAD_ACCUM:-}" ]    && EXTRA="$EXTRA optim.grad_accum_steps=${GRAD_ACCUM}"
-# FOURIER=1 -> Fourier spatial positional encoding instead of the learned table.
-# NOBLOCK2=1 / POOL=1 -> the point-2 architecture ablations, ONE factor each vs base:
-#   NOBLOCK2 = drop block_2 ; POOL = all downsampling by AvgPool (spatial+temporal).
-# (legacy comment) drop block_2 /
-# temporal AvgPool instead of strided conv). Pair each with a distinct RUN_NAME.
-[ "${FOURIER:-0}" = "1" ]   && EXTRA="$EXTRA student.fmri_fourier_pos=true"
-[ "${NOBLOCK2:-0}" = "1" ]  && EXTRA="$EXTRA student.fmri_remove_block2=true"
-[ "${POOL:-0}" = "1" ]      && EXTRA="$EXTRA student.fmri_pool_downsample=true"
 # UNFROZEN=1 -> freeze policy A (none): ALL transformer layers train during SSL
 # (vs base's policy B which freezes blocks 0-8). Same DINOv2 init start.
 [ "${UNFROZEN:-0}" = "1" ]  && EXTRA="$EXTRA optim.freeze_pretrained=none"

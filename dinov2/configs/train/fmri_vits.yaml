@@ -46,12 +46,8 @@ student:
   fmri_temporal_size: 270             # T_fixed window (= 194.4 s @ TR 0.72 s) shared by all 5 datasets
   fmri_temporal_kernel: 10            # T_eff = 270 / 10 = 27 temporal tokens per crop (even kernel: 270->135->27)
   # Token grid: T_eff * N_spatial = 27 * 150 = 4050 tokens.
-  # Factorised pos params: (27 + 150 + 1) * 384 = 68 352.
-  fmri_fourier_pos: false             # spatial pos: false=learned table (baseline), true=Fourier features (ablation)
-  fmri_fourier_num_freqs: 32
-  fmri_fourier_sigma: 10.0
-  fmri_remove_block2: false           # point 2: true drops the final ResBlock (~83% of patchify params)
-  fmri_pool_downsample: false         # point 2: true = ALL downsampling (spatial+temporal) by AvgPool instead of strided conv
+  # Factorised (learned) pos params: (27 + 150 + 1) * 384 = 68 352.
+  # Downsampling is always AvgPool on stride-1 convs (spatial and temporal).
 
 teacher:
   momentum_teacher: 0.992

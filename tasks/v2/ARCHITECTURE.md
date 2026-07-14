@@ -61,10 +61,10 @@ probe); AOMIC is kept whole.
 **Optimization.** base_lr 3e-4, warmup 0.3 ep, **10 epochs**, patch_embed_lr_mult
 0.2, effective batch 16 (micro-batch 2 × grad_accum 8).
 
-**The 5 ablation runs** (one factor each vs base):
-`base` (reference) · `fourier` (Fourier positional encoding) · `noblock2` (drop a
-patchify block) · `pool` (AvgPool downsampling vs strided conv) · `unfrozen` (all
-transformer layers trainable during SSL).
+**Architecture is now fixed** (learned factorised pos, block_2 always present, AvgPool
+downsampling); the earlier `fourier` / `noblock2` / `pool` patchify ablations were
+removed. Remaining run knob: `unfrozen` (all transformer layers trainable during SSL,
+vs base's freeze policy B).
 
 ---
 
