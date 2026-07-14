@@ -358,14 +358,6 @@ class SSLMetaArch(nn.Module):
             # accumulate loss
             loss_accumulator += self.ibot_loss_weight * ibot_patch_loss
 
-        # FMRI diagnostic: variance of the encoder outputs across the batch. If the
-        # backbone produces near-identical tokens for every input (std ~0), the SSL
-        # objective cannot separate samples and the loss floors even though gradients
-        # flow. Stored on self (NOT in loss_dict, which is SUMMED into total_loss).
-        self.last_diagnostics = {"cls_std": float(student_global_cls_tokens.detach().float().std())}
-        if do_ibot:
-            self.last_diagnostics["patch_std"] = float(ibot_student_patch_tokens.detach().float().std())
-
         # FMRI CHANGE: divide loss by loss_scale before backward. With grad
         # accumulation over N micro-steps, each backward contributes 1/N of the
         # per-step gradient; summed over N steps this matches one full-batch
