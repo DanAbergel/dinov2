@@ -467,6 +467,9 @@ def do_train(cfg, model, resume=False):
         # gradients actually reach the encoder). Empty on grad-accum micro-steps.
         if gnorms:
             metric_logger.update(**gnorms)
+        # FMRI diagnostic: encoder output std (cls_std / patch_std). ~0 => the backbone
+        # returns near-identical tokens for every input => the loss cannot drop.
+        metric_logger.update(**getattr(model, "last_diagnostics", {}))
 
         # checkpointing and testing
 
