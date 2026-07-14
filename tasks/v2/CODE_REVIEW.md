@@ -230,33 +230,63 @@ Each item = **What** / **Why** (vs official) / **Where** (`file : symbol`).
 
 ## Phase 7 — DINO architecture / SSL training
 
-**7.1 · Freeze policy (partial fine-tune)** 🟠 `dinov2/train/train.py`
-- **What**: freeze part of the ImageNet-init transformer during SSL —
-  `fmri_only` (train only patch_embed), `fmri_plus_last_3` (patch_embed + blocks 9–11 + norm),
-  or none.
-- **Why**: transfer from ImageNet while adapting the fMRI-specific parts; the freeze
-  ablations (base vs unfrozen).
-- **Where**: `apply_freeze_policy` L130 (`fmri_only` L158, `fmri_plus_last_3` L160),
-  applied at L221.
+**7.1 · `apply_freeze_policy` (partial fine-tune)** 🟠 `dinov2/train/train.py`
+- **What the function does**: the transformer is initialised from DINOv2's ImageNet weights;
+  `patch_embed` is new/random. This function optionally freezes part of the backbone during SSL:
+  | mode | trainable in the backbone |
+  |---|---|
+  | `none` | everything (= official) |
+  | `fmri_only` | only `patch_embed.*` |
+  | `fmri_plus_last_3` | `patch_embed.*` + `blocks.9/10/11` + `norm.` |
+  It loops over `backbone.named_parameters()`, strips the `_fsdp_wrapped_module.` prefix (FSDP
+  wraps names) to match the logical module path, and sets `p.requires_grad_(trainable)`.
+- **Why**: transfer from ImageNet while adapting the fMRI-specific parts (freeze ablation, Ariel).
+  Only the BACKBONE is frozen — the DINO/iBOT heads are random-init and MUST stay trainable.
+- **Where**: `apply_freeze_policy` (new function), called once in `do_train` before the loop.
 
 **7.2 · Augmentation selection** 🟠 `dinov2/train/train.py`
-- **What**: pick `FullVolumeViews3D` when `fmri_augmentation` is set (else the
-  official DINO augmentation).
-- **Where**: `do_train` augmentation branch (~L294) · import L20.
+- **What the code does**: adds a third branch to `do_train`'s augmentation choice, symmetric to
+  the official ones: `elif getattr(cfg.train, "fmri_augmentation", False): data_transform =
+  FullVolumeViews3D(cfg.crops.local_crops_number)`. `getattr(..., False)` is defensive — our key
+  is optional, so configs without it fall through to the official augmentation (no crash).
+- **Where**: `do_train` (fMRI augmentation branch) · import of `FullVolumeViews3D`.
 
-**7.3 · Loss scaling for gradient accumulation** 🟠 `dinov2/train/ssl_meta_arch.py`
-- **What**: divide the accumulated loss by `loss_scale` before `backward`, and guard a
-  CUDA `_streams` access.
-- **Why**: micro-batch 2 × grad-accum 8 = effective 16 needs correct loss averaging.
-- **Where**: `loss_scale` L133, L347 · `_streams` guard L361.
+**7.3 · Gradient accumulation (large effective batch on a small GPU)** 🟠 `train.py` + `ssl_meta_arch.py`
+- **What it does**: process `N = grad_accum_steps` micro-batches (size 2), accumulate their
+  gradients, then take ONE optimizer step → effective batch `2 × N = 16`. Three pieces:
+  - `do_train` guard: `zero_grad` only at the start of a cycle (`iteration % N == 0`), so
+    gradients accumulate; `optimizer_step_and_ema` only at the end (`(iteration+1) % N == 0`).
+  - `forward_backward(..., loss_scale=N)` divides the loss by `N` before backward
+    (`backprop_loss(loss / loss_scale)`), so the sum of N backwards = the AVERAGE gradient
+    (what one batch of 16 would give), not N× too big.
+  - `optimizer_step_and_ema` (extracted so the guard stays readable): the official step body —
+    **(1)** `unscale_` the fp16 gradients (undo the GradScaler's loss-scaling), **(2)**
+    `clip_grad_norm_` to 3.0 (anti-explosion), **(3)** `optimizer.step()` updates the STUDENT
+    (the scaler skips the step on inf/nan overflow), **(4)** `update_teacher(mom)` sets the
+    TEACHER = EMA of the student (`teacher = mom·teacher + (1−mom)·student`).
+  - `_streams` guard in `fsdp_synchronize_streams`: `hasattr` around an FSDP internal removed in
+    newer PyTorch.
+- **Why**: DINO benefits from a large effective batch; grad-accum buys it on limited GPU memory
+  (trade N forwards for memory). With `N=1` (official default) it reduces to the official loop.
+- **Where**: `do_train` (grad-accum guard) · `optimizer_step_and_ema` (new fn) ·
+  `SSLMetaArch.forward_backward` (`loss_scale`) · `fsdp_synchronize_streams` (`_streams` guard).
 
-**7.4 · Effective batch size with grad-accum** 🟠 `dinov2/utils/config.py`
-- **What**: include `grad_accum_steps` in the effective batch used for LR scaling.
-- **Where**: L24.
+**7.4 · Effective batch in the LR scaling** 🟠 `dinov2/utils/config.py`
+- **What it does**: DINOv2 computes the LR from the effective batch via `sqrt_wrt_1024`
+  (`lr = base_lr × sqrt(eff_batch / 1024)`). Official `eff_batch = batch_size_per_gpu ×
+  world_size`; we multiply in `grad_accum_steps` too, so `eff_batch = 2 × 1 × 8 = 16` — the LR
+  is scaled for the TRUE batch (16), not the micro-batch (2).
+- **Why**: without this the LR would be ~3× too small (`sqrt(2/1024)` vs `sqrt(16/1024)`).
+- **Where**: `apply_scaling_rules_to_cfg`.
 
 **7.5 · The training config** 🔵 `dinov2/configs/train/fmri_vits.yaml`
-- **What**: all the fMRI knobs — `fmri_mode`, `fmri_img_size [45,54,45]`, `patch_size 9`,
-  `fmri_temporal_size 270`, `fmri_temporal_kernel 10`, `proportional_sampler`,
-  `fmri_masking_only`, `freeze_pretrained`, LR/epochs.
-- **Why**: one config drives the whole fMRI pipeline; the ablations are one-line overrides.
+- **What it is**: one file driving the whole fMRI pipeline — `fmri_mode`, `fmri_img_size
+  [45,54,45]`, `patch_size 9`, `fmri_temporal_size 270`, `fmri_temporal_kernel 10`,
+  `proportional_sampler`, `fmri_masking_only`, `freeze_pretrained`, `grad_accum_steps`, LR/epochs,
+  dino/ibot heads (4096 prototypes), teacher-temp schedule.
+- **Why**: keeps every fMRI knob declarative; run variants are one-line overrides.
 - **Where**: whole file.
+
+> **Known limitation (see `tasks/v3/FINDINGS.md`):** Phase 5's masking-only design (all views =
+> the same full volume) leaves DINO/iBOT with no augmentation gap, so the SSL loss does not
+> descend. Not a bug — the fix is to restore a real view gap (temporal-window crops / 3D aug).
