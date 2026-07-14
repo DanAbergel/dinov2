@@ -217,21 +217,26 @@ def optimizer_step_and_ema(model, optimizer, fp16_scaler, clip_grad, mom):
     FMRI CHANGE: this used to be inline in do_train. Pulling it out keeps the
     gradient-accumulation guard in do_train a clean two-liner (zero at the
     start of an N-cycle, this step at the end). The logic itself is unchanged
-    from upstream.
+    from upstream, EXCEPT we capture the per-submodule grad norm that
+    clip_grad_norm_ already computes (previously discarded) and return it, so
+    do_train can log gnorm_backbone / gnorm_*_head — a near-free check that
+    gradients actually reach the encoder.
     """
+    gnorms = {}
     if fp16_scaler is not None:
         if clip_grad:
             fp16_scaler.unscale_(optimizer)
-            for v in model.student.values():
-                v.clip_grad_norm_(clip_grad)
+            for k, v in model.student.items():
+                gnorms[f"gnorm_{k}"] = float(v.clip_grad_norm_(clip_grad))
         fp16_scaler.step(optimizer)
         fp16_scaler.update()
     else:
         if clip_grad:
-            for v in model.student.values():
-                v.clip_grad_norm_(clip_grad)
+            for k, v in model.student.items():
+                gnorms[f"gnorm_{k}"] = float(v.clip_grad_norm_(clip_grad))
         optimizer.step()
     model.update_teacher(mom)
+    return gnorms
 # └── end FMRI ADDITION: optimizer_step_and_ema ───────────────────────────────┘
 
 
@@ -433,8 +438,9 @@ def do_train(cfg, model, resume=False):
         loss_dict = model.forward_backward(
             data, teacher_temp=teacher_temp, loss_scale=float(grad_accum_steps),
         )
+        gnorms = {}
         if (iteration + 1) % grad_accum_steps == 0:
-            optimizer_step_and_ema(
+            gnorms = optimizer_step_and_ema(
                 model, optimizer, fp16_scaler, cfg.optim.clip_grad, mom,
             )
         # └── end FMRI ADDITION: grad-accumulation step/EMA ───────────────────────────┘
@@ -457,6 +463,10 @@ def do_train(cfg, model, resume=False):
         metric_logger.update(last_layer_lr=last_layer_lr)
         metric_logger.update(current_batch_size=current_batch_size)
         metric_logger.update(total_loss=losses_reduced, **loss_dict_reduced)
+        # FMRI diagnostic: per-submodule grad norms (gnorm_backbone tells us whether
+        # gradients actually reach the encoder). Empty on grad-accum micro-steps.
+        if gnorms:
+            metric_logger.update(**gnorms)
 
         # checkpointing and testing
 
