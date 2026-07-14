@@ -41,12 +41,20 @@ official file**. Each item = **What** / **Why** (vs official) / **Where** (`file
 - **Where**: `MixedFMRIDataset` L209.
 
 **1.5 · Per-batch dataset quota (proportional sampling)** 🟢 + 🟠
-- **What**: every batch has a fixed composition — HCP 4 / ABIDE 4 / OASIS 4 / ADNI 3 /
-  AOMIC 1 = 16 — instead of uniform sampling.
-- **Why**: the sources differ hugely in size; without a quota HCP dominates the batch.
-- **Where**: `data/samplers.py : ProportionalInfiniteSampler` L232 🟢 (the actual sampler —
-  INFINITE / iteration-based, as DINOv2's loop needs) · `data/loaders.py` L84 (`name=="Mixed"`),
-  L34/L137 (`SamplerType.PROPORTIONAL`) 🟠. `MixedFMRIDataset` only exposes `dataset_indices`.
+- **What**: an INFINITE index stream whose every consecutive `batch_size` block has a fixed
+  composition — HCP 4 / ABIDE 4 / OASIS 4 / ADNI 3 / AOMIC 1 = 16 — instead of uniform sampling.
+- **Why**: the sources differ hugely in size; without a quota HCP dominates every batch and
+  AOMIC is almost never seen.
+- **How** (reviewed): modelled on the official `InfiniteSampler` — same skeleton (`__iter__` =
+  `islice(_iterator(), advance)` for checkpoint resume, infinite `while True`, `seed`/`advance`/
+  `rank` args). The ONLY change: it emits quota-blocks (draw `q` from each dataset's shuffled
+  pool; a small pool that runs out is reshuffled + cycled) instead of a flat permutation, and it
+  does NOT `[start::step]`-stride — each DDP rank seeds its OWN full stream (via `rank`). Contract:
+  the loader `batch_size` must divide `sum(quota)` so a micro-batch aligns with a quota block.
+- **Cleanup**: dropped the dead `world_size` param (assigned, never read — we don't stride).
+- **Where**: `data/samplers.py : ProportionalInfiniteSampler` 🟢 · `data/loaders.py`
+  (`name=="Mixed"`, `SamplerType.PROPORTIONAL`, block-size validation) 🟠. `MixedFMRIDataset`
+  only exposes `dataset_indices`.
 
 ---
 
