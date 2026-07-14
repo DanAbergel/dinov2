@@ -5,7 +5,7 @@
 
 # =============================================================================
 # FMRI PROJECT CHANGES (upstream DINOv2 file, modified for our fMRI pipeline)
-#   + ProportionalInfiniteSampler  (L242-338, framed below): an INFINITE, iteration-
+#   + ProportionalInfiniteSampler  (L241-339, framed below): an INFINITE, iteration-
 #     based sampler whose every batch_size-block has a fixed per-dataset quota
 #     (HCP4/ABIDE4/OASIS4/ADNI3/AOMIC1 = 16). Selected via SamplerType.PROPORTIONAL
 #     in loaders.py; needs a dataset exposing dataset_indices (MixedFMRIDataset).

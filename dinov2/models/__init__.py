@@ -8,7 +8,7 @@
 #   + embed_layer plumbing in build_model  (L25, L43-57, framed below):
 #     forward an optional `embed_layer` through vit_kwargs so the ViT can use a
 #     custom patch embedding (PatchEmbed3DPlus1D) without forking the ViT factory.
-#   + fMRI branch in build_model_from_cfg  (L71-102, framed below): when
+#   + fMRI branch in build_model_from_cfg  (L71-97, framed below): when
 #     cfg.student.fmri_mode is set, build the PatchEmbed3DPlus1D partial and pass
 #     it plus the 3D fmri_img_size through, keeping fMRI plumbing in the config.
 #   Everything else in this file is unchanged upstream DINOv2.
