@@ -69,7 +69,10 @@ export PYTHONPATH="$REPO_DIR:${PYTHONPATH:-}"
 
 EXTRA=""
 if [ "${SMOKE:-0}" = "1" ]; then
-    EXTRA="optim.epochs=1 train.OFFICIAL_EPOCH_LENGTH=10"
+    # Tiny run (10 iters). warmup MUST shrink too, else warmup_iters > total_iters
+    # makes CosineScheduler assert (len(schedule) != total_iters). So drop warmup
+    # to 0 and set teacher-temp warmup to 1 epoch (=10 iters = total), no last-layer freeze.
+    EXTRA="optim.epochs=1 train.OFFICIAL_EPOCH_LENGTH=10 optim.warmup_epochs=0 teacher.warmup_teacher_temp_epochs=1 optim.freeze_last_layer_epochs=0"
 fi
 [ -n "${OVERRIDES:-}" ] && EXTRA="$EXTRA ${OVERRIDES}"
 
