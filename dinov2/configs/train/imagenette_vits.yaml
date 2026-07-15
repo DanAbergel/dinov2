@@ -1,0 +1,27 @@
+# Imagenette image control run (ViT-S) on official DINOv2.
+# Only official ssl_default_config keys are set; no fMRI/cell keys ->
+#   * no `fmri_mode`               -> standard 2D ViT + PatchEmbed (Conv2d)
+#   * cell_augmentation off (default) -> DataAugmentationDINO (real multi-crop)
+#   * sampler -> SamplerType.SHARDED_INFINITE (official default in train.py)
+# `dataset_path` is overridden on the command line by the job script.
+train:
+  dataset_path: ImageFolder:root=/tmp/imagenette/train   # overridden by the job script
+  batch_size_per_gpu: 64
+  num_workers: 8
+  OFFICIAL_EPOCH_LENGTH: 150      # ~9469 imgs / 64 ≈ 148 iters ≈ 1 pass over Imagenette
+student:
+  arch: vit_small
+  patch_size: 16
+  block_chunks: 4
+  drop_path_rate: 0.1
+teacher:
+  warmup_teacher_temp_epochs: 5
+optim:
+  epochs: 50
+  warmup_epochs: 5
+  base_lr: 0.004
+  freeze_last_layer_epochs: 1
+crops:
+  local_crops_number: 8
+evaluation:
+  eval_period_iterations: 0       # no eval/probe: pure loss inspection
