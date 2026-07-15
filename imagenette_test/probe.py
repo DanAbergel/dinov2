@@ -33,7 +33,7 @@ from torch.utils.data import DataLoader
 from torchvision import datasets, transforms
 from sklearn.linear_model import LogisticRegression
 from sklearn.preprocessing import StandardScaler
-from sklearn.metrics import accuracy_score
+from sklearn.metrics import accuracy_score, f1_score, classification_report, balanced_accuracy_score
 
 from dinov2.train.train import get_args_parser
 from dinov2.utils.config import setup
@@ -95,13 +95,32 @@ def main():
     clf.fit(scaler.transform(Xtr), ytr)
     pred = clf.predict(scaler.transform(Xva))
     acc = accuracy_score(yva, pred)
-
+    bal_acc = balanced_accuracy_score(yva, pred)
+    f1_macro = f1_score(yva, pred, average="macro")
+    f1_weighted = f1_score(yva, pred, average="weighted")
     n_classes = len(np.unique(ytr))
+
+    # human-readable Imagenette class names (ImageFolder sorts classes alphabetically,
+    # same order as sorted wnids), fall back to the wnid/index otherwise.
+    import os
+    wnid_names = {
+        "n01440764": "tench", "n02102040": "English springer", "n02979186": "cassette player",
+        "n03000684": "chain saw", "n03028079": "church", "n03394916": "French horn",
+        "n03417042": "garbage truck", "n03425413": "gas pump", "n03445777": "golf ball",
+        "n03888257": "parachute",
+    }
+    val_classes = sorted(os.listdir(args.val_root))
+    target_names = [wnid_names.get(w, w) for w in val_classes]
+
     print("\n==================== LINEAR PROBE ====================")
-    print(f"  classes           : {n_classes}")
-    print(f"  chance accuracy   : {100.0 / n_classes:.2f}%")
-    print(f"  val top-1 accuracy: {acc * 100:.2f}%")
+    print(f"  classes            : {n_classes}   (chance = {100.0 / n_classes:.2f}%)")
+    print(f"  val top-1 accuracy : {acc * 100:.2f}%")
+    print(f"  balanced accuracy  : {bal_acc * 100:.2f}%")
+    print(f"  F1 macro           : {f1_macro * 100:.2f}%")
+    print(f"  F1 weighted        : {f1_weighted * 100:.2f}%")
     print("  => LEARNS" if acc > 2.0 / n_classes else "  => at/near chance (NOT learning)")
+    print("\n  per-class precision / recall / F1:")
+    print(classification_report(yva, pred, target_names=target_names, digits=3))
     print("======================================================")
 
 
