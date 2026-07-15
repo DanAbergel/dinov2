@@ -8,9 +8,7 @@ from pathlib import Path
 from typing import Optional, Union
 from urllib.parse import urlparse
 
-import torch
-
-from .utils import _DINOV2_BASE_URL, _make_dinov2_model_name
+from .utils import _DINOV2_BASE_URL, _make_dinov2_model_name, _safe_load_state_dict_from_url
 
 
 class Weights(Enum):
@@ -73,7 +71,7 @@ def _make_dinov2_model(
             url = _DINOV2_BASE_URL + f"/{model_base_name}/{model_full_name}_pretrain.pth"
         else:
             url = convert_path_or_url_to_url(weights)
-        state_dict = torch.hub.load_state_dict_from_url(url, map_location="cpu", check_hash=check_hash)
+        state_dict = _safe_load_state_dict_from_url(url, map_location="cpu", check_hash=check_hash)
         model.load_state_dict(state_dict, strict=True)
 
     return model

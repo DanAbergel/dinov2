@@ -3,55 +3,9 @@
 # This source code is licensed under the Apache License, Version 2.0
 # found in the LICENSE file in the root directory of this source tree.
 
-# =============================================================================
-# FMRI PROJECT CHANGES (upstream DINOv2 file, modified for our fMRI pipeline)
-#   + RandomTokenMaskingGenerator  (L20-54, framed below): MAE-style per-token
-#     random masking on the token grid instead of BeiT contiguous blocks, because
-#     the flattened (T_eff, N_spatial) fMRI token order ignores 3D anatomical
-#     neighbourhoods (meeting 2026-06-14, §2). Drop-in for MaskingGenerator.
-#   Everything else in this file is unchanged upstream DINOv2.
-# =============================================================================
-
 import random
 import math
 import numpy as np
-
-
-# ┌───────────────────────────────────────────────────────────────────────────┐
-# │ FMRI ADDITION — not in upstream DINOv2.                                     │
-# │ Per-token (MAE-style) random masking; drop-in for MaskingGenerator.         │
-# └───────────────────────────────────────────────────────────────────────────┘
-class RandomTokenMaskingGenerator:
-    """Per-token (MAE-style) random masking on a (height, width) token grid.
-
-    ``num_masking_patches`` tokens are masked INDEPENDENTLY at random, instead of
-    BeiT's spatially-contiguous blocks. For fMRI the flattened (T_eff, N_spatial)
-    token order does not respect 3D anatomical neighbourhoods, so BeiT block
-    masking is spatially incoherent; per-token random masking avoids that
-    (meeting 2026-06-14, §2). Drop-in for MaskingGenerator: same
-    ``__call__(num) -> (H, W) bool ndarray`` and ``get_shape()``.
-    """
-
-    def __init__(self, input_size, **_ignored):
-        if not isinstance(input_size, tuple):
-            input_size = (input_size,) * 2
-        self.height, self.width = input_size
-        self.num_patches = self.height * self.width
-
-    def __repr__(self):
-        return f"RandomTokenMaskingGenerator({self.height}, {self.width})"
-
-    def get_shape(self):
-        return self.height, self.width
-
-    def __call__(self, num_masking_patches=0):
-        mask = np.zeros(self.num_patches, dtype=bool)
-        num = min(int(num_masking_patches), self.num_patches)
-        if num > 0:
-            idx = np.random.choice(self.num_patches, size=num, replace=False)
-            mask[idx] = True
-        return mask.reshape(self.height, self.width)
-# └── end FMRI ADDITION: RandomTokenMaskingGenerator ──────────────────────────┘
 
 
 class MaskingGenerator:

@@ -8,6 +8,8 @@ from typing import Optional, Union
 
 import torch
 
+from ..utils import _safe_load_state_dict_from_url
+
 
 class Weights(Enum):
     CELL_DINO = "CELL-DINO"
@@ -57,8 +59,8 @@ def _make_cell_dino_model(
         if pretrained_path is not None:
             state_dict = torch.load(pretrained_path, map_location="cpu")
         else:
-            pretrained_url is not None
-            state_dict = torch.hub.load_state_dict_from_url(pretrained_url, map_location="cpu")
+            assert pretrained_url is not None
+            state_dict = _safe_load_state_dict_from_url(pretrained_url, map_location="cpu")
         model.load_state_dict(state_dict, strict=True)
 
     return model

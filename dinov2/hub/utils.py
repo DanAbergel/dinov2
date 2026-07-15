@@ -14,6 +14,15 @@ import torch.nn.functional as F
 _DINOV2_BASE_URL = "https://dl.fbaipublicfiles.com/dinov2"
 
 
+def _safe_load_state_dict_from_url(url: str, **kwargs):
+    # See https://github.com/pytorch/pytorch/releases/tag/v2.1.0 (Misc / #98479)
+    if torch.__version__ >= (2, 1):
+        local_kwargs = {**kwargs, "weights_only": True}
+    else:
+        local_kwargs = kwargs
+    return torch.hub.load_state_dict_from_url(url, **local_kwargs)
+
+
 def _make_dinov2_model_name(arch_name: str, patch_size: int, num_register_tokens: int = 0) -> str:
     compact_arch_name = arch_name.replace("_", "")[:4]
     registers_suffix = f"_reg{num_register_tokens}" if num_register_tokens else ""

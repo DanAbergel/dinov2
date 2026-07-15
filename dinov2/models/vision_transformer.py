@@ -7,16 +7,6 @@
 #   https://github.com/facebookresearch/dino/blob/main/vision_transformer.py
 #   https://github.com/rwightman/pytorch-image-models/tree/master/timm/models/vision_transformer.py
 
-# =============================================================================
-# FMRI PROJECT CHANGES (upstream DINOv2 file, modified for our fMRI pipeline)
-#   + 6D input branch in prepare_tokens_with_masks  (L227-264, framed below):
-#     early-return path for 6D fMRI input (B, T, C, X, Y, Z) that uses a
-#     factorised pos embedding (pos_temporal + pos_spatial + pos_cls, carried
-#     by PatchEmbed3DPlus1D) instead of the flat 4D `self.pos_embed`. The
-#     original 4D (B, C, H, W) path below is unchanged.
-#   Everything else in this file is unchanged upstream DINOv2.
-# =============================================================================
-
 from functools import partial
 import math
 import logging
@@ -224,45 +214,6 @@ class DinoVisionTransformer(nn.Module):
         return torch.cat((class_pos_embed.unsqueeze(0), patch_pos_embed), dim=1).to(previous_dtype)
 
     def prepare_tokens_with_masks(self, x, masks=None):
-        # ┌───────────────────────────────────────────────────────────────────────────┐
-        # │ FMRI ADDITION — not in upstream DINOv2.                                     │
-        # │ 6D-input early-return branch: factorised pos embed for fMRI volumes.        │
-        # └───────────────────────────────────────────────────────────────────────────┘
-        # FMRI CHANGE: early-return branch for 6D input (B, T, C, X, Y, Z).
-        # OFFICIAL (kept below, untouched): handles 4D input (B, C, H, W)
-        # and adds `self.pos_embed` flat to (CLS + patches), with optional
-        # 2D-bicubic interpolation. WHY THIS BRANCH: fMRI volumes are 6D,
-        # the (T_eff, N_spatial) token grid is fixed, AND we use a factorised
-        # pos embedding (pos_temporal + pos_spatial + pos_cls, carried by
-        # PatchEmbed3DPlus1D) instead of the flat `self.pos_embed`. The
-        # factorised form keeps params at O(T_eff + N_spatial) instead of
-        # O(T_eff * N_spatial), matching FAIR/src/dino/models.py:328-340.
-        # `self.pos_embed` is still allocated by the parent __init__ (we
-        # don't fork it) but is unused on this branch — it's effectively
-        # dead weight in fMRI mode.
-        if x.ndim == 6:
-            x = self.patch_embed(x)                                  # (B, T_eff*N_spatial, D)
-            if masks is not None:
-                # Mask BEFORE pos, as in the official 4D path L219.
-                x = torch.where(masks.unsqueeze(-1), self.mask_token.to(x.dtype).unsqueeze(0), x)
-            # Factorised patch pos (carried by PatchEmbed3DPlus1D.pos).
-            x = x + self.patch_embed.pos.combined_patch_pos()
-            # Prepend CLS (with its own pos), then insert register tokens
-            # afterwards (registers get no pos, same convention as official).
-            cls = self.cls_token.expand(x.shape[0], -1, -1) + self.patch_embed.pos.pos_cls
-            x = torch.cat((cls, x), dim=1)
-            if self.register_tokens is not None:
-                x = torch.cat(
-                    (
-                        x[:, :1],
-                        self.register_tokens.expand(x.shape[0], -1, -1),
-                        x[:, 1:],
-                    ),
-                    dim=1,
-                )
-            return x
-        # └── end FMRI ADDITION: 6D-input branch ──────────────────────────────────────┘
-
         B, nc, w, h = x.shape
         x = self.patch_embed(x)
         if masks is not None:

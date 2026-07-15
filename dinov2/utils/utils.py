@@ -19,7 +19,11 @@ logger = logging.getLogger("dinov2")
 
 def load_pretrained_weights(model, pretrained_weights, checkpoint_key):
     if urlparse(pretrained_weights).scheme:  # If it looks like an URL
-        state_dict = torch.hub.load_state_dict_from_url(pretrained_weights, map_location="cpu")
+        kwargs = {}
+        # See https://github.com/pytorch/pytorch/releases/tag/v2.1.0 (Misc / #98479)
+        if torch.__version__ >= (2, 1):
+            kwargs["weights_only"] = True
+        state_dict = torch.hub.load_state_dict_from_url(pretrained_weights, map_location="cpu", **kwargs)
     else:
         state_dict = torch.load(pretrained_weights, map_location="cpu")
     if checkpoint_key is not None and checkpoint_key in state_dict:

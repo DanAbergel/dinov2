@@ -7,11 +7,9 @@ from enum import Enum
 from functools import partial
 from typing import Optional, Tuple, Union
 
-import torch
-
 from .backbones import _make_dinov2_model
 from .depth import BNHead, DepthEncoderDecoder, DPTHead
-from .utils import _DINOV2_BASE_URL, _make_dinov2_model_name, CenterPadding
+from .utils import _DINOV2_BASE_URL, _make_dinov2_model_name, _safe_load_state_dict_from_url, CenterPadding
 
 
 class Weights(Enum):
@@ -132,7 +130,7 @@ def _make_dinov2_linear_depther(
         layers_str = str(layers) if layers == 4 else ""
         weights_str = weights.value.lower()
         url = _DINOV2_BASE_URL + f"/{model_name}/{model_name}_{weights_str}_linear{layers_str}_head.pth"
-        checkpoint = torch.hub.load_state_dict_from_url(url, map_location="cpu")
+        checkpoint = _safe_load_state_dict_from_url(url, map_location="cpu")
         if "state_dict" in checkpoint:
             state_dict = checkpoint["state_dict"]
         model.load_state_dict(state_dict, strict=False)
@@ -220,7 +218,7 @@ def _make_dinov2_dpt_depther(
     if pretrained:
         weights_str = weights.value.lower()
         url = _DINOV2_BASE_URL + f"/{model_name}/{model_name}_{weights_str}_dpt_head.pth"
-        checkpoint = torch.hub.load_state_dict_from_url(url, map_location="cpu")
+        checkpoint = _safe_load_state_dict_from_url(url, map_location="cpu")
         if "state_dict" in checkpoint:
             state_dict = checkpoint["state_dict"]
         model.load_state_dict(state_dict, strict=False)

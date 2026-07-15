@@ -10,7 +10,7 @@ import torch
 import torch.nn as nn
 
 from .backbones import _make_dinov2_model
-from .utils import _DINOV2_BASE_URL, _make_dinov2_model_name
+from .utils import _DINOV2_BASE_URL, _make_dinov2_model_name, _safe_load_state_dict_from_url
 
 
 class Weights(Enum):
@@ -43,7 +43,7 @@ def _make_dinov2_linear_classification_head(
         model_full_name = _make_dinov2_model_name(arch_name, patch_size, num_register_tokens)
         layers_str = str(layers) if layers == 4 else ""
         url = _DINOV2_BASE_URL + f"/{model_base_name}/{model_full_name}_linear{layers_str}_head.pth"
-        state_dict = torch.hub.load_state_dict_from_url(url, map_location="cpu")
+        state_dict = _safe_load_state_dict_from_url(url, map_location="cpu")
         linear_head.load_state_dict(state_dict, strict=True)
 
     return linear_head

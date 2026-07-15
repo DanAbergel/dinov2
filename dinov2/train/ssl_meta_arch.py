@@ -3,20 +3,6 @@
 # This source code is licensed under the Apache License, Version 2.0
 # found in the LICENSE file in the root directory of this source tree.
 
-# =============================================================================
-# FMRI PROJECT CHANGES (upstream DINOv2 file, modified for our fMRI pipeline)
-#   + loss_scale arg on forward_backward  (L146-151): new `loss_scale` param
-#     that divides the accumulated loss before backward, so do_train's
-#     gradient-accumulation loop keeps gradient magnitude consistent with a
-#     single-step run. loss_scale=1.0 (default) is a no-op = upstream.
-#   + loss_scale divide before backprop_loss  (L361-366): applies loss_scale
-#     to loss_accumulator (loss_dict stays unscaled for printing).
-#   + _streams guard in fsdp_synchronize_streams  (L376-396, framed below):
-#     wrap the FSDP `_streams` sharing hack in a hasattr() guard so it is
-#     skipped on PyTorch >= ~2.3 where the attribute was removed.
-#   Everything else in this file is unchanged upstream DINOv2.
-# =============================================================================
-
 from functools import partial
 import logging
 
@@ -143,12 +129,7 @@ class SSLMetaArch(nn.Module):
         else:
             loss.backward()
 
-    def forward_backward(self, images, teacher_temp, loss_scale: float = 1.0):
-        # FMRI CHANGE: `loss_scale` divides the accumulated loss before
-        # backward. Used by do_train's gradient-accumulation loop to keep
-        # the gradient magnitude consistent with a single-step run when
-        # accumulating over `grad_accum_steps` micro-batches.
-        # `loss_scale=1.0` is the official behaviour (a no-op).
+    def forward_backward(self, images, teacher_temp):
         n_global_crops = 2
         assert n_global_crops == 2
         n_local_crops = self.cfg.crops.local_crops_number
@@ -358,12 +339,7 @@ class SSLMetaArch(nn.Module):
             # accumulate loss
             loss_accumulator += self.ibot_loss_weight * ibot_patch_loss
 
-        # FMRI CHANGE: divide loss by loss_scale before backward. With grad
-        # accumulation over N micro-steps, each backward contributes 1/N of the
-        # per-step gradient; summed over N steps this matches one full-batch
-        # step. loss_scale=1.0 (default) is a no-op. loss_dict stays unscaled
-        # so printed losses match a single-step run.
-        self.backprop_loss(loss_accumulator / loss_scale)
+        self.backprop_loss(loss_accumulator)
 
         self.fsdp_synchronize_streams()
 
@@ -372,28 +348,9 @@ class SSLMetaArch(nn.Module):
     def fsdp_synchronize_streams(self):
         if self.need_to_synchronize_fsdp_streams:
             torch.cuda.synchronize()
-            # ┌───────────────────────────────────────────────────────────────────────────┐
-            # │ FMRI ADDITION — not in upstream DINOv2.                                     │
-            # │ hasattr() guard around the FSDP `_streams` sharing hack (skipped on         │
-            # │ PyTorch >= ~2.3 where the attribute was removed).                           │
-            # └───────────────────────────────────────────────────────────────────────────┘
-            # FMRI CHANGE: guard `_streams` access. WHY: this workaround
-            # comes from FSDP's PyTorch-2.0 internals where each wrapped
-            # module exposed a `_streams` attribute. PyTorch >= ~2.3
-            # removed that public attribute (the API now manages streams
-            # internally), so this assignment raises AttributeError. The
-            # whole hack is a first-iteration one-shot to share streams
-            # between student/teacher backbones+heads; skipping it on
-            # newer PyTorch is safe — FSDP handles stream synchronization
-            # automatically. Original (kept for old torch versions):
-            #   self.student.dino_head._streams = (
-            #       self.teacher.dino_head._streams
-            #   ) = self.student.backbone._streams = self.teacher.backbone._streams
-            if hasattr(self.teacher.backbone, "_streams"):
-                self.student.dino_head._streams = (
-                    self.teacher.dino_head._streams
-                ) = self.student.backbone._streams = self.teacher.backbone._streams
-            # └── end FMRI ADDITION: _streams guard ───────────────────────────────────────┘
+            self.student.dino_head._streams = (
+                self.teacher.dino_head._streams
+            ) = self.student.backbone._streams = self.teacher.backbone._streams
             self.need_to_synchronize_fsdp_streams = False
 
     def update_teacher(self, m):
