@@ -16,6 +16,7 @@ Each block is shown as: the **actual code** · its **exact location** (path + li
 
 ## Phase 1 — Corpus construction
 
+<a id="a-corpus"></a>
 ### `fmri_const` constants block — corpus paths, TR tables, harmonization targets
 📁 `dinov2/data/fmri_const.py` · lines **10–51** · 🟢 new file
 
@@ -57,6 +58,7 @@ ADNI_TR = 3.0
 
 ---
 
+<a id="a-manifest"></a>
 ### `DATASET_SOURCES` — declarative per-dataset scan discovery table
 📁 `dinov2/data/fmri_offline.py` · lines **32–53** · 🟢 new file
 
@@ -265,6 +267,7 @@ def entries_from_manifest(manifest_path, datasets=CORPUS_DATASETS, min_upsampled
 
 ---
 
+<a id="a-dataset"></a>
 ### `MixedFMRIDataset.__init__` (and `__len__`) — minimal dataset constructor
 📁 `dinov2/data/fmri_data.py` · lines **310–320** (`__init__`), **353–354** (`__len__`) · 🟢 new file
 
@@ -359,6 +362,7 @@ def _discover(self, lab_root):
 
 ---
 
+<a id="a-sampler"></a>
 ### `ProportionalInfiniteSampler` — per-batch dataset-quota infinite sampler
 📁 `dinov2/data/samplers.py` · lines **245–339** · 🟠 modified official file (new class)
 
@@ -459,6 +463,7 @@ class ProportionalInfiniteSampler(Sampler):
 
 ## Phase 2 — Loading one sample
 
+<a id="a-load"></a>
 ### `MixedFMRIDataset.__getitem__` and `._load` — one scan → one model-ready window
 📁 `dinov2/data/fmri_data.py` · lines **385–411** · 🟢 new file
 
@@ -542,6 +547,7 @@ def _native_window(T, tr_native, t_fixed):
 
 ## Phase 3 — TR harmonization
 
+<a id="a-finalize"></a>
 ### `_finalize` (incl. `F.interpolate` spatial resize) — raw window → model-ready tensor
 📁 `dinov2/data/fmri_data.py` · lines **270–293** · 🟢 new file
 
@@ -571,6 +577,7 @@ def _finalize(clip, t_fixed):
 
 ---
 
+<a id="a-resample"></a>
 ### `_temporal_resample` — polyphase resample to 270 @ 0.72 s
 📁 `dinov2/data/fmri_data.py` · lines **238–267** · 🟢 new file
 
@@ -636,6 +643,7 @@ def _zscore_per_frame(scan):
 
 ## Phase 5 — Augmentation (masking-only)
 
+<a id="a-views"></a>
 ### `FullVolumeViews3D` — the fMRI "views" transform (`__init__` + `__call__`)
 📁 `dinov2/data/fmri_data.py` · lines **403–431** · 🟢 new file
 
@@ -679,6 +687,7 @@ class FullVolumeViews3D:
 
 ---
 
+<a id="a-masking"></a>
 ### `RandomTokenMaskingGenerator` — MAE-style per-token random masking
 📁 `dinov2/data/masking.py` · lines **24–54** · 🟠 modified official file (NEW class; upstream `MaskingGenerator` unchanged)
 
@@ -764,6 +773,7 @@ mask_generator((2, 3))(2)
 
 ## Phase 6 — Embedding: the 3D+1D patchify
 
+<a id="a-conv"></a>
 ### `Conv3Plus1d` — factorised 3D-spatial + 1D-temporal conv
 📁 `dinov2/layers/patch_embed_3d_plus_1d.py` · lines **30–66** · 🟢 new file
 
@@ -800,6 +810,7 @@ class Conv3Plus1d(nn.Module):
 
 ---
 
+<a id="a-patchify"></a>
 ### `_ResBlock3Plus1d` + `PatchEmbed3DPlus1D.__init__` + `_encoder_forward` — the hierarchical stack
 📁 `dinov2/layers/patch_embed_3d_plus_1d.py` · lines **69–83, 118–194, 212–251** · 🟢 new file
 
@@ -898,6 +909,7 @@ class _ResBlock3Plus1d(nn.Module):
 
 ---
 
+<a id="a-pos"></a>
 ### `PositionEmbedding3D` — factorised learned positional embedding, O(T+N) params
 📁 `dinov2/layers/patch_embed_3d_plus_1d.py` · lines **86–115** · 🟢 new file
 
@@ -932,6 +944,7 @@ class PositionEmbedding3D(nn.Module):
 
 ---
 
+<a id="a-buildmodel"></a>
 ### `build_model_from_cfg` fMRI branch + `build_model` embed_layer forwarding
 📁 `dinov2/models/__init__.py` · lines **25, 43–57, 70–97** · 🟠 modified official file
 
@@ -967,6 +980,7 @@ def build_model_from_cfg(cfg, only_teacher=False):
 
 ---
 
+<a id="a-vit6d"></a>
 ### `prepare_tokens_with_masks` 6D branch — masking + factorised pos + CLS/register tokens
 📁 `dinov2/models/vision_transformer.py` · lines **243–263** (branch within the method) · 🟠 modified official file
 
@@ -1002,6 +1016,7 @@ def build_model_from_cfg(cfg, only_teacher=False):
 
 ## Phase 7 — DINO / SSL training
 
+<a id="a-freeze"></a>
 ### `apply_freeze_policy` — partial-freeze ablation of the student backbone
 📁 `dinov2/train/train.py` · lines **156–205** (function) + **254** (call) · 🟠 modified official file
 
@@ -1048,6 +1063,7 @@ def apply_freeze_policy(model, freeze_mode):
 
 ---
 
+<a id="a-aug"></a>
 ### `elif getattr(cfg.train, "fmri_augmentation", False)` — fMRI augmentation-selection branch
 📁 `dinov2/train/train.py` · lines **331–335** (within the `if/elif/else` at 317–343) · 🟠 modified official file
 
@@ -1074,6 +1090,7 @@ def apply_freeze_policy(model, freeze_mode):
 
 ---
 
+<a id="a-gradaccum"></a>
 ### Gradient accumulation — cycle guard + `optimizer_step_and_ema` + `loss_scale` plumbing
 📁 `dinov2/train/train.py` · lines **410–440, 213–235** · 🟠 · and `dinov2/train/ssl_meta_arch.py` · lines **146–151, 361–366, 372–397** · 🟠
 
@@ -1124,6 +1141,7 @@ def optimizer_step_and_ema(model, optimizer, fp16_scaler, clip_grad, mom):
 
 ---
 
+<a id="a-lrscale"></a>
 ### `apply_scaling_rules_to_cfg` — grad-accum folded into effective batch for LR scaling
 📁 `dinov2/utils/config.py` · lines **30–50** · 🟠 modified official file
 
@@ -1155,6 +1173,7 @@ def apply_scaling_rules_to_cfg(cfg):
 
 ---
 
+<a id="a-config"></a>
 ### `fmri_vits.yaml` — fMRI training knobs
 📁 `dinov2/configs/train/fmri_vits.yaml` · lines **8–104** · 🔵 config
 
@@ -1201,6 +1220,7 @@ ibot: { loss_weight: 1.0, mask_sample_probability: 0.5, mask_ratio_min_max: [0.1
 
 ---
 
+<a id="a-schedulers"></a>
 ### `build_schedulers` — `int()` casts on the four scheduler `*_iters`
 📁 `dinov2/train/train.py` · lines **92–124** · 🟠 modified official file *(setup helper, runs before the loop)*
 
@@ -1223,3 +1243,104 @@ def build_schedulers(cfg):
 **Where & why it's used:**
 - **Called by** `do_train` (unpacks the five schedules); the schedules feed `CosineScheduler`, which internally uses `np.linspace(..., num=warmup_iters)`.
 - **Why:** the fMRI config uses fractional epochs (`warmup_epochs: 0.3`); `0.3 * 2300 = 690.0` is a float and `np.linspace` requires an integer `num` (a float raises `TypeError`). The `int()` casts truncate to a valid iteration count. With integer epochs they are no-ops, so upstream behavior is preserved.
+
+---
+
+## System overview — the whole DINOv2-adapted-to-fMRI pipeline
+
+One picture of everything, top to bottom: raw scans on disk → the tensor the ViT eats →
+tokens → the two SSL losses. **🟢 / 🟠 = our change** (numbered, click "→ details" in the
+legend to jump to the full block); unmarked boxes are **unchanged upstream DINOv2**.
+
+```
+╔══════════════════════════════════════════════════════════════════════════════╗
+║  🔵 CONFIG · fmri_vits.yaml  (⓪)   one file sets every knob in all 3 stages     ║
+╚══════════════════════════════════════════════════════════════════════════════╝
+
+┌── ① DATA · what the model eats ───────────────────────────────────────────────┐
+│                                                                                │
+│  ① Corpus constants 🟢  ──▶  ② Offline manifest 🟢  ──▶  ③ MixedFMRIDataset 🟢   │
+│     5 datasets + TRs           scan lengths once          5 sources as ONE     │
+│                                (offline, run once)        + subject holdout     │
+│                                                                   │            │
+│                                                                   ▼            │
+│  ④ ProportionalSampler 🟠  ──▶  every batch = HCP4 · ABIDE4 · OASIS4 · ADNI3 ·  │
+│     infinite, quota-balanced                              AOMIC1  = 16          │
+│                                                                   │            │
+│                        ┌─────────── for each sampled scan ────────┘            │
+│                        ▼                                                        │
+│  ⑤ _load 🟢  ──▶  ⑥ TR harmonize 🟢  ──▶  ⑦ resize + z-score 🟢  ──▶  a clean    │
+│     mmap +           polyphase resample      45×54×45, per-frame     tensor     │
+│     random window    → 270 @ 0.72 s          z-score           (270,1,45,54,45) │
+│                                                                   │            │
+│                                                                   ▼            │
+│  ⑧ FullVolumeViews3D 🟢  ──▶  2 global + N local views (all = the FULL volume)  │
+│  ⑨ RandomTokenMasking 🟠 ──▶  per-token random mask (applied in the collate)    │
+└────────────────────────────────────────────────────────────────────────────────┘
+                                        │
+                                        ▼
+┌── ② MODEL · volume → tokens → transformer ────────────────────────────────────┐
+│                                                                                │
+│  ⑩ Conv3Plus1d 🟢  ──▶  ⑪ PatchEmbed3DPlus1D 🟢  ──▶  4050 tokens (27 × 150)     │
+│     separable 4D          hierarchical 3D+1D stack       of dim 384             │
+│     (3D spatial+1D temp)  (conv → pool → resblock ×3)                           │
+│                                                                   │            │
+│  ⑫ PositionEmbedding3D 🟢  ──▶  factorised learned pos (+ pos_cls)   │           │
+│                                                                   ▼            │
+│  ⑬ ViT 6D branch 🟠  ──▶  [ CLS · registers · 4050 patches ]  → transformer     │
+│                            (mask → pos → CLS)                    blocks         │
+│                                                                                │
+│  ⑭ build_model_from_cfg 🟠  ──▶  injects ⑪ as the ViT's embed_layer (no fork)   │
+└────────────────────────────────────────────────────────────────────────────────┘
+                                        │
+                                        ▼
+┌── ③ TRAINING · DINO + iBOT self-supervision ──────────────────────────────────┐
+│                                                                                │
+│  ⑮ Freeze policy 🟠  ──▶  which backbone layers actually train                  │
+│  ⑯ Augmentation select 🟠  ──▶  picks ⑧ FullVolumeViews3D as the transform      │
+│                                                                                │
+│   ┌── STUDENT (masked global + local) ──┐        ┌── TEACHER = EMA(student) ──┐ │
+│   │   DINO loss  (CLS ↔ prototypes)      │ ◀────▶ │   provides the targets     │ │
+│   │   iBOT loss  (masked tokens)         │        │   (unchanged upstream)     │ │
+│   └──────────────────────────────────────┘        └────────────────────────────┘ │
+│                     │  every step: forward → backward                          │
+│                     ▼                                                           │
+│  ⑰ Grad accumulation 🟠  ──▶  effective batch 16 (2 × accum 8) on a small GPU   │
+│  ⑱ LR scaling 🟠  ──▶  LR = base × √(effective_batch / 1024)                    │
+│  ⑲ build_schedulers 🟠  ──▶  int()-safe cosine schedules (fractional warmup)    │
+└────────────────────────────────────────────────────────────────────────────────┘
+```
+
+### Legend — what each step does (🟢/🟠 = ours, click to jump)
+
+**🔵 Config**
+- **⓪ `fmri_vits.yaml`** — one file drives every knob (geometry, sampler, freeze, grad-accum, LR, DINO/iBOT heads). [→ details](#a-config)
+
+**① Data pipeline**
+- **① Corpus constants** 🟢 — declares the 5 datasets, their native TRs, and the harmonization targets (TR 0.72 s, window 270). [→ details](#a-corpus)
+- **② Offline manifest** 🟢 — walks the disk ONCE and records every scan's native length, so training-time filtering opens no file. [→ details](#a-manifest)
+- **③ MixedFMRIDataset** 🟢 — presents the 5 cohorts as one dataset and applies the leakage-free subject holdout. [→ details](#a-dataset)
+- **④ ProportionalInfiniteSampler** 🟠 — an infinite index stream where every batch has the fixed cohort quota (16). [→ details](#a-sampler)
+- **⑤ `_load`** 🟢 — memory-maps a scan and crops a random native temporal window (194.4 s). [→ details](#a-load)
+- **⑥ TR harmonize** 🟢 — polyphase (anti-aliased) resample of the window to exactly 270 frames @ 0.72 s. [→ details](#a-resample)
+- **⑦ resize + z-score** 🟢 — trilinear resize to 45×54×45, then per-frame spatial z-score → `(270,1,45,54,45)`. [→ details](#a-finalize)
+- **⑧ FullVolumeViews3D** 🟢 — builds the DINO views (2 global + N local), all the full volume (no crop). [→ details](#a-views)
+- **⑨ RandomTokenMasking** 🟠 — MAE-style per-token random mask over the flattened token grid (in the collate). [→ details](#a-masking)
+
+**② Model**
+- **⑩ Conv3Plus1d** 🟢 — the separable 4D conv (3D spatial + 1D temporal) used everywhere in the patchifier. [→ details](#a-conv)
+- **⑪ PatchEmbed3DPlus1D** 🟢 — hierarchical conv+AvgPool stack turning `(270,1,45,54,45)` into 4050 tokens of dim 384. [→ details](#a-patchify)
+- **⑫ PositionEmbedding3D** 🟢 — factorised learned positions (temporal + spatial + CLS), O(T+N) params. [→ details](#a-pos)
+- **⑬ ViT 6D branch** 🟠 — assembles `[CLS · registers · patches]` with masking + factorised pos for 6D input. [→ details](#a-vit6d)
+- **⑭ build_model_from_cfg** 🟠 — injects ⑪ as the ViT's `embed_layer` from the config, without forking the ViT. [→ details](#a-buildmodel)
+
+**③ Training (SSL)**
+- **⑮ Freeze policy** 🟠 — optionally freezes part of the ImageNet-init backbone during SSL. [→ details](#a-freeze)
+- **⑯ Augmentation selection** 🟠 — the `do_train` branch that picks ⑧ `FullVolumeViews3D`. [→ details](#a-aug)
+- **DINO + iBOT losses · EMA teacher** — *unchanged upstream DINOv2*: the student matches the EMA teacher on the CLS token (DINO) and on masked tokens (iBOT).
+- **⑰ Grad accumulation** 🟠 — accumulate N micro-steps → effective batch 16 on a small GPU (loss scaled by N). [→ details](#a-gradaccum)
+- **⑱ LR scaling** 🟠 — folds `grad_accum` into the effective batch so the √-rule LR matches the real batch. [→ details](#a-lrscale)
+- **⑲ build_schedulers** 🟠 — `int()`-safe cosine schedules so fractional warmup epochs don't break `np.linspace`. [→ details](#a-schedulers)
+
+> **The one gap (see `tasks/v3/FINDINGS.md`):** ⑧ makes all views the SAME full volume → DINO/iBOT
+> have no augmentation gap → the SSL loss does not descend. Not a bug; the fix is a real view gap.
