@@ -12,6 +12,17 @@ Run (via probe.sh):
 """
 import numpy as np
 import torch
+
+# PyTorch 2.6 flipped torch.load's default to weights_only=True, which rejects the
+# numpy scalars stored in DINOv2 checkpoints (fvcore's Checkpointer calls torch.load
+# internally). The checkpoint is our own trusted training output, so force
+# weights_only=False for all loads.
+_orig_torch_load = torch.load
+def _torch_load(*a, **k):
+    k.setdefault("weights_only", False)
+    return _orig_torch_load(*a, **k)
+torch.load = _torch_load
+
 from torch.utils.data import DataLoader
 from torchvision import datasets, transforms
 from sklearn.linear_model import LogisticRegression
