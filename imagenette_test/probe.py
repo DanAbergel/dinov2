@@ -19,9 +19,15 @@ import torch
 # weights_only=False for all loads.
 _orig_torch_load = torch.load
 def _torch_load(*a, **k):
-    k.setdefault("weights_only", False)
+    k["weights_only"] = False  # force (not setdefault) — trusted local checkpoint
     return _orig_torch_load(*a, **k)
 torch.load = _torch_load
+# Belt-and-suspenders: also allowlist the numpy scalar in case any path keeps
+# weights_only=True (older fvcore that binds `torch.load` at import time).
+try:
+    torch.serialization.add_safe_globals([np.core.multiarray.scalar, np.dtype])
+except Exception:
+    pass
 
 from torch.utils.data import DataLoader
 from torchvision import datasets, transforms
