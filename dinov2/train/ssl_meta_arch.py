@@ -348,9 +348,15 @@ class SSLMetaArch(nn.Module):
     def fsdp_synchronize_streams(self):
         if self.need_to_synchronize_fsdp_streams:
             torch.cuda.synchronize()
-            self.student.dino_head._streams = (
-                self.teacher.dino_head._streams
-            ) = self.student.backbone._streams = self.teacher.backbone._streams
+            # PyTorch-COMPAT SHIM (not an algorithm change): official DINOv2 targets
+            # an older FSDP that exposed `_streams` on the wrapped module. In torch 2.x
+            # that attribute is gone, so this manual stream copy raises AttributeError.
+            # Guard it — newer FSDP manages its streams internally, so skipping the copy
+            # is benign. This is the only change vs official (needed to run at all).
+            if hasattr(self.teacher.backbone, "_streams"):
+                self.student.dino_head._streams = (
+                    self.teacher.dino_head._streams
+                ) = self.student.backbone._streams = self.teacher.backbone._streams
             self.need_to_synchronize_fsdp_streams = False
 
     def update_teacher(self, m):
