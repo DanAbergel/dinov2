@@ -7,6 +7,7 @@
 # (model, losses, DataAugmentationDINO, sampler, loop) stays the official one.
 
 import logging
+import os
 
 from torchvision.datasets import ImageFolder as _TorchvisionImageFolder
 
@@ -34,6 +35,19 @@ class ImageFolder(ExtendedVisionDataset):
         self._samples = _TorchvisionImageFolder(root).samples
         if not self._samples:
             raise RuntimeError(f"ImageFolder: no images found under {root}")
+
+        # OVERFIT sanity hook: IMAGENETTE_OVERFIT_N=k keeps only k images (spread
+        # across classes). A healthy training loop MUST drive the loss down when
+        # memorising a handful of samples — if it does not, learning is broken.
+        _n = os.environ.get("IMAGENETTE_OVERFIT_N")
+        if _n:
+            n = int(_n)
+            step = max(1, len(self._samples) // n)
+            self._samples = self._samples[::step][:n]
+            logger.info(f"IMAGENETTE_OVERFIT_N={n}: OVERFIT MODE -- keeping {len(self._samples)} images:")
+            for p, y in self._samples:
+                logger.info(f"    class {y}  {p}")
+
         logger.info(f"ImageFolder: {len(self._samples):,d} images at {root}")
 
     def get_image_data(self, index: int) -> bytes:

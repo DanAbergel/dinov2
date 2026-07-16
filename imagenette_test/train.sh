@@ -74,6 +74,17 @@ if [ "${SMOKE:-0}" = "1" ]; then
     # to 0 and set teacher-temp warmup to 1 epoch (=10 iters = total), no last-layer freeze.
     EXTRA="optim.epochs=1 train.OFFICIAL_EPOCH_LENGTH=10 optim.warmup_epochs=0 teacher.warmup_teacher_temp_epochs=1 optim.freeze_last_layer_epochs=0"
 fi
+# OVERFIT_N=k -> OVERFIT SANITY TEST: train on only k images (dataset prints them).
+# A healthy loop MUST drive the loss down. Config is tuned to memorise fast:
+#   batch = k (one batch = the k images, no within-batch repeats),
+#   koleo=0 (repeated/similar CLS -> log(0) -> NaN otherwise),
+#   short warmup + higher LR + no last-layer freeze so it learns from step 0.
+if [ -n "${OVERFIT_N:-}" ]; then
+    export IMAGENETTE_OVERFIT_N="$OVERFIT_N"
+    EXTRA="$EXTRA train.batch_size_per_gpu=${OVERFIT_N} dino.koleo_loss_weight=0 \
+optim.warmup_epochs=0.2 optim.base_lr=0.01 optim.freeze_last_layer_epochs=0 \
+teacher.warmup_teacher_temp_epochs=2 optim.epochs=30 train.OFFICIAL_EPOCH_LENGTH=100"
+fi
 [ -n "${OVERRIDES:-}" ] && EXTRA="$EXTRA ${OVERRIDES}"
 
 echo "============================================================"
