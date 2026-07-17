@@ -35,11 +35,15 @@ def load_volume(path):
     """
     if path.endswith(".pt"):
         import torch
-        t = torch.load(path, map_location="cpu", weights_only=True)
-        arr = t.float().numpy()
-        arr = np.squeeze(arr)              # drop channel dim -> (T, X, Y, Z)
-        if arr.ndim == 4:
-            arr = arr.mean(axis=0)         # .pt: T is the FIRST axis
+        # mmap=True keeps the ~1200-frame tensor on disk (loading it all + a float32
+        # copy OOM-kills the login node). Average over a SUBSET of frames only.
+        t = torch.load(path, map_location="cpu", weights_only=True, mmap=True)
+        t = t.squeeze()                    # drop channel dim -> (T, X, Y, Z)
+        if t.ndim == 4:
+            idxs = np.linspace(0, t.shape[0] - 1, min(32, t.shape[0])).astype(int)
+            arr = np.mean([t[i].float().numpy() for i in idxs], axis=0)  # -> (X, Y, Z)
+        else:
+            arr = t.float().numpy()
         return arr
     else:
         import nibabel as nib
