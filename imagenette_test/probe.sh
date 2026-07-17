@@ -61,11 +61,14 @@ echo "  last_checkpoint: $(cat "$RUN_DIR/last_checkpoint" 2>/dev/null || echo '?
 echo "  train/val: $TRAIN_ROOT | $VAL_ROOT"
 echo "============================================================"
 
+# PROBE_OPTS lets you pass config overrides so the model matches the checkpoint
+# (e.g. dino.head_n_prototypes=128 ibot.head_n_prototypes=128 for a small-head run).
 srun python "$TASK_DIR/probe.py" \
     --config-file "$CONFIG" \
     --output-dir "$RUN_DIR" \
     --train-root "$TRAIN_ROOT" \
-    --val-root "$VAL_ROOT"
+    --val-root "$VAL_ROOT" \
+    ${PROBE_OPTS:-}
 
 echo ""
 echo "Probe done: $(date)"
