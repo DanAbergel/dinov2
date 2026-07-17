@@ -15,12 +15,12 @@ cd "$(git rev-parse --show-toplevel)"
 
 # resolve to an actual NIfTI file
 if [ -d "$ARG" ]; then
-    SCAN="$(find "$ARG" \( -name '*.nii.gz' -o -name '*.nii' \) | head -1)"
+    SCAN="$(find "$ARG" \( -name '*.pt' -o -name '*.nii.gz' -o -name '*.nii' \) | head -1)"
     echo "auto-picked scan: $SCAN"
 else
     SCAN="$ARG"
 fi
-[ -f "$SCAN" ] || { echo "ERROR: no NIfTI found at $ARG"; exit 1; }
+[ -f "$SCAN" ] || { echo "ERROR: no scan (.pt/.nii) found at $ARG"; exit 1; }
 
 # activate the env that has nibabel (torch_env)
 source /sci/labs/arieljaffe/dan.abergel1/torch_env/bin/activate 2>/dev/null || true

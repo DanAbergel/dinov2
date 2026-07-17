@@ -23,8 +23,30 @@ import glob
 import os
 
 import numpy as np
-import nibabel as nib
 from PIL import Image
+
+
+def load_volume(path):
+    """Return a 3D volume (X, Y, Z) from a scan, temporal-averaged if 4D.
+
+    Handles two on-disk formats:
+      - .pt  torch tensor, shape (T, X, Y, Z) or (T, 1, X, Y, Z)  -> mean over T (axis 0)
+      - .nii/.nii.gz NIfTI, shape (X, Y, Z) or (X, Y, Z, T)       -> mean over T (axis 3)
+    """
+    if path.endswith(".pt"):
+        import torch
+        t = torch.load(path, map_location="cpu", weights_only=True)
+        arr = t.float().numpy()
+        arr = np.squeeze(arr)              # drop channel dim -> (T, X, Y, Z)
+        if arr.ndim == 4:
+            arr = arr.mean(axis=0)         # .pt: T is the FIRST axis
+        return arr
+    else:
+        import nibabel as nib
+        arr = np.squeeze(nib.load(path).get_fdata())
+        if arr.ndim == 4:
+            arr = arr.mean(axis=3)         # NIfTI: T is the LAST axis
+        return arr
 
 
 def best_slice_index(vol3d, axis):
@@ -70,10 +92,8 @@ def main():
 
     for i, f in enumerate(files):
         try:
-            data = nib.load(f).get_fdata()
-            if data.ndim == 4:
-                data = data.mean(axis=3)
-            elif data.ndim != 3:
+            data = load_volume(f)
+            if data.ndim != 3:
                 print(f"  SKIP {f}: unexpected ndim={data.ndim}")
                 continue
             stem = os.path.basename(f).split(".nii")[0]
