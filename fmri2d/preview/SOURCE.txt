@@ -1,0 +1,1 @@
+scan: /sci/labs/arieljaffe/dan.abergel1/HCP_data/downsampled/subject_766563/rfMRI_REST1_LR_downsampled.pt
