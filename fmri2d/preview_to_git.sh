@@ -1,19 +1,27 @@
 #!/bin/bash
-# Extract preview brain slices from ONE fMRI scan and PUSH them to git, so they can
-# be reviewed remotely (no manual download needed).
+# Extract preview brain slices from ONE fMRI scan and push them to git, so they can
+# be reviewed remotely. Runs as a SLURM job (the full ~1200-frame .pt load needs RAM).
 #
 # Usage (on Moriah):
-#   bash fmri2d/preview_to_git.sh /path/to/scan.nii.gz      # a specific scan
-#   bash fmri2d/preview_to_git.sh /path/to/corpus_dir       # auto-picks the first NIfTI
+#   sbatch -A arieljaffe fmri2d/preview_to_git.sh /sci/labs/arieljaffe/dan.abergel1/HCP_data/downsampled
+#   sbatch -A arieljaffe fmri2d/preview_to_git.sh /path/to/one_scan.pt
+# Watch:  tail -f fmri2d/preview_job.out
 #
-# Tip: for this preview prefer an HCP/ABIDE scan (permissive) rather than ADNI (DUA),
-# since the PNG lands on the GitHub fork. A single 2D slice is de-identified anyway.
+#SBATCH --job-name=fmri-preview
+#SBATCH --account=arieljaffe
+#SBATCH --ntasks=1
+#SBATCH --cpus-per-task=4
+#SBATCH --mem=64G
+#SBATCH --time=0:30:00
+#SBATCH --chdir=/sci/labs/arieljaffe/dan.abergel1/repos/FAIR_official
+#SBATCH --output=fmri2d/preview_job.out
+#SBATCH --error=fmri2d/preview_job.out
 set -euo pipefail
 
-ARG="${1:?usage: preview_to_git.sh <scan.nii.gz | corpus_dir>}"
-cd "$(git rev-parse --show-toplevel)"
+ARG="${1:?usage: sbatch -A arieljaffe fmri2d/preview_to_git.sh <scan.pt | corpus_dir>}"
+LAB_DIR="/sci/labs/arieljaffe/dan.abergel1"
 
-# resolve to an actual NIfTI file
+# resolve to an actual scan file (.pt or NIfTI)
 if [ -d "$ARG" ]; then
     SCAN="$(find "$ARG" \( -name '*.pt' -o -name '*.nii.gz' -o -name '*.nii' \) | head -1)"
     echo "auto-picked scan: $SCAN"
@@ -22,18 +30,20 @@ else
 fi
 [ -f "$SCAN" ] || { echo "ERROR: no scan (.pt/.nii) found at $ARG"; exit 1; }
 
-# activate the env that has nibabel (torch_env)
-source /sci/labs/arieljaffe/dan.abergel1/torch_env/bin/activate 2>/dev/null || true
+source "$LAB_DIR/torch_env/bin/activate"
 
-# extract all 3 planes so we can see which looks best
+# extract all 3 planes (full temporal mean)
 rm -rf fmri2d/preview
 python fmri2d/extract_slices.py --input "$SCAN" --output fmri2d/preview --class-name all --all-axes --size 224
-
-# record which scan it came from
 echo "scan: $SCAN" > fmri2d/preview/SOURCE.txt
+ls -la fmri2d/preview/all/
 
-# commit + push so it shows up on the fork
+# commit + push (push may fail from a compute node if git creds aren't available there —
+# the commit is still made, just run `git push` from the login node afterwards).
 git add -A fmri2d/preview
-git commit -q -m "fMRI 2D preview: brain slices from $(basename "$SCAN")"
-git push origin HEAD
-echo "PUSHED. preview PNGs in fmri2d/preview/all/  (axis0=sagittal, axis1=coronal, axis2=axial)"
+git commit -q -m "fMRI 2D preview: brain slices from $(basename "$SCAN")" || echo "nothing to commit"
+if git push origin HEAD; then
+    echo "PUSHED. preview PNGs in fmri2d/preview/all/  (axis0=sagittal, axis1=coronal, axis2=axial)"
+else
+    echo "COMMIT DONE but PUSH FAILED from compute node -> run 'git push' on the login node."
+fi
