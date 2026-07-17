@@ -18,12 +18,14 @@
 #SBATCH --error=fmri2d/preview_job.out
 set -euo pipefail
 
+echo "=== fmri-preview: start $(date) ==="
 ARG="${1:?usage: sbatch -A arieljaffe fmri2d/preview_to_git.sh <scan.pt | corpus_dir>}"
 LAB_DIR="/sci/labs/arieljaffe/dan.abergel1"
 
-# resolve to an actual scan file (.pt or NIfTI)
+# resolve to an actual scan file (.pt or NIfTI). Use `-print -quit` (find stops itself
+# at the first match) — NOT `| head -1`, which SIGPIPE-kills find under `set -o pipefail`.
 if [ -d "$ARG" ]; then
-    SCAN="$(find "$ARG" \( -name '*.pt' -o -name '*.nii.gz' -o -name '*.nii' \) | head -1)"
+    SCAN="$(find "$ARG" \( -name '*.pt' -o -name '*.nii.gz' -o -name '*.nii' \) -print -quit)"
     echo "auto-picked scan: $SCAN"
 else
     SCAN="$ARG"
