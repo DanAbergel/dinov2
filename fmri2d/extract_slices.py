@@ -75,6 +75,20 @@ def save_slice(vol3d, axis, out_dir, cls, stem, size):
     return idx, sl.shape
 
 
+def scan_stem(path):
+    """Unique, clean output name: <parent_dir>_<filename-without-ext>.
+    Many cohorts store the subject in the PARENT dir and reuse the same filename
+    (e.g. HCP: subject_766563/rfMRI_REST1_LR_downsampled.pt) -> the parent prefix
+    keeps PNGs from overwriting each other."""
+    base = os.path.basename(path)
+    for ext in (".nii.gz", ".nii", ".pt"):
+        if base.endswith(ext):
+            base = base[: -len(ext)]
+            break
+    parent = os.path.basename(os.path.dirname(path))
+    return f"{parent}_{base}" if parent else base
+
+
 def main():
     ap = argparse.ArgumentParser()
     ap.add_argument("--input", required=True, help="NIfTI file or glob (use quotes, ** for recursive)")
@@ -95,7 +109,7 @@ def main():
             if data.ndim != 3:
                 print(f"  SKIP {f}: unexpected ndim={data.ndim}")
                 continue
-            stem = os.path.basename(f).split(".nii")[0]
+            stem = scan_stem(f)
             if args.all_axes:
                 for ax in (0, 1, 2):
                     idx, shp = save_slice(data, ax, args.output, args.class_name, f"{stem}_axis{ax}", args.size)
