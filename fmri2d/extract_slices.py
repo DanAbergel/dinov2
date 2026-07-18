@@ -26,26 +26,36 @@ import numpy as np
 from PIL import Image
 
 
-def load_volume(path):
-    """Return a 3D volume (X, Y, Z) from a scan, temporal-averaged if 4D.
+def load_volume(path, tnorm="mean"):
+    """Return a 3D volume (X, Y, Z) from a scan, reduced over time if 4D.
 
-    Handles two on-disk formats:
-      - .pt  torch tensor, shape (T, X, Y, Z) or (T, 1, X, Y, Z)  -> mean over T (axis 0)
-      - .nii/.nii.gz NIfTI, shape (X, Y, Z) or (X, Y, Z, T)       -> mean over T (axis 3)
+    Formats: .pt torch tensor (T, X, Y, Z) [T first]; .nii/.nii.gz (X, Y, Z, T) [T last].
+    Temporal reduction `tnorm` (per-voxel over time):
+      - mean : temporal mean            -> anatomy-like image (default)
+      - tsnr : mean / (std + eps)        -> per-voxel temporal SNR (z-score-style normalisation)
+      - tstd : std                        -> temporal std map (BOLD fluctuation / functional)
+    (Note: z-scoring a voxel's series then averaging over time = 0 everywhere, so the
+     useful realisation of "per-voxel z-score over time" is tsnr = mean/std.)
     """
     if path.endswith(".pt"):
         import torch
-        t = torch.load(path, map_location="cpu", weights_only=True)
-        arr = np.squeeze(t.float().numpy())   # -> (T, X, Y, Z)
-        if arr.ndim == 4:
-            arr = arr.mean(axis=0)            # .pt: T is the FIRST axis (full temporal mean)
-        return arr
+        arr = np.squeeze(torch.load(path, map_location="cpu", weights_only=True).float().numpy())
+        tax = 0                              # .pt: T is the FIRST axis
     else:
         import nibabel as nib
         arr = np.squeeze(nib.load(path).get_fdata())
-        if arr.ndim == 4:
-            arr = arr.mean(axis=3)         # NIfTI: T is the LAST axis
-        return arr
+        tax = arr.ndim - 1                   # NIfTI: T is the LAST axis
+    if arr.ndim != 4:
+        return arr                           # already a single 3D volume
+    mu = arr.mean(axis=tax)
+    if tnorm == "mean":
+        return mu
+    sd = arr.std(axis=tax)
+    if tnorm == "tsnr":
+        return mu / (sd + 1e-6)
+    if tnorm == "tstd":
+        return sd
+    raise ValueError(f"unknown tnorm: {tnorm}")
 
 
 def best_slice_index(vol3d, axis):
@@ -96,6 +106,8 @@ def main():
     ap.add_argument("--class-name", default="all", help="ImageFolder subdir (label). DINO ignores it for SSL.")
     ap.add_argument("--axis", type=int, default=2, help="slice axis: 0=sagittal 1=coronal 2=axial (default)")
     ap.add_argument("--size", type=int, default=0, help="resize to NxN (0 = native; DINOv2 resizes anyway)")
+    ap.add_argument("--tnorm", default="mean", choices=["mean", "tsnr", "tstd"],
+                    help="temporal reduction: mean (anatomy) | tsnr=mean/std (z-score norm) | tstd=std")
     ap.add_argument("--all-axes", action="store_true", help="inspection: save all 3 planes (axis0/1/2) per scan")
     args = ap.parse_args()
 
@@ -105,7 +117,7 @@ def main():
 
     for i, f in enumerate(files):
         try:
-            data = load_volume(f)
+            data = load_volume(f, args.tnorm)
             if data.ndim != 3:
                 print(f"  SKIP {f}: unexpected ndim={data.ndim}")
                 continue
