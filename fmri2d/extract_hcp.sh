@@ -14,7 +14,7 @@
 #SBATCH --time=12:00:00
 #SBATCH --chdir=/sci/labs/arieljaffe/dan.abergel1/repos/FAIR_official
 #SBATCH --output=fmri2d/extract_hcp.out
-#SBATCH --error=fmri2d/extract_hcp.out
+#SBATCH --error=fmri2d/extract_hcp.err
 set -euo pipefail
 
 LAB_DIR="/sci/labs/arieljaffe/dan.abergel1"

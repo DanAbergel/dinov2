@@ -17,7 +17,7 @@
 #SBATCH --time=1:00:00
 #SBATCH --chdir=/sci/labs/arieljaffe/dan.abergel1/repos/FAIR_official
 #SBATCH --output=fmri2d/probe_slurm.out
-#SBATCH --error=fmri2d/probe_slurm.out
+#SBATCH --error=fmri2d/probe_slurm.err
 set -euo pipefail
 
 LAB_DIR="/sci/labs/arieljaffe/dan.abergel1"
@@ -25,9 +25,10 @@ CONFIG="$LAB_DIR/repos/FAIR_official/dinov2/configs/train/imagenette_vits.yaml"
 FEATURES_ROOT="${FEATURES_ROOT:-$LAB_DIR/brain2d}"          # where extract_hcp.sh wrote the PNGs
 RUN_DIR="${RUN_DIR:?set RUN_DIR to the brain-DINOv2 training output dir (has the checkpoint)}"
 
-# per-run log so concurrent probes don't overwrite each other
+# per-run logs so concurrent probes don't overwrite each other (out/err separate)
 mkdir -p fmri2d/logs
-exec > "fmri2d/logs/probe_$(basename "$RUN_DIR").out" 2>&1
+LOGBASE="fmri2d/logs/probe_$(basename "$RUN_DIR")"
+exec > "$LOGBASE.out" 2> "$LOGBASE.err"
 
 export TMPDIR="$LAB_DIR/tmp"; export XDG_CACHE_HOME="$LAB_DIR/cache"; export HOME="$LAB_DIR"
 export TRITON_CACHE_DIR="$LAB_DIR/cache/triton"; export TORCHINDUCTOR_CACHE_DIR="$LAB_DIR/cache/inductor"

@@ -15,7 +15,7 @@
 #SBATCH --time=0:30:00
 #SBATCH --chdir=/sci/labs/arieljaffe/dan.abergel1/repos/FAIR_official
 #SBATCH --output=fmri2d/preview_job.out
-#SBATCH --error=fmri2d/preview_job.out
+#SBATCH --error=fmri2d/preview_job.err
 set -euo pipefail
 
 echo "=== fmri-preview: start $(date) ==="

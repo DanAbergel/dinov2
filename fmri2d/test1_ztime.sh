@@ -16,7 +16,7 @@
 #SBATCH --time=12:00:00
 #SBATCH --chdir=/sci/labs/arieljaffe/dan.abergel1/repos/FAIR_official
 #SBATCH --output=fmri2d/test1_ztime.out
-#SBATCH --error=fmri2d/test1_ztime.out
+#SBATCH --error=fmri2d/test1_ztime.err
 set -euo pipefail
 
 LAB_DIR="/sci/labs/arieljaffe/dan.abergel1"
