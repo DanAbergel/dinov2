@@ -18,7 +18,6 @@
 set -euo pipefail
 
 LAB_DIR="/sci/labs/arieljaffe/dan.abergel1"
-FRAMES="$LAB_DIR/brain2d_frames"                  # multi-frame data (pre-extracted by test_frames)
 CONFIG="$LAB_DIR/repos/FAIR_official/dinov2/configs/train/imagenette_vits.yaml"
 RUN="${RUN:?set RUN}"
 PROTOS="${PROTOS:-2048}"
@@ -26,6 +25,8 @@ WARMUP_TT="${WARMUP_TT:-0.01}"
 TT="${TT:-0.04}"
 WARMUP_EPOCHS="${WARMUP_EPOCHS:-25}"
 CV="${CV:-5}"
+DATA_ROOT="${DATA_ROOT:-$LAB_DIR/brain2d_frames}"  # ImageFolder root (multi-frame by default; brain2d = 1 mean image/scan)
+LOCAL_GLOBAL="${LOCAL_GLOBAL:-1}"                   # 1 = local crops = global (full-view) ; 0 = default 96px local
 OUTPUT_DIR="$LAB_DIR/runs/brain/$RUN"
 
 export TMPDIR="$LAB_DIR/tmp"; export XDG_CACHE_HOME="$LAB_DIR/cache"; export HOME="$LAB_DIR"
@@ -35,15 +36,19 @@ mkdir -p "$TMPDIR" "$OUTPUT_DIR" "$TRITON_CACHE_DIR" "$TORCHINDUCTOR_CACHE_DIR"
 source "$LAB_DIR/torch_env/bin/activate"
 export PYTHONPATH="$LAB_DIR/repos/FAIR_official:${PYTHONPATH:-}"
 
-[ -d "$FRAMES/HCP" ] || { echo "ERROR: $FRAMES not found — run test_frames.sh first to extract the multi-frame images"; exit 1; }
+[ -d "$DATA_ROOT/HCP" ] || { echo "ERROR: $DATA_ROOT not found — extract it first (test_frames.sh for multi-frame, extract_hcp.sh for mean)"; exit 1; }
 
-echo "=== ABLATION $RUN : protos=$PROTOS  temp=$WARMUP_TT->$TT (warmup $WARMUP_EPOCHS ep)  cv=$CV  $(date) ==="
+# local=global crops only when LOCAL_GLOBAL=1 (array keeps the [..] scale from bash globbing/splitting)
+CROPS=()
+[ "$LOCAL_GLOBAL" = "1" ] && CROPS=(crops.local_crops_size=224 'crops.local_crops_scale=[0.32,1.0]')
 
-# 1) TRAIN — multi-frame + local=global
+echo "=== ABLATION $RUN : data=$(basename "$DATA_ROOT") local_global=$LOCAL_GLOBAL protos=$PROTOS temp=$WARMUP_TT->$TT (warmup $WARMUP_EPOCHS) cv=$CV  $(date) ==="
+
+# 1) TRAIN
 srun python dinov2/train/train.py \
     --config-file "$CONFIG" --output-dir "$OUTPUT_DIR" \
-    train.dataset_path="ImageFolder:root=$FRAMES" \
-    crops.local_crops_size=224 "crops.local_crops_scale=[0.32,1.0]" \
+    train.dataset_path="ImageFolder:root=$DATA_ROOT" \
+    "${CROPS[@]}" \
     teacher.warmup_teacher_temp="$WARMUP_TT" teacher.teacher_temp="$TT" teacher.warmup_teacher_temp_epochs="$WARMUP_EPOCHS" \
     dino.head_n_prototypes="$PROTOS" ibot.head_n_prototypes="$PROTOS" dino.koleo_loss_weight=0
 
@@ -53,6 +58,6 @@ git show origin/fmri-multi-source:data/HCP_YA_subjects.csv > "$LABELS"
 echo "=== PROBE $RUN  $(date) ==="
 srun python fmri2d/probe_brain.py \
     --config-file "$CONFIG" --output-dir "$OUTPUT_DIR" \
-    --features-root "$FRAMES" --labels-csv "$LABELS" --label-col Gender --test-frac 0.2 --cv "$CV" \
+    --features-root "$DATA_ROOT" --labels-csv "$LABELS" --label-col Gender --test-frac 0.2 --cv "$CV" \
     dino.head_n_prototypes="$PROTOS" ibot.head_n_prototypes="$PROTOS"
 echo "=== $RUN DONE  $(date) ==="
