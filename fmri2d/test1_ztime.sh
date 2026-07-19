@@ -34,13 +34,17 @@ mkdir -p "$TMPDIR" "$OUTPUT_DIR" "$TRITON_CACHE_DIR" "$TORCHINDUCTOR_CACHE_DIR"
 source "$LAB_DIR/torch_env/bin/activate"
 export PYTHONPATH="$LAB_DIR/repos/FAIR_official:${PYTHONPATH:-}"
 
-# 1) extract with tSNR normalisation (per-voxel temporal mean/std), cached
-if [ ! -d "$OUT_TSNR/HCP" ]; then
-    echo "=== extracting HCP with --tnorm tsnr -> $OUT_TSNR  $(date) ==="
+# 1) extract with tSNR normalisation. Re-extract if the PNG count is below the number
+#    of scans (a killed run can leave a PARTIAL set -> a dir-exists check would wrongly skip).
+N_SCANS=$(ls $HCP_GLOB 2>/dev/null | wc -l)
+N_PNG=$(ls "$OUT_TSNR/HCP" 2>/dev/null | wc -l || echo 0)
+echo "HCP scans: $N_SCANS   existing tSNR PNGs: $N_PNG"
+if [ "$N_PNG" -lt "$N_SCANS" ]; then
+    echo "=== (re)extracting HCP with --tnorm tsnr -> $OUT_TSNR  $(date) ==="
     python fmri2d/extract_slices.py --input "$HCP_GLOB" \
         --output "$OUT_TSNR" --class-name HCP --axis 2 --size 224 --tnorm tsnr
 fi
-echo "tSNR PNGs: $(ls "$OUT_TSNR/HCP" 2>/dev/null | wc -l)"
+echo "tSNR PNGs now: $(ls "$OUT_TSNR/HCP" 2>/dev/null | wc -l)"
 
 # 2) train 2D DINOv2 on the tSNR images (winning small-scale config)
 echo "=== training -> $OUTPUT_DIR  $(date) ==="
