@@ -41,16 +41,19 @@ source "$LAB_DIR/torch_env/bin/activate"
 export PYTHONPATH="$LAB_DIR/repos/FAIR_official:${PYTHONPATH:-}"
 
 # 1) extract N_FRAMES timepoints per scan (re-extract if incomplete)
+mkdir -p "$OUT_FRAMES/HCP"                         # ensure the dir exists so `ls | wc -l` is a clean 0
 N_SCANS=$(ls $HCP_GLOB 2>/dev/null | wc -l)
 EXPECTED=$((N_SCANS * N_FRAMES))
-N_PNG=$(ls "$OUT_FRAMES/HCP" 2>/dev/null | wc -l || echo 0)
+N_PNG=$(ls "$OUT_FRAMES/HCP" | wc -l)
 echo "scans: $N_SCANS   frames/scan: $N_FRAMES   expected PNGs: $EXPECTED   existing: $N_PNG"
 if [ "$N_PNG" -lt "$EXPECTED" ]; then
     echo "=== extracting $N_FRAMES frames/scan -> $OUT_FRAMES  $(date) ==="
     python fmri2d/extract_slices.py --input "$HCP_GLOB" \
         --output "$OUT_FRAMES" --class-name HCP --axis 2 --size 224 --n-frames "$N_FRAMES"
 fi
-echo "frame PNGs now: $(ls "$OUT_FRAMES/HCP" 2>/dev/null | wc -l)"
+N_PNG=$(ls "$OUT_FRAMES/HCP" | wc -l)
+echo "frame PNGs now: $N_PNG"
+[ "$N_PNG" -gt 0 ] || { echo "ERROR: extraction produced no PNGs -> aborting before training"; exit 1; }
 
 # 2) train: local crops = global crops + winning temp schedule
 echo "=== training (local=global) -> $OUTPUT_DIR  $(date) ==="

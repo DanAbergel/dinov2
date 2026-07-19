@@ -36,8 +36,9 @@ export PYTHONPATH="$LAB_DIR/repos/FAIR_official:${PYTHONPATH:-}"
 
 # 1) extract with tSNR normalisation. Re-extract if the PNG count is below the number
 #    of scans (a killed run can leave a PARTIAL set -> a dir-exists check would wrongly skip).
+mkdir -p "$OUT_TSNR/HCP"                           # so `ls | wc -l` is a clean 0 when empty
 N_SCANS=$(ls $HCP_GLOB 2>/dev/null | wc -l)
-N_PNG=$(ls "$OUT_TSNR/HCP" 2>/dev/null | wc -l || echo 0)
+N_PNG=$(ls "$OUT_TSNR/HCP" | wc -l)
 echo "HCP scans: $N_SCANS   existing tSNR PNGs: $N_PNG"
 if [ "$N_PNG" -lt "$N_SCANS" ]; then
     echo "=== (re)extracting HCP with --tnorm tsnr -> $OUT_TSNR  $(date) ==="
