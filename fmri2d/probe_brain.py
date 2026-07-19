@@ -30,7 +30,7 @@ from torchvision import datasets, transforms
 from sklearn.linear_model import LogisticRegression
 from sklearn.preprocessing import StandardScaler
 from sklearn.metrics import accuracy_score, f1_score, classification_report, balanced_accuracy_score
-from sklearn.model_selection import train_test_split
+from sklearn.model_selection import GroupShuffleSplit
 
 from dinov2.train.train import get_args_parser
 from dinov2.utils.config import setup
@@ -91,18 +91,25 @@ def main():
     classes = sorted({v for v in labmap.values() if v and v.lower() != "nan"})
     cls2i = {c: i for i, c in enumerate(classes)}
 
-    keep, y = [], []
+    keep, y, groups = [], [], []
     for i, p in enumerate(paths):
-        lab = labmap.get(subject_id(p) or "")
+        sid = subject_id(p) or ""
+        lab = labmap.get(sid)
         if lab in cls2i:
             keep.append(i)
             y.append(cls2i[lab])
-    X, y = X[keep], np.array(y)
-    print(f"matched {len(y)}/{len(paths)} scans to '{args.label_col}'  classes={classes}", flush=True)
-    if len(y) < 10 or len(classes) < 2:
-        raise SystemExit("not enough labelled samples / classes to probe")
+            groups.append(sid)                 # subject id -> split by SUBJECT (no leakage)
+    X, y, groups = X[keep], np.array(y), np.array(groups)
+    n_subj = len(set(groups))
+    print(f"matched {len(y)}/{len(paths)} images, {n_subj} subjects, classes={classes}", flush=True)
+    if n_subj < 10 or len(classes) < 2:
+        raise SystemExit("not enough labelled subjects / classes to probe")
 
-    Xtr, Xte, ytr, yte = train_test_split(X, y, test_size=args.test_frac, stratify=y, random_state=0)
+    # split by SUBJECT (all frames of a subject stay together) — avoids leakage with multi-frame
+    tr, te = next(GroupShuffleSplit(n_splits=1, test_size=args.test_frac, random_state=0).split(X, y, groups))
+    Xtr, Xte, ytr, yte = X[tr], X[te], y[tr], y[te]
+    print(f"split: {len(set(groups[tr]))} train subj / {len(set(groups[te]))} test subj  "
+          f"({len(tr)}/{len(te)} images)", flush=True)
     scaler = StandardScaler().fit(Xtr)
     clf = LogisticRegression(max_iter=2000).fit(scaler.transform(Xtr), ytr)
     pred = clf.predict(scaler.transform(Xte))

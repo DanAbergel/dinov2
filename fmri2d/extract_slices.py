@@ -72,9 +72,7 @@ def to_uint8(slice2d):
     return (s * 255).astype(np.uint8)
 
 
-def save_slice(vol3d, axis, out_dir, cls, stem, size):
-    idx = best_slice_index(vol3d, axis)
-    sl = np.take(vol3d, idx, axis=axis)
+def _write_png(sl, out_dir, cls, stem, size):
     sl = np.rot90(sl)  # upright-ish; flip/rotate here if your orientation looks off
     im = Image.fromarray(to_uint8(sl)).convert("RGB")
     if size:
@@ -82,7 +80,29 @@ def save_slice(vol3d, axis, out_dir, cls, stem, size):
     dst = os.path.join(out_dir, cls)
     os.makedirs(dst, exist_ok=True)
     im.save(os.path.join(dst, stem + ".png"))
+
+
+def save_slice(vol3d, axis, out_dir, cls, stem, size):
+    idx = best_slice_index(vol3d, axis)
+    sl = np.take(vol3d, idx, axis=axis)
+    _write_png(sl, out_dir, cls, stem, size)
     return idx, sl.shape
+
+
+def load_4d(path):
+    """Return (array, t_is_first_axis). .pt -> (T,X,Y,Z); NIfTI -> (X,Y,Z,T)."""
+    if path.endswith(".pt"):
+        import torch
+        return np.squeeze(torch.load(path, map_location="cpu", weights_only=True).float().numpy()), True
+    import nibabel as nib
+    return np.squeeze(nib.load(path).get_fdata()), False
+
+
+def frame_volumes(arr, t_first, n_frames):
+    """List of 3D volumes at n_frames evenly-spaced timepoints."""
+    T = arr.shape[0] if t_first else arr.shape[-1]
+    idxs = np.linspace(0, T - 1, min(n_frames, T)).astype(int)
+    return [(arr[t] if t_first else arr[..., t]) for t in idxs]
 
 
 def scan_stem(path):
@@ -108,6 +128,9 @@ def main():
     ap.add_argument("--size", type=int, default=0, help="resize to NxN (0 = native; DINOv2 resizes anyway)")
     ap.add_argument("--tnorm", default="mean", choices=["mean", "tsnr", "tstd"],
                     help="temporal reduction: mean (anatomy) | tsnr=mean/std (z-score norm) | tstd=std")
+    ap.add_argument("--n-frames", type=int, default=0,
+                    help="if >0: save this many 2D axial slices at evenly-spaced TIMEPOINTS per scan "
+                         "(same axial slice index) instead of a single temporal-reduced image")
     ap.add_argument("--all-axes", action="store_true", help="inspection: save all 3 planes (axis0/1/2) per scan")
     args = ap.parse_args()
 
@@ -117,11 +140,26 @@ def main():
 
     for i, f in enumerate(files):
         try:
+            stem = scan_stem(f)
+            # multi-timepoint mode: K axial slices (same slice index) at K timepoints
+            if args.n_frames > 0:
+                arr, t_first = load_4d(f)
+                if arr.ndim != 4:
+                    save_slice(arr, args.axis, args.output, args.class_name, f"{stem}_t00", args.size)
+                    continue
+                zidx = best_slice_index(arr.mean(axis=(0 if t_first else -1)), args.axis)
+                vols = frame_volumes(arr, t_first, args.n_frames)
+                for j, vt in enumerate(vols):
+                    _write_png(np.take(vt, zidx, axis=args.axis), args.output,
+                               args.class_name, f"{stem}_t{j:02d}", args.size)
+                if i < 5 or i % 200 == 0:
+                    print(f"  {stem}: {len(vols)} frames, axial slice {zidx}")
+                continue
+
             data = load_volume(f, args.tnorm)
             if data.ndim != 3:
                 print(f"  SKIP {f}: unexpected ndim={data.ndim}")
                 continue
-            stem = scan_stem(f)
             if args.all_axes:
                 for ax in (0, 1, 2):
                     idx, shp = save_slice(data, ax, args.output, args.class_name, f"{stem}_axis{ax}", args.size)
