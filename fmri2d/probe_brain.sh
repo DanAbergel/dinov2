@@ -16,8 +16,8 @@
 #SBATCH --mem=64G
 #SBATCH --time=1:00:00
 #SBATCH --chdir=/sci/labs/arieljaffe/dan.abergel1/repos/FAIR_official
-#SBATCH --output=fmri2d/logs/probe_%j.out
-#SBATCH --error=fmri2d/logs/probe_%j.out
+#SBATCH --output=fmri2d/probe_slurm.out
+#SBATCH --error=fmri2d/probe_slurm.out
 set -euo pipefail
 
 LAB_DIR="/sci/labs/arieljaffe/dan.abergel1"
