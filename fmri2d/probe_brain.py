@@ -30,7 +30,7 @@ from torchvision import datasets, transforms
 from sklearn.linear_model import LogisticRegression
 from sklearn.preprocessing import StandardScaler
 from sklearn.metrics import accuracy_score, f1_score, classification_report, balanced_accuracy_score
-from sklearn.model_selection import GroupShuffleSplit
+from sklearn.model_selection import GroupShuffleSplit, GroupKFold
 
 from dinov2.train.train import get_args_parser
 from dinov2.utils.config import setup
@@ -72,6 +72,8 @@ def main():
     ap.add_argument("--label-col", default="Gender", help="CSV column to predict (Gender=sex)")
     ap.add_argument("--id-col", default="Subject")
     ap.add_argument("--test-frac", type=float, default=0.2)
+    ap.add_argument("--cv", type=int, default=0,
+                    help="if >1: k-fold GROUP cross-validation (by subject) -> mean±std, robust to split noise")
     args = ap.parse_args()
 
     cfg = setup(args)
@@ -104,6 +106,20 @@ def main():
     print(f"matched {len(y)}/{len(paths)} images, {n_subj} subjects, classes={classes}", flush=True)
     if n_subj < 10 or len(classes) < 2:
         raise SystemExit("not enough labelled subjects / classes to probe")
+
+    # k-fold GROUP cross-validation (by subject) -> robust mean±std, immune to split luck
+    if args.cv > 1:
+        accs = []
+        for tr, te in GroupKFold(n_splits=args.cv).split(X, y, groups):
+            sc = StandardScaler().fit(X[tr])
+            clf = LogisticRegression(max_iter=2000).fit(sc.transform(X[tr]), y[tr])
+            accs.append(accuracy_score(y[te], clf.predict(sc.transform(X[te]))))
+        accs = np.array(accs)
+        print(f"\n=== {args.cv}-FOLD GROUP CV ({args.label_col}) ===")
+        print(f"  CV accuracy: {accs.mean()*100:.2f}% ± {accs.std()*100:.2f}%   (chance {100.0/len(classes):.1f}%)")
+        print(f"  folds: {['%.1f' % (a*100) for a in accs]}")
+        print("========================================")
+        # fall through to also print one detailed split below
 
     # split by SUBJECT (all frames of a subject stay together) — avoids leakage with multi-frame
     tr, te = next(GroupShuffleSplit(n_splits=1, test_size=args.test_frac, random_state=0).split(X, y, groups))
