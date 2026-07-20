@@ -23,6 +23,18 @@ from dinov2.utils.utils import CosineScheduler
 from dinov2.train.ssl_meta_arch import SSLMetaArch
 
 
+# torch 2.6+/numpy 2.x compat: our own FSDP checkpoints store numpy scalars, which
+# weights_only=True (the 2.6 default) refuses to unpickle. Auto-resume (resume=True)
+# reloads such a checkpoint on restart -> UnpicklingError. These are trusted local
+# checkpoints, so force weights_only=False for every load. fvcore reads torch.load
+# by attribute at call time, so patching the module attribute here is enough.
+_orig_torch_load = torch.load
+def _torch_load(*a, **k):
+    k["weights_only"] = False
+    return _orig_torch_load(*a, **k)
+torch.load = _torch_load
+
+
 torch.backends.cuda.matmul.allow_tf32 = True  # PyTorch 1.12 sets this to False by default
 logger = logging.getLogger("dinov2")
 
