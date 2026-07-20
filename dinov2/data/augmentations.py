@@ -4,6 +4,7 @@
 # found in the LICENSE file in the root directory of this source tree.
 
 import logging
+import os
 
 from torchvision import transforms
 
@@ -109,9 +110,18 @@ class DataAugmentationDINO(object):
         output["global_crops_teacher"] = [global_crop_1, global_crop_2]
 
         # local crops:
-        local_crops = [
-            self.local_transfo(self.geometric_augmentation_local(image)) for _ in range(self.local_crops_number)
-        ]
+        if os.environ.get("DINO_LOCAL_EQ_GLOBAL") == "1":
+            # DIAGNOSTIC (not a training improvement): make every local crop pixel-identical
+            # to global_crop_1 — no independent RandomResizedCrop / flip / color / blur. This
+            # tests whether dino_local stays high only because the local views differ from the
+            # teacher's globals. With identical views, dino_local should collapse toward its
+            # floor (aligning an image with itself through the EMA teacher). Risk: trivial
+            # objective / representation collapse, so judge by the probe, not the loss.
+            local_crops = [global_crop_1 for _ in range(self.local_crops_number)]
+        else:
+            local_crops = [
+                self.local_transfo(self.geometric_augmentation_local(image)) for _ in range(self.local_crops_number)
+            ]
         output["local_crops"] = local_crops
         output["offsets"] = ()
 

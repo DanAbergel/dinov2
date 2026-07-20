@@ -27,8 +27,10 @@ WARMUP_EPOCHS="${WARMUP_EPOCHS:-25}"
 CV="${CV:-5}"
 DATA_ROOT="${DATA_ROOT:-$LAB_DIR/brain2d_frames}"  # ImageFolder root (multi-frame by default; brain2d = 1 mean image/scan)
 LOCAL_GLOBAL="${LOCAL_GLOBAL:-1}"                   # 1 = local crops = global (full-view) ; 0 = default 96px local
+LOCAL_EQ_GLOBAL="${LOCAL_EQ_GLOBAL:-0}"            # 1 = DIAGNOSTIC: local crops = pixel-identical copy of global crop 1
 OUTPUT_DIR="$LAB_DIR/runs/brain/$RUN"
 
+export DINO_LOCAL_EQ_GLOBAL="$LOCAL_EQ_GLOBAL"    # read in dinov2/data/augmentations.py (propagated to srun)
 export TMPDIR="$LAB_DIR/tmp"; export XDG_CACHE_HOME="$LAB_DIR/cache"; export HOME="$LAB_DIR"
 export PYTORCH_CUDA_ALLOC_CONF=expandable_segments:True; export PYTHONUNBUFFERED=1
 export TRITON_CACHE_DIR="$LAB_DIR/cache/triton"; export TORCHINDUCTOR_CACHE_DIR="$LAB_DIR/cache/inductor"
@@ -42,7 +44,7 @@ export PYTHONPATH="$LAB_DIR/repos/FAIR_official:${PYTHONPATH:-}"
 CROPS=()
 [ "$LOCAL_GLOBAL" = "1" ] && CROPS=(crops.local_crops_size=224 'crops.local_crops_scale=[0.32,1.0]')
 
-echo "=== ABLATION $RUN : data=$(basename "$DATA_ROOT") local_global=$LOCAL_GLOBAL protos=$PROTOS temp=$WARMUP_TT->$TT (warmup $WARMUP_EPOCHS) cv=$CV  $(date) ==="
+echo "=== ABLATION $RUN : data=$(basename "$DATA_ROOT") local_global=$LOCAL_GLOBAL local_eq_global=$LOCAL_EQ_GLOBAL protos=$PROTOS temp=$WARMUP_TT->$TT (warmup $WARMUP_EPOCHS) cv=$CV  $(date) ==="
 
 # 1) TRAIN
 srun python dinov2/train/train.py \
