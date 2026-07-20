@@ -1,0 +1,1050 @@
+============================================================
+  DINOv2 Imagenette control   Node: salmon-01   Date: Fri Jul 17 08:46:53 IDT 2026
+  venv:      /sci/labs/arieljaffe/dan.abergel1/torch_env
+  config:    /sci/labs/arieljaffe/dan.abergel1/repos/FAIR_official/dinov2/configs/train/imagenette_vits.yaml
+  data:      /sci/labs/arieljaffe/dan.abergel1/data/imagenette/imagenette2-320/train
+  output:    /sci/labs/arieljaffe/dan.abergel1/runs/imagenette/proto128
+  extra:      train.batch_size_per_gpu=16 dino.koleo_loss_weight=0 optim.warmup_epochs=1 optim.base_lr=0.01 optim.freeze_last_layer_epochs=0 teacher.warmup_teacher_temp_epochs=2 optim.epochs=30 train.OFFICIAL_EPOCH_LENGTH=100 dino.head_n_prototypes=128 ibot.head_n_prototypes=128 optim.base_lr=0.01 optim.epochs=20
+============================================================
+I20260717 08:48:26 1479834 dinov2 config.py:59] git:
+  sha: 9d3952c3a4cadf931e9c94537849a16b8b23c165, status: clean, branch: imagenette-test
+
+I20260717 08:48:26 1479834 dinov2 config.py:60] config_file: /sci/labs/arieljaffe/dan.abergel1/repos/FAIR_official/dinov2/configs/train/imagenette_vits.yaml
+eval: 
+eval_only: False
+no_resume: False
+opts: ['train.dataset_path=ImageFolder:root=/sci/labs/arieljaffe/dan.abergel1/data/imagenette/imagenette2-320/train', 'train.batch_size_per_gpu=16', 'dino.koleo_loss_weight=0', 'optim.warmup_epochs=1', 'optim.base_lr=0.01', 'optim.freeze_last_layer_epochs=0', 'teacher.warmup_teacher_temp_epochs=2', 'optim.epochs=30', 'train.OFFICIAL_EPOCH_LENGTH=100', 'dino.head_n_prototypes=128', 'ibot.head_n_prototypes=128', 'optim.base_lr=0.01', 'optim.epochs=20', 'train.output_dir=/sci/labs/arieljaffe/dan.abergel1/runs/imagenette/proto128']
+output_dir: /sci/labs/arieljaffe/dan.abergel1/runs/imagenette/proto128
+I20260717 08:48:26 1479834 dinov2 config.py:26] sqrt scaling learning rate; base: 0.01, new: 0.00125
+I20260717 08:48:26 1479834 dinov2 config.py:33] MODEL:
+  WEIGHTS: ''
+compute_precision:
+  grad_scaler: true
+  teacher:
+    backbone:
+      sharding_strategy: SHARD_GRAD_OP
+      mixed_precision:
+        param_dtype: fp16
+        reduce_dtype: fp16
+        buffer_dtype: fp32
+    dino_head:
+      sharding_strategy: SHARD_GRAD_OP
+      mixed_precision:
+        param_dtype: fp16
+        reduce_dtype: fp16
+        buffer_dtype: fp32
+    ibot_head:
+      sharding_strategy: SHARD_GRAD_OP
+      mixed_precision:
+        param_dtype: fp16
+        reduce_dtype: fp16
+        buffer_dtype: fp32
+  student:
+    backbone:
+      sharding_strategy: SHARD_GRAD_OP
+      mixed_precision:
+        param_dtype: fp16
+        reduce_dtype: fp16
+        buffer_dtype: fp32
+    dino_head:
+      sharding_strategy: SHARD_GRAD_OP
+      mixed_precision:
+        param_dtype: fp16
+        reduce_dtype: fp32
+        buffer_dtype: fp32
+    ibot_head:
+      sharding_strategy: SHARD_GRAD_OP
+      mixed_precision:
+        param_dtype: fp16
+        reduce_dtype: fp32
+        buffer_dtype: fp32
+dino:
+  loss_weight: 1.0
+  head_n_prototypes: 128
+  head_bottleneck_dim: 256
+  head_nlayers: 3
+  head_hidden_dim: 2048
+  koleo_loss_weight: 0
+ibot:
+  loss_weight: 1.0
+  mask_sample_probability: 0.5
+  mask_ratio_min_max:
+  - 0.1
+  - 0.5
+  separate_head: false
+  head_n_prototypes: 128
+  head_bottleneck_dim: 256
+  head_nlayers: 3
+  head_hidden_dim: 2048
+train:
+  batch_size_per_gpu: 16
+  dataset_path: ImageFolder:root=/sci/labs/arieljaffe/dan.abergel1/data/imagenette/imagenette2-320/train
+  output_dir: /sci/labs/arieljaffe/dan.abergel1/runs/imagenette/proto128
+  saveckp_freq: 20
+  seed: 0
+  num_workers: 8
+  OFFICIAL_EPOCH_LENGTH: 100
+  cache_dataset: true
+  centering: centering
+  cell_augmentation: false
+student:
+  arch: vit_small
+  patch_size: 16
+  drop_path_rate: 0.1
+  layerscale: 1.0e-05
+  drop_path_uniform: true
+  pretrained_weights: ''
+  ffn_layer: mlp
+  block_chunks: 4
+  qkv_bias: true
+  proj_bias: true
+  ffn_bias: true
+  num_register_tokens: 0
+  interpolate_antialias: false
+  interpolate_offset: 0.1
+  in_chans: 3
+  channel_adaptive: false
+teacher:
+  momentum_teacher: 0.992
+  final_momentum_teacher: 1
+  warmup_teacher_temp: 0.04
+  teacher_temp: 0.07
+  warmup_teacher_temp_epochs: 2
+  in_chans: 3
+  channel_adaptive: false
+optim:
+  epochs: 20
+  weight_decay: 0.04
+  weight_decay_end: 0.4
+  base_lr: 0.01
+  lr: 0.00125
+  warmup_epochs: 1
+  min_lr: 1.0e-06
+  clip_grad: 3.0
+  freeze_last_layer_epochs: 0
+  scaling_rule: sqrt_wrt_1024
+  patch_embed_lr_mult: 0.2
+  layerwise_decay: 0.9
+  adamw_beta1: 0.9
+  adamw_beta2: 0.999
+crops:
+  global_crops_scale:
+  - 0.32
+  - 1.0
+  local_crops_number: 8
+  local_crops_scale:
+  - 0.05
+  - 0.32
+  global_crops_size: 224
+  local_crops_size: 96
+evaluation:
+  eval_period_iterations: 0
+
+I20260717 08:48:26 1479834 dinov2 vision_transformer.py:125] using MLP layer as FFN
+I20260717 08:48:27 1479834 dinov2 vision_transformer.py:125] using MLP layer as FFN
+I20260717 08:48:27 1479834 dinov2 ssl_meta_arch.py:43] OPTIONS -- architecture : embed_dim: 384
+I20260717 08:48:27 1479834 dinov2 ssl_meta_arch.py:58] OPTIONS -- DINO
+I20260717 08:48:27 1479834 dinov2 ssl_meta_arch.py:60] OPTIONS -- DINO -- loss_weight: 1.0
+I20260717 08:48:27 1479834 dinov2 ssl_meta_arch.py:61] OPTIONS -- DINO -- head_n_prototypes: 128
+I20260717 08:48:27 1479834 dinov2 ssl_meta_arch.py:62] OPTIONS -- DINO -- head_bottleneck_dim: 256
+I20260717 08:48:27 1479834 dinov2 ssl_meta_arch.py:63] OPTIONS -- DINO -- head_hidden_dim: 2048
+W20260717 08:48:27 1479834 py.warnings warnings.py:109] /sci/labs/arieljaffe/dan.abergel1/torch_env/lib/python3.11/site-packages/torch/nn/utils/weight_norm.py:144: FutureWarning: `torch.nn.utils.weight_norm` is deprecated in favor of `torch.nn.utils.parametrizations.weight_norm`.
+  WeightNorm.apply(module, name, dim)
+
+I20260717 08:48:28 1479834 dinov2 ssl_meta_arch.py:85] OPTIONS -- IBOT
+I20260717 08:48:28 1479834 dinov2 ssl_meta_arch.py:86] OPTIONS -- IBOT -- loss_weight: 1.0
+I20260717 08:48:28 1479834 dinov2 ssl_meta_arch.py:87] OPTIONS -- IBOT masking -- ibot_mask_ratio_tuple: [0.1, 0.5]
+I20260717 08:48:28 1479834 dinov2 ssl_meta_arch.py:88] OPTIONS -- IBOT masking -- ibot_mask_sample_probability: 0.5
+I20260717 08:48:28 1479834 dinov2 ssl_meta_arch.py:111] OPTIONS -- IBOT -- head shared with DINO
+I20260717 08:48:28 1479834 dinov2 ssl_meta_arch.py:121] Student and Teacher are built: they are both vit_small network.
+I20260717 08:48:28 1479834 dinov2 ssl_meta_arch.py:397] DISTRIBUTED FSDP -- preparing model for distributed training
+W20260717 08:48:28 1479834 py.warnings warnings.py:109] /sci/labs/arieljaffe/dan.abergel1/torch_env/lib/python3.11/site-packages/torch/distributed/fsdp/wrap.py:91: UserWarning: FSDP will not all-gather parameters for containers that do not implement forward: BlockChunk(
+  (0-2): 3 x NestedTensorBlock(
+    (norm1): LayerNorm((384,), eps=1e-06, elementwise_affine=True)
+    (attn): MemEffAttention(
+      (qkv): Linear(in_features=384, out_features=1152, bias=True)
+      (proj): Linear(in_features=384, out_features=384, bias=True)
+      (proj_drop): Dropout(p=0.0, inplace=False)
+    )
+    (ls1): LayerScale()
+    (drop_path1): DropPath()
+    (norm2): LayerNorm((384,), eps=1e-06, elementwise_affine=True)
+    (mlp): Mlp(
+      (fc1): Linear(in_features=384, out_features=1536, bias=True)
+      (act): GELU(approximate='none')
+      (fc2): Linear(in_features=1536, out_features=384, bias=True)
+      (drop): Dropout(p=0.0, inplace=False)
+    )
+    (ls2): LayerScale()
+    (drop_path2): DropPath()
+  )
+)
+  return fsdp_fn(module, **kwargs)
+
+W20260717 08:48:28 1479834 py.warnings warnings.py:109] /sci/labs/arieljaffe/dan.abergel1/torch_env/lib/python3.11/site-packages/torch/distributed/fsdp/fully_sharded_data_parallel.py:479: UserWarning: FSDP is switching to use `NO_SHARD` instead of ShardingStrategy.SHARD_GRAD_OP since the world size is 1.
+  _init_core_state(
+
+W20260717 08:48:28 1479834 py.warnings warnings.py:109] /sci/labs/arieljaffe/dan.abergel1/torch_env/lib/python3.11/site-packages/torch/distributed/fsdp/wrap.py:91: UserWarning: FSDP will not all-gather parameters for containers that do not implement forward: BlockChunk(
+  (0-2): 3 x Identity()
+  (3-5): 3 x NestedTensorBlock(
+    (norm1): LayerNorm((384,), eps=1e-06, elementwise_affine=True)
+    (attn): MemEffAttention(
+      (qkv): Linear(in_features=384, out_features=1152, bias=True)
+      (proj): Linear(in_features=384, out_features=384, bias=True)
+      (proj_drop): Dropout(p=0.0, inplace=False)
+    )
+    (ls1): LayerScale()
+    (drop_path1): DropPath()
+    (norm2): LayerNorm((384,), eps=1e-06, elementwise_affine=True)
+    (mlp): Mlp(
+      (fc1): Linear(in_features=384, out_features=1536, bias=True)
+      (act): GELU(approximate='none')
+      (fc2): Linear(in_features=1536, out_features=384, bias=True)
+      (drop): Dropout(p=0.0, inplace=False)
+    )
+    (ls2): LayerScale()
+    (drop_path2): DropPath()
+  )
+)
+  return fsdp_fn(module, **kwargs)
+
+W20260717 08:48:28 1479834 py.warnings warnings.py:109] /sci/labs/arieljaffe/dan.abergel1/torch_env/lib/python3.11/site-packages/torch/distributed/fsdp/wrap.py:91: UserWarning: FSDP will not all-gather parameters for containers that do not implement forward: BlockChunk(
+  (0-5): 6 x Identity()
+  (6-8): 3 x NestedTensorBlock(
+    (norm1): LayerNorm((384,), eps=1e-06, elementwise_affine=True)
+    (attn): MemEffAttention(
+      (qkv): Linear(in_features=384, out_features=1152, bias=True)
+      (proj): Linear(in_features=384, out_features=384, bias=True)
+      (proj_drop): Dropout(p=0.0, inplace=False)
+    )
+    (ls1): LayerScale()
+    (drop_path1): DropPath()
+    (norm2): LayerNorm((384,), eps=1e-06, elementwise_affine=True)
+    (mlp): Mlp(
+      (fc1): Linear(in_features=384, out_features=1536, bias=True)
+      (act): GELU(approximate='none')
+      (fc2): Linear(in_features=1536, out_features=384, bias=True)
+      (drop): Dropout(p=0.0, inplace=False)
+    )
+    (ls2): LayerScale()
+    (drop_path2): DropPath()
+  )
+)
+  return fsdp_fn(module, **kwargs)
+
+W20260717 08:48:28 1479834 py.warnings warnings.py:109] /sci/labs/arieljaffe/dan.abergel1/torch_env/lib/python3.11/site-packages/torch/distributed/fsdp/wrap.py:91: UserWarning: FSDP will not all-gather parameters for containers that do not implement forward: BlockChunk(
+  (0-8): 9 x Identity()
+  (9-11): 3 x NestedTensorBlock(
+    (norm1): LayerNorm((384,), eps=1e-06, elementwise_affine=True)
+    (attn): MemEffAttention(
+      (qkv): Linear(in_features=384, out_features=1152, bias=True)
+      (proj): Linear(in_features=384, out_features=384, bias=True)
+      (proj_drop): Dropout(p=0.0, inplace=False)
+    )
+    (ls1): LayerScale()
+    (drop_path1): DropPath()
+    (norm2): LayerNorm((384,), eps=1e-06, elementwise_affine=True)
+    (mlp): Mlp(
+      (fc1): Linear(in_features=384, out_features=1536, bias=True)
+      (act): GELU(approximate='none')
+      (fc2): Linear(in_features=1536, out_features=384, bias=True)
+      (drop): Dropout(p=0.0, inplace=False)
+    )
+    (ls2): LayerScale()
+    (drop_path2): DropPath()
+  )
+)
+  return fsdp_fn(module, **kwargs)
+
+W20260717 08:48:28 1479834 py.warnings warnings.py:109] /sci/labs/arieljaffe/dan.abergel1/torch_env/lib/python3.11/site-packages/torch/distributed/fsdp/wrap.py:91: UserWarning: FSDP will not all-gather parameters for containers that do not implement forward: BlockChunk(
+  (0-2): 3 x NestedTensorBlock(
+    (norm1): LayerNorm((384,), eps=1e-06, elementwise_affine=True)
+    (attn): MemEffAttention(
+      (qkv): Linear(in_features=384, out_features=1152, bias=True)
+      (proj): Linear(in_features=384, out_features=384, bias=True)
+      (proj_drop): Dropout(p=0.0, inplace=False)
+    )
+    (ls1): LayerScale()
+    (drop_path1): Identity()
+    (norm2): LayerNorm((384,), eps=1e-06, elementwise_affine=True)
+    (mlp): Mlp(
+      (fc1): Linear(in_features=384, out_features=1536, bias=True)
+      (act): GELU(approximate='none')
+      (fc2): Linear(in_features=1536, out_features=384, bias=True)
+      (drop): Dropout(p=0.0, inplace=False)
+    )
+    (ls2): LayerScale()
+    (drop_path2): Identity()
+  )
+)
+  return fsdp_fn(module, **kwargs)
+
+W20260717 08:48:28 1479834 py.warnings warnings.py:109] /sci/labs/arieljaffe/dan.abergel1/torch_env/lib/python3.11/site-packages/torch/distributed/fsdp/wrap.py:91: UserWarning: FSDP will not all-gather parameters for containers that do not implement forward: BlockChunk(
+  (0-2): 3 x Identity()
+  (3-5): 3 x NestedTensorBlock(
+    (norm1): LayerNorm((384,), eps=1e-06, elementwise_affine=True)
+    (attn): MemEffAttention(
+      (qkv): Linear(in_features=384, out_features=1152, bias=True)
+      (proj): Linear(in_features=384, out_features=384, bias=True)
+      (proj_drop): Dropout(p=0.0, inplace=False)
+    )
+    (ls1): LayerScale()
+    (drop_path1): Identity()
+    (norm2): LayerNorm((384,), eps=1e-06, elementwise_affine=True)
+    (mlp): Mlp(
+      (fc1): Linear(in_features=384, out_features=1536, bias=True)
+      (act): GELU(approximate='none')
+      (fc2): Linear(in_features=1536, out_features=384, bias=True)
+      (drop): Dropout(p=0.0, inplace=False)
+    )
+    (ls2): LayerScale()
+    (drop_path2): Identity()
+  )
+)
+  return fsdp_fn(module, **kwargs)
+
+W20260717 08:48:28 1479834 py.warnings warnings.py:109] /sci/labs/arieljaffe/dan.abergel1/torch_env/lib/python3.11/site-packages/torch/distributed/fsdp/wrap.py:91: UserWarning: FSDP will not all-gather parameters for containers that do not implement forward: BlockChunk(
+  (0-5): 6 x Identity()
+  (6-8): 3 x NestedTensorBlock(
+    (norm1): LayerNorm((384,), eps=1e-06, elementwise_affine=True)
+    (attn): MemEffAttention(
+      (qkv): Linear(in_features=384, out_features=1152, bias=True)
+      (proj): Linear(in_features=384, out_features=384, bias=True)
+      (proj_drop): Dropout(p=0.0, inplace=False)
+    )
+    (ls1): LayerScale()
+    (drop_path1): Identity()
+    (norm2): LayerNorm((384,), eps=1e-06, elementwise_affine=True)
+    (mlp): Mlp(
+      (fc1): Linear(in_features=384, out_features=1536, bias=True)
+      (act): GELU(approximate='none')
+      (fc2): Linear(in_features=1536, out_features=384, bias=True)
+      (drop): Dropout(p=0.0, inplace=False)
+    )
+    (ls2): LayerScale()
+    (drop_path2): Identity()
+  )
+)
+  return fsdp_fn(module, **kwargs)
+
+W20260717 08:48:28 1479834 py.warnings warnings.py:109] /sci/labs/arieljaffe/dan.abergel1/torch_env/lib/python3.11/site-packages/torch/distributed/fsdp/wrap.py:91: UserWarning: FSDP will not all-gather parameters for containers that do not implement forward: BlockChunk(
+  (0-8): 9 x Identity()
+  (9-11): 3 x NestedTensorBlock(
+    (norm1): LayerNorm((384,), eps=1e-06, elementwise_affine=True)
+    (attn): MemEffAttention(
+      (qkv): Linear(in_features=384, out_features=1152, bias=True)
+      (proj): Linear(in_features=384, out_features=384, bias=True)
+      (proj_drop): Dropout(p=0.0, inplace=False)
+    )
+    (ls1): LayerScale()
+    (drop_path1): Identity()
+    (norm2): LayerNorm((384,), eps=1e-06, elementwise_affine=True)
+    (mlp): Mlp(
+      (fc1): Linear(in_features=384, out_features=1536, bias=True)
+      (act): GELU(approximate='none')
+      (fc2): Linear(in_features=1536, out_features=384, bias=True)
+      (drop): Dropout(p=0.0, inplace=False)
+    )
+    (ls2): LayerScale()
+    (drop_path2): Identity()
+  )
+)
+  return fsdp_fn(module, **kwargs)
+
+I20260717 08:48:28 1479834 dinov2 train.py:312] Model:
+SSLMetaArch(
+  (dino_loss): DINOLoss()
+  (ibot_patch_loss): iBOTPatchLoss()
+  (student): ModuleDict(
+    (backbone): FullyShardedDataParallel(
+      (_fsdp_wrapped_module): DinoVisionTransformer(
+        (patch_embed): PatchEmbed(
+          (proj): Conv2d(3, 384, kernel_size=(16, 16), stride=(16, 16))
+          (norm): Identity()
+        )
+        (blocks): ModuleList(
+          (0): FullyShardedDataParallel(
+            (_fsdp_wrapped_module): BlockChunk(
+              (0-2): 3 x NestedTensorBlock(
+                (norm1): LayerNorm((384,), eps=1e-06, elementwise_affine=True)
+                (attn): MemEffAttention(
+                  (qkv): Linear(in_features=384, out_features=1152, bias=True)
+                  (proj): Linear(in_features=384, out_features=384, bias=True)
+                  (proj_drop): Dropout(p=0.0, inplace=False)
+                )
+                (ls1): LayerScale()
+                (drop_path1): DropPath()
+                (norm2): LayerNorm((384,), eps=1e-06, elementwise_affine=True)
+                (mlp): Mlp(
+                  (fc1): Linear(in_features=384, out_features=1536, bias=True)
+                  (act): GELU(approximate='none')
+                  (fc2): Linear(in_features=1536, out_features=384, bias=True)
+                  (drop): Dropout(p=0.0, inplace=False)
+                )
+                (ls2): LayerScale()
+                (drop_path2): DropPath()
+              )
+            )
+          )
+          (1): FullyShardedDataParallel(
+            (_fsdp_wrapped_module): BlockChunk(
+              (0-2): 3 x Identity()
+              (3-5): 3 x NestedTensorBlock(
+                (norm1): LayerNorm((384,), eps=1e-06, elementwise_affine=True)
+                (attn): MemEffAttention(
+                  (qkv): Linear(in_features=384, out_features=1152, bias=True)
+                  (proj): Linear(in_features=384, out_features=384, bias=True)
+                  (proj_drop): Dropout(p=0.0, inplace=False)
+                )
+                (ls1): LayerScale()
+                (drop_path1): DropPath()
+                (norm2): LayerNorm((384,), eps=1e-06, elementwise_affine=True)
+                (mlp): Mlp(
+                  (fc1): Linear(in_features=384, out_features=1536, bias=True)
+                  (act): GELU(approximate='none')
+                  (fc2): Linear(in_features=1536, out_features=384, bias=True)
+                  (drop): Dropout(p=0.0, inplace=False)
+                )
+                (ls2): LayerScale()
+                (drop_path2): DropPath()
+              )
+            )
+          )
+          (2): FullyShardedDataParallel(
+            (_fsdp_wrapped_module): BlockChunk(
+              (0-5): 6 x Identity()
+              (6-8): 3 x NestedTensorBlock(
+                (norm1): LayerNorm((384,), eps=1e-06, elementwise_affine=True)
+                (attn): MemEffAttention(
+                  (qkv): Linear(in_features=384, out_features=1152, bias=True)
+                  (proj): Linear(in_features=384, out_features=384, bias=True)
+                  (proj_drop): Dropout(p=0.0, inplace=False)
+                )
+                (ls1): LayerScale()
+                (drop_path1): DropPath()
+                (norm2): LayerNorm((384,), eps=1e-06, elementwise_affine=True)
+                (mlp): Mlp(
+                  (fc1): Linear(in_features=384, out_features=1536, bias=True)
+                  (act): GELU(approximate='none')
+                  (fc2): Linear(in_features=1536, out_features=384, bias=True)
+                  (drop): Dropout(p=0.0, inplace=False)
+                )
+                (ls2): LayerScale()
+                (drop_path2): DropPath()
+              )
+            )
+          )
+          (3): FullyShardedDataParallel(
+            (_fsdp_wrapped_module): BlockChunk(
+              (0-8): 9 x Identity()
+              (9-11): 3 x NestedTensorBlock(
+                (norm1): LayerNorm((384,), eps=1e-06, elementwise_affine=True)
+                (attn): MemEffAttention(
+                  (qkv): Linear(in_features=384, out_features=1152, bias=True)
+                  (proj): Linear(in_features=384, out_features=384, bias=True)
+                  (proj_drop): Dropout(p=0.0, inplace=False)
+                )
+                (ls1): LayerScale()
+                (drop_path1): DropPath()
+                (norm2): LayerNorm((384,), eps=1e-06, elementwise_affine=True)
+                (mlp): Mlp(
+                  (fc1): Linear(in_features=384, out_features=1536, bias=True)
+                  (act): GELU(approximate='none')
+                  (fc2): Linear(in_features=1536, out_features=384, bias=True)
+                  (drop): Dropout(p=0.0, inplace=False)
+                )
+                (ls2): LayerScale()
+                (drop_path2): DropPath()
+              )
+            )
+          )
+        )
+        (norm): LayerNorm((384,), eps=1e-06, elementwise_affine=True)
+        (head): Identity()
+      )
+    )
+    (dino_head): FullyShardedDataParallel(
+      (_fsdp_wrapped_module): DINOHead(
+        (mlp): Sequential(
+          (0): Linear(in_features=384, out_features=2048, bias=True)
+          (1): GELU(approximate='none')
+          (2): Linear(in_features=2048, out_features=2048, bias=True)
+          (3): GELU(approximate='none')
+          (4): Linear(in_features=2048, out_features=256, bias=True)
+        )
+        (last_layer): Linear(in_features=256, out_features=128, bias=False)
+      )
+    )
+  )
+  (teacher): ModuleDict(
+    (backbone): FullyShardedDataParallel(
+      (_fsdp_wrapped_module): DinoVisionTransformer(
+        (patch_embed): PatchEmbed(
+          (proj): Conv2d(3, 384, kernel_size=(16, 16), stride=(16, 16))
+          (norm): Identity()
+        )
+        (blocks): ModuleList(
+          (0): FullyShardedDataParallel(
+            (_fsdp_wrapped_module): BlockChunk(
+              (0-2): 3 x NestedTensorBlock(
+                (norm1): LayerNorm((384,), eps=1e-06, elementwise_affine=True)
+                (attn): MemEffAttention(
+                  (qkv): Linear(in_features=384, out_features=1152, bias=True)
+                  (proj): Linear(in_features=384, out_features=384, bias=True)
+                  (proj_drop): Dropout(p=0.0, inplace=False)
+                )
+                (ls1): LayerScale()
+                (drop_path1): Identity()
+                (norm2): LayerNorm((384,), eps=1e-06, elementwise_affine=True)
+                (mlp): Mlp(
+                  (fc1): Linear(in_features=384, out_features=1536, bias=True)
+                  (act): GELU(approximate='none')
+                  (fc2): Linear(in_features=1536, out_features=384, bias=True)
+                  (drop): Dropout(p=0.0, inplace=False)
+                )
+                (ls2): LayerScale()
+                (drop_path2): Identity()
+              )
+            )
+          )
+          (1): FullyShardedDataParallel(
+            (_fsdp_wrapped_module): BlockChunk(
+              (0-2): 3 x Identity()
+              (3-5): 3 x NestedTensorBlock(
+                (norm1): LayerNorm((384,), eps=1e-06, elementwise_affine=True)
+                (attn): MemEffAttention(
+                  (qkv): Linear(in_features=384, out_features=1152, bias=True)
+                  (proj): Linear(in_features=384, out_features=384, bias=True)
+                  (proj_drop): Dropout(p=0.0, inplace=False)
+                )
+                (ls1): LayerScale()
+                (drop_path1): Identity()
+                (norm2): LayerNorm((384,), eps=1e-06, elementwise_affine=True)
+                (mlp): Mlp(
+                  (fc1): Linear(in_features=384, out_features=1536, bias=True)
+                  (act): GELU(approximate='none')
+                  (fc2): Linear(in_features=1536, out_features=384, bias=True)
+                  (drop): Dropout(p=0.0, inplace=False)
+                )
+                (ls2): LayerScale()
+                (drop_path2): Identity()
+              )
+            )
+          )
+          (2): FullyShardedDataParallel(
+            (_fsdp_wrapped_module): BlockChunk(
+              (0-5): 6 x Identity()
+              (6-8): 3 x NestedTensorBlock(
+                (norm1): LayerNorm((384,), eps=1e-06, elementwise_affine=True)
+                (attn): MemEffAttention(
+                  (qkv): Linear(in_features=384, out_features=1152, bias=True)
+                  (proj): Linear(in_features=384, out_features=384, bias=True)
+                  (proj_drop): Dropout(p=0.0, inplace=False)
+                )
+                (ls1): LayerScale()
+                (drop_path1): Identity()
+                (norm2): LayerNorm((384,), eps=1e-06, elementwise_affine=True)
+                (mlp): Mlp(
+                  (fc1): Linear(in_features=384, out_features=1536, bias=True)
+                  (act): GELU(approximate='none')
+                  (fc2): Linear(in_features=1536, out_features=384, bias=True)
+                  (drop): Dropout(p=0.0, inplace=False)
+                )
+                (ls2): LayerScale()
+                (drop_path2): Identity()
+              )
+            )
+          )
+          (3): FullyShardedDataParallel(
+            (_fsdp_wrapped_module): BlockChunk(
+              (0-8): 9 x Identity()
+              (9-11): 3 x NestedTensorBlock(
+                (norm1): LayerNorm((384,), eps=1e-06, elementwise_affine=True)
+                (attn): MemEffAttention(
+                  (qkv): Linear(in_features=384, out_features=1152, bias=True)
+                  (proj): Linear(in_features=384, out_features=384, bias=True)
+                  (proj_drop): Dropout(p=0.0, inplace=False)
+                )
+                (ls1): LayerScale()
+                (drop_path1): Identity()
+                (norm2): LayerNorm((384,), eps=1e-06, elementwise_affine=True)
+                (mlp): Mlp(
+                  (fc1): Linear(in_features=384, out_features=1536, bias=True)
+                  (act): GELU(approximate='none')
+                  (fc2): Linear(in_features=1536, out_features=384, bias=True)
+                  (drop): Dropout(p=0.0, inplace=False)
+                )
+                (ls2): LayerScale()
+                (drop_path2): Identity()
+              )
+            )
+          )
+        )
+        (norm): LayerNorm((384,), eps=1e-06, elementwise_affine=True)
+        (head): Identity()
+      )
+    )
+    (dino_head): FullyShardedDataParallel(
+      (_fsdp_wrapped_module): DINOHead(
+        (mlp): Sequential(
+          (0): Linear(in_features=384, out_features=2048, bias=True)
+          (1): GELU(approximate='none')
+          (2): Linear(in_features=2048, out_features=2048, bias=True)
+          (3): GELU(approximate='none')
+          (4): Linear(in_features=2048, out_features=256, bias=True)
+        )
+        (last_layer): Linear(in_features=256, out_features=128, bias=False)
+      )
+    )
+  )
+)
+I20260717 08:48:28 1479834 dinov2 param_groups.py:54] chunked fsdp
+I20260717 08:48:28 1479834 dinov2 param_groups.py:87] cls_token: lr_multiplier: 0.2541865828329001, wd_multiplier: 1.0
+I20260717 08:48:28 1479834 dinov2 param_groups.py:87] pos_embed: lr_multiplier: 0.2541865828329001, wd_multiplier: 1.0
+I20260717 08:48:28 1479834 dinov2 param_groups.py:87] mask_token: lr_multiplier: 0.2541865828329001, wd_multiplier: 1.0
+I20260717 08:48:28 1479834 dinov2 param_groups.py:87] patch_embed.proj.weight: lr_multiplier: 0.05083731656658002, wd_multiplier: 1.0
+I20260717 08:48:28 1479834 dinov2 param_groups.py:87] patch_embed.proj.bias: lr_multiplier: 0.05083731656658002, wd_multiplier: 0.0
+I20260717 08:48:28 1479834 dinov2 param_groups.py:87] blocks.0.0.norm1.weight: lr_multiplier: 0.2824295364810001, wd_multiplier: 0.0
+I20260717 08:48:28 1479834 dinov2 param_groups.py:87] blocks.0.0.norm1.bias: lr_multiplier: 0.2824295364810001, wd_multiplier: 0.0
+I20260717 08:48:28 1479834 dinov2 param_groups.py:87] blocks.0.0.attn.qkv.weight: lr_multiplier: 0.2824295364810001, wd_multiplier: 1.0
+I20260717 08:48:28 1479834 dinov2 param_groups.py:87] blocks.0.0.attn.qkv.bias: lr_multiplier: 0.2824295364810001, wd_multiplier: 0.0
+I20260717 08:48:28 1479834 dinov2 param_groups.py:87] blocks.0.0.attn.proj.weight: lr_multiplier: 0.2824295364810001, wd_multiplier: 1.0
+I20260717 08:48:28 1479834 dinov2 param_groups.py:87] blocks.0.0.attn.proj.bias: lr_multiplier: 0.2824295364810001, wd_multiplier: 0.0
+I20260717 08:48:28 1479834 dinov2 param_groups.py:87] blocks.0.0.ls1.gamma: lr_multiplier: 0.2824295364810001, wd_multiplier: 0.0
+I20260717 08:48:28 1479834 dinov2 param_groups.py:87] blocks.0.0.norm2.weight: lr_multiplier: 0.2824295364810001, wd_multiplier: 0.0
+I20260717 08:48:28 1479834 dinov2 param_groups.py:87] blocks.0.0.norm2.bias: lr_multiplier: 0.2824295364810001, wd_multiplier: 0.0
+I20260717 08:48:28 1479834 dinov2 param_groups.py:87] blocks.0.0.mlp.fc1.weight: lr_multiplier: 0.2824295364810001, wd_multiplier: 1.0
+I20260717 08:48:28 1479834 dinov2 param_groups.py:87] blocks.0.0.mlp.fc1.bias: lr_multiplier: 0.2824295364810001, wd_multiplier: 0.0
+I20260717 08:48:28 1479834 dinov2 param_groups.py:87] blocks.0.0.mlp.fc2.weight: lr_multiplier: 0.2824295364810001, wd_multiplier: 1.0
+I20260717 08:48:28 1479834 dinov2 param_groups.py:87] blocks.0.0.mlp.fc2.bias: lr_multiplier: 0.2824295364810001, wd_multiplier: 0.0
+I20260717 08:48:28 1479834 dinov2 param_groups.py:87] blocks.0.0.ls2.gamma: lr_multiplier: 0.2824295364810001, wd_multiplier: 0.0
+I20260717 08:48:28 1479834 dinov2 param_groups.py:87] blocks.0.1.norm1.weight: lr_multiplier: 0.31381059609000006, wd_multiplier: 0.0
+I20260717 08:48:28 1479834 dinov2 param_groups.py:87] blocks.0.1.norm1.bias: lr_multiplier: 0.31381059609000006, wd_multiplier: 0.0
+I20260717 08:48:28 1479834 dinov2 param_groups.py:87] blocks.0.1.attn.qkv.weight: lr_multiplier: 0.31381059609000006, wd_multiplier: 1.0
+I20260717 08:48:28 1479834 dinov2 param_groups.py:87] blocks.0.1.attn.qkv.bias: lr_multiplier: 0.31381059609000006, wd_multiplier: 0.0
+I20260717 08:48:28 1479834 dinov2 param_groups.py:87] blocks.0.1.attn.proj.weight: lr_multiplier: 0.31381059609000006, wd_multiplier: 1.0
+I20260717 08:48:28 1479834 dinov2 param_groups.py:87] blocks.0.1.attn.proj.bias: lr_multiplier: 0.31381059609000006, wd_multiplier: 0.0
+I20260717 08:48:28 1479834 dinov2 param_groups.py:87] blocks.0.1.ls1.gamma: lr_multiplier: 0.31381059609000006, wd_multiplier: 0.0
+I20260717 08:48:28 1479834 dinov2 param_groups.py:87] blocks.0.1.norm2.weight: lr_multiplier: 0.31381059609000006, wd_multiplier: 0.0
+I20260717 08:48:28 1479834 dinov2 param_groups.py:87] blocks.0.1.norm2.bias: lr_multiplier: 0.31381059609000006, wd_multiplier: 0.0
+I20260717 08:48:28 1479834 dinov2 param_groups.py:87] blocks.0.1.mlp.fc1.weight: lr_multiplier: 0.31381059609000006, wd_multiplier: 1.0
+I20260717 08:48:28 1479834 dinov2 param_groups.py:87] blocks.0.1.mlp.fc1.bias: lr_multiplier: 0.31381059609000006, wd_multiplier: 0.0
+I20260717 08:48:28 1479834 dinov2 param_groups.py:87] blocks.0.1.mlp.fc2.weight: lr_multiplier: 0.31381059609000006, wd_multiplier: 1.0
+I20260717 08:48:28 1479834 dinov2 param_groups.py:87] blocks.0.1.mlp.fc2.bias: lr_multiplier: 0.31381059609000006, wd_multiplier: 0.0
+I20260717 08:48:28 1479834 dinov2 param_groups.py:87] blocks.0.1.ls2.gamma: lr_multiplier: 0.31381059609000006, wd_multiplier: 0.0
+I20260717 08:48:28 1479834 dinov2 param_groups.py:87] blocks.0.2.norm1.weight: lr_multiplier: 0.3486784401000001, wd_multiplier: 0.0
+I20260717 08:48:28 1479834 dinov2 param_groups.py:87] blocks.0.2.norm1.bias: lr_multiplier: 0.3486784401000001, wd_multiplier: 0.0
+I20260717 08:48:28 1479834 dinov2 param_groups.py:87] blocks.0.2.attn.qkv.weight: lr_multiplier: 0.3486784401000001, wd_multiplier: 1.0
+I20260717 08:48:28 1479834 dinov2 param_groups.py:87] blocks.0.2.attn.qkv.bias: lr_multiplier: 0.3486784401000001, wd_multiplier: 0.0
+I20260717 08:48:28 1479834 dinov2 param_groups.py:87] blocks.0.2.attn.proj.weight: lr_multiplier: 0.3486784401000001, wd_multiplier: 1.0
+I20260717 08:48:28 1479834 dinov2 param_groups.py:87] blocks.0.2.attn.proj.bias: lr_multiplier: 0.3486784401000001, wd_multiplier: 0.0
+I20260717 08:48:28 1479834 dinov2 param_groups.py:87] blocks.0.2.ls1.gamma: lr_multiplier: 0.3486784401000001, wd_multiplier: 0.0
+I20260717 08:48:28 1479834 dinov2 param_groups.py:87] blocks.0.2.norm2.weight: lr_multiplier: 0.3486784401000001, wd_multiplier: 0.0
+I20260717 08:48:28 1479834 dinov2 param_groups.py:87] blocks.0.2.norm2.bias: lr_multiplier: 0.3486784401000001, wd_multiplier: 0.0
+I20260717 08:48:28 1479834 dinov2 param_groups.py:87] blocks.0.2.mlp.fc1.weight: lr_multiplier: 0.3486784401000001, wd_multiplier: 1.0
+I20260717 08:48:28 1479834 dinov2 param_groups.py:87] blocks.0.2.mlp.fc1.bias: lr_multiplier: 0.3486784401000001, wd_multiplier: 0.0
+I20260717 08:48:28 1479834 dinov2 param_groups.py:87] blocks.0.2.mlp.fc2.weight: lr_multiplier: 0.3486784401000001, wd_multiplier: 1.0
+I20260717 08:48:28 1479834 dinov2 param_groups.py:87] blocks.0.2.mlp.fc2.bias: lr_multiplier: 0.3486784401000001, wd_multiplier: 0.0
+I20260717 08:48:28 1479834 dinov2 param_groups.py:87] blocks.0.2.ls2.gamma: lr_multiplier: 0.3486784401000001, wd_multiplier: 0.0
+I20260717 08:48:28 1479834 dinov2 param_groups.py:87] blocks.1.3.norm1.weight: lr_multiplier: 0.3874204890000001, wd_multiplier: 0.0
+I20260717 08:48:28 1479834 dinov2 param_groups.py:87] blocks.1.3.norm1.bias: lr_multiplier: 0.3874204890000001, wd_multiplier: 0.0
+I20260717 08:48:28 1479834 dinov2 param_groups.py:87] blocks.1.3.attn.qkv.weight: lr_multiplier: 0.3874204890000001, wd_multiplier: 1.0
+I20260717 08:48:28 1479834 dinov2 param_groups.py:87] blocks.1.3.attn.qkv.bias: lr_multiplier: 0.3874204890000001, wd_multiplier: 0.0
+I20260717 08:48:28 1479834 dinov2 param_groups.py:87] blocks.1.3.attn.proj.weight: lr_multiplier: 0.3874204890000001, wd_multiplier: 1.0
+I20260717 08:48:28 1479834 dinov2 param_groups.py:87] blocks.1.3.attn.proj.bias: lr_multiplier: 0.3874204890000001, wd_multiplier: 0.0
+I20260717 08:48:28 1479834 dinov2 param_groups.py:87] blocks.1.3.ls1.gamma: lr_multiplier: 0.3874204890000001, wd_multiplier: 0.0
+I20260717 08:48:28 1479834 dinov2 param_groups.py:87] blocks.1.3.norm2.weight: lr_multiplier: 0.3874204890000001, wd_multiplier: 0.0
+I20260717 08:48:28 1479834 dinov2 param_groups.py:87] blocks.1.3.norm2.bias: lr_multiplier: 0.3874204890000001, wd_multiplier: 0.0
+I20260717 08:48:28 1479834 dinov2 param_groups.py:87] blocks.1.3.mlp.fc1.weight: lr_multiplier: 0.3874204890000001, wd_multiplier: 1.0
+I20260717 08:48:28 1479834 dinov2 param_groups.py:87] blocks.1.3.mlp.fc1.bias: lr_multiplier: 0.3874204890000001, wd_multiplier: 0.0
+I20260717 08:48:28 1479834 dinov2 param_groups.py:87] blocks.1.3.mlp.fc2.weight: lr_multiplier: 0.3874204890000001, wd_multiplier: 1.0
+I20260717 08:48:28 1479834 dinov2 param_groups.py:87] blocks.1.3.mlp.fc2.bias: lr_multiplier: 0.3874204890000001, wd_multiplier: 0.0
+I20260717 08:48:28 1479834 dinov2 param_groups.py:87] blocks.1.3.ls2.gamma: lr_multiplier: 0.3874204890000001, wd_multiplier: 0.0
+I20260717 08:48:28 1479834 dinov2 param_groups.py:87] blocks.1.4.norm1.weight: lr_multiplier: 0.4304672100000001, wd_multiplier: 0.0
+I20260717 08:48:28 1479834 dinov2 param_groups.py:87] blocks.1.4.norm1.bias: lr_multiplier: 0.4304672100000001, wd_multiplier: 0.0
+I20260717 08:48:28 1479834 dinov2 param_groups.py:87] blocks.1.4.attn.qkv.weight: lr_multiplier: 0.4304672100000001, wd_multiplier: 1.0
+I20260717 08:48:28 1479834 dinov2 param_groups.py:87] blocks.1.4.attn.qkv.bias: lr_multiplier: 0.4304672100000001, wd_multiplier: 0.0
+I20260717 08:48:28 1479834 dinov2 param_groups.py:87] blocks.1.4.attn.proj.weight: lr_multiplier: 0.4304672100000001, wd_multiplier: 1.0
+I20260717 08:48:28 1479834 dinov2 param_groups.py:87] blocks.1.4.attn.proj.bias: lr_multiplier: 0.4304672100000001, wd_multiplier: 0.0
+I20260717 08:48:28 1479834 dinov2 param_groups.py:87] blocks.1.4.ls1.gamma: lr_multiplier: 0.4304672100000001, wd_multiplier: 0.0
+I20260717 08:48:28 1479834 dinov2 param_groups.py:87] blocks.1.4.norm2.weight: lr_multiplier: 0.4304672100000001, wd_multiplier: 0.0
+I20260717 08:48:28 1479834 dinov2 param_groups.py:87] blocks.1.4.norm2.bias: lr_multiplier: 0.4304672100000001, wd_multiplier: 0.0
+I20260717 08:48:28 1479834 dinov2 param_groups.py:87] blocks.1.4.mlp.fc1.weight: lr_multiplier: 0.4304672100000001, wd_multiplier: 1.0
+I20260717 08:48:28 1479834 dinov2 param_groups.py:87] blocks.1.4.mlp.fc1.bias: lr_multiplier: 0.4304672100000001, wd_multiplier: 0.0
+I20260717 08:48:28 1479834 dinov2 param_groups.py:87] blocks.1.4.mlp.fc2.weight: lr_multiplier: 0.4304672100000001, wd_multiplier: 1.0
+I20260717 08:48:28 1479834 dinov2 param_groups.py:87] blocks.1.4.mlp.fc2.bias: lr_multiplier: 0.4304672100000001, wd_multiplier: 0.0
+I20260717 08:48:28 1479834 dinov2 param_groups.py:87] blocks.1.4.ls2.gamma: lr_multiplier: 0.4304672100000001, wd_multiplier: 0.0
+I20260717 08:48:28 1479834 dinov2 param_groups.py:87] blocks.1.5.norm1.weight: lr_multiplier: 0.4782969000000001, wd_multiplier: 0.0
+I20260717 08:48:28 1479834 dinov2 param_groups.py:87] blocks.1.5.norm1.bias: lr_multiplier: 0.4782969000000001, wd_multiplier: 0.0
+I20260717 08:48:28 1479834 dinov2 param_groups.py:87] blocks.1.5.attn.qkv.weight: lr_multiplier: 0.4782969000000001, wd_multiplier: 1.0
+I20260717 08:48:28 1479834 dinov2 param_groups.py:87] blocks.1.5.attn.qkv.bias: lr_multiplier: 0.4782969000000001, wd_multiplier: 0.0
+I20260717 08:48:28 1479834 dinov2 param_groups.py:87] blocks.1.5.attn.proj.weight: lr_multiplier: 0.4782969000000001, wd_multiplier: 1.0
+I20260717 08:48:28 1479834 dinov2 param_groups.py:87] blocks.1.5.attn.proj.bias: lr_multiplier: 0.4782969000000001, wd_multiplier: 0.0
+I20260717 08:48:28 1479834 dinov2 param_groups.py:87] blocks.1.5.ls1.gamma: lr_multiplier: 0.4782969000000001, wd_multiplier: 0.0
+I20260717 08:48:28 1479834 dinov2 param_groups.py:87] blocks.1.5.norm2.weight: lr_multiplier: 0.4782969000000001, wd_multiplier: 0.0
+I20260717 08:48:28 1479834 dinov2 param_groups.py:87] blocks.1.5.norm2.bias: lr_multiplier: 0.4782969000000001, wd_multiplier: 0.0
+I20260717 08:48:28 1479834 dinov2 param_groups.py:87] blocks.1.5.mlp.fc1.weight: lr_multiplier: 0.4782969000000001, wd_multiplier: 1.0
+I20260717 08:48:28 1479834 dinov2 param_groups.py:87] blocks.1.5.mlp.fc1.bias: lr_multiplier: 0.4782969000000001, wd_multiplier: 0.0
+I20260717 08:48:28 1479834 dinov2 param_groups.py:87] blocks.1.5.mlp.fc2.weight: lr_multiplier: 0.4782969000000001, wd_multiplier: 1.0
+I20260717 08:48:28 1479834 dinov2 param_groups.py:87] blocks.1.5.mlp.fc2.bias: lr_multiplier: 0.4782969000000001, wd_multiplier: 0.0
+I20260717 08:48:28 1479834 dinov2 param_groups.py:87] blocks.1.5.ls2.gamma: lr_multiplier: 0.4782969000000001, wd_multiplier: 0.0
+I20260717 08:48:28 1479834 dinov2 param_groups.py:87] blocks.2.6.norm1.weight: lr_multiplier: 0.531441, wd_multiplier: 0.0
+I20260717 08:48:28 1479834 dinov2 param_groups.py:87] blocks.2.6.norm1.bias: lr_multiplier: 0.531441, wd_multiplier: 0.0
+I20260717 08:48:28 1479834 dinov2 param_groups.py:87] blocks.2.6.attn.qkv.weight: lr_multiplier: 0.531441, wd_multiplier: 1.0
+I20260717 08:48:28 1479834 dinov2 param_groups.py:87] blocks.2.6.attn.qkv.bias: lr_multiplier: 0.531441, wd_multiplier: 0.0
+I20260717 08:48:28 1479834 dinov2 param_groups.py:87] blocks.2.6.attn.proj.weight: lr_multiplier: 0.531441, wd_multiplier: 1.0
+I20260717 08:48:28 1479834 dinov2 param_groups.py:87] blocks.2.6.attn.proj.bias: lr_multiplier: 0.531441, wd_multiplier: 0.0
+I20260717 08:48:28 1479834 dinov2 param_groups.py:87] blocks.2.6.ls1.gamma: lr_multiplier: 0.531441, wd_multiplier: 0.0
+I20260717 08:48:28 1479834 dinov2 param_groups.py:87] blocks.2.6.norm2.weight: lr_multiplier: 0.531441, wd_multiplier: 0.0
+I20260717 08:48:28 1479834 dinov2 param_groups.py:87] blocks.2.6.norm2.bias: lr_multiplier: 0.531441, wd_multiplier: 0.0
+I20260717 08:48:28 1479834 dinov2 param_groups.py:87] blocks.2.6.mlp.fc1.weight: lr_multiplier: 0.531441, wd_multiplier: 1.0
+I20260717 08:48:28 1479834 dinov2 param_groups.py:87] blocks.2.6.mlp.fc1.bias: lr_multiplier: 0.531441, wd_multiplier: 0.0
+I20260717 08:48:28 1479834 dinov2 param_groups.py:87] blocks.2.6.mlp.fc2.weight: lr_multiplier: 0.531441, wd_multiplier: 1.0
+I20260717 08:48:28 1479834 dinov2 param_groups.py:87] blocks.2.6.mlp.fc2.bias: lr_multiplier: 0.531441, wd_multiplier: 0.0
+I20260717 08:48:28 1479834 dinov2 param_groups.py:87] blocks.2.6.ls2.gamma: lr_multiplier: 0.531441, wd_multiplier: 0.0
+I20260717 08:48:28 1479834 dinov2 param_groups.py:87] blocks.2.7.norm1.weight: lr_multiplier: 0.5904900000000001, wd_multiplier: 0.0
+I20260717 08:48:28 1479834 dinov2 param_groups.py:87] blocks.2.7.norm1.bias: lr_multiplier: 0.5904900000000001, wd_multiplier: 0.0
+I20260717 08:48:28 1479834 dinov2 param_groups.py:87] blocks.2.7.attn.qkv.weight: lr_multiplier: 0.5904900000000001, wd_multiplier: 1.0
+I20260717 08:48:28 1479834 dinov2 param_groups.py:87] blocks.2.7.attn.qkv.bias: lr_multiplier: 0.5904900000000001, wd_multiplier: 0.0
+I20260717 08:48:28 1479834 dinov2 param_groups.py:87] blocks.2.7.attn.proj.weight: lr_multiplier: 0.5904900000000001, wd_multiplier: 1.0
+I20260717 08:48:28 1479834 dinov2 param_groups.py:87] blocks.2.7.attn.proj.bias: lr_multiplier: 0.5904900000000001, wd_multiplier: 0.0
+I20260717 08:48:28 1479834 dinov2 param_groups.py:87] blocks.2.7.ls1.gamma: lr_multiplier: 0.5904900000000001, wd_multiplier: 0.0
+I20260717 08:48:28 1479834 dinov2 param_groups.py:87] blocks.2.7.norm2.weight: lr_multiplier: 0.5904900000000001, wd_multiplier: 0.0
+I20260717 08:48:28 1479834 dinov2 param_groups.py:87] blocks.2.7.norm2.bias: lr_multiplier: 0.5904900000000001, wd_multiplier: 0.0
+I20260717 08:48:28 1479834 dinov2 param_groups.py:87] blocks.2.7.mlp.fc1.weight: lr_multiplier: 0.5904900000000001, wd_multiplier: 1.0
+I20260717 08:48:28 1479834 dinov2 param_groups.py:87] blocks.2.7.mlp.fc1.bias: lr_multiplier: 0.5904900000000001, wd_multiplier: 0.0
+I20260717 08:48:28 1479834 dinov2 param_groups.py:87] blocks.2.7.mlp.fc2.weight: lr_multiplier: 0.5904900000000001, wd_multiplier: 1.0
+I20260717 08:48:28 1479834 dinov2 param_groups.py:87] blocks.2.7.mlp.fc2.bias: lr_multiplier: 0.5904900000000001, wd_multiplier: 0.0
+I20260717 08:48:28 1479834 dinov2 param_groups.py:87] blocks.2.7.ls2.gamma: lr_multiplier: 0.5904900000000001, wd_multiplier: 0.0
+I20260717 08:48:28 1479834 dinov2 param_groups.py:87] blocks.2.8.norm1.weight: lr_multiplier: 0.6561, wd_multiplier: 0.0
+I20260717 08:48:28 1479834 dinov2 param_groups.py:87] blocks.2.8.norm1.bias: lr_multiplier: 0.6561, wd_multiplier: 0.0
+I20260717 08:48:28 1479834 dinov2 param_groups.py:87] blocks.2.8.attn.qkv.weight: lr_multiplier: 0.6561, wd_multiplier: 1.0
+I20260717 08:48:28 1479834 dinov2 param_groups.py:87] blocks.2.8.attn.qkv.bias: lr_multiplier: 0.6561, wd_multiplier: 0.0
+I20260717 08:48:28 1479834 dinov2 param_groups.py:87] blocks.2.8.attn.proj.weight: lr_multiplier: 0.6561, wd_multiplier: 1.0
+I20260717 08:48:28 1479834 dinov2 param_groups.py:87] blocks.2.8.attn.proj.bias: lr_multiplier: 0.6561, wd_multiplier: 0.0
+I20260717 08:48:28 1479834 dinov2 param_groups.py:87] blocks.2.8.ls1.gamma: lr_multiplier: 0.6561, wd_multiplier: 0.0
+I20260717 08:48:28 1479834 dinov2 param_groups.py:87] blocks.2.8.norm2.weight: lr_multiplier: 0.6561, wd_multiplier: 0.0
+I20260717 08:48:28 1479834 dinov2 param_groups.py:87] blocks.2.8.norm2.bias: lr_multiplier: 0.6561, wd_multiplier: 0.0
+I20260717 08:48:28 1479834 dinov2 param_groups.py:87] blocks.2.8.mlp.fc1.weight: lr_multiplier: 0.6561, wd_multiplier: 1.0
+I20260717 08:48:28 1479834 dinov2 param_groups.py:87] blocks.2.8.mlp.fc1.bias: lr_multiplier: 0.6561, wd_multiplier: 0.0
+I20260717 08:48:28 1479834 dinov2 param_groups.py:87] blocks.2.8.mlp.fc2.weight: lr_multiplier: 0.6561, wd_multiplier: 1.0
+I20260717 08:48:28 1479834 dinov2 param_groups.py:87] blocks.2.8.mlp.fc2.bias: lr_multiplier: 0.6561, wd_multiplier: 0.0
+I20260717 08:48:28 1479834 dinov2 param_groups.py:87] blocks.2.8.ls2.gamma: lr_multiplier: 0.6561, wd_multiplier: 0.0
+I20260717 08:48:28 1479834 dinov2 param_groups.py:87] blocks.3.9.norm1.weight: lr_multiplier: 0.7290000000000001, wd_multiplier: 0.0
+I20260717 08:48:28 1479834 dinov2 param_groups.py:87] blocks.3.9.norm1.bias: lr_multiplier: 0.7290000000000001, wd_multiplier: 0.0
+I20260717 08:48:28 1479834 dinov2 param_groups.py:87] blocks.3.9.attn.qkv.weight: lr_multiplier: 0.7290000000000001, wd_multiplier: 1.0
+I20260717 08:48:28 1479834 dinov2 param_groups.py:87] blocks.3.9.attn.qkv.bias: lr_multiplier: 0.7290000000000001, wd_multiplier: 0.0
+I20260717 08:48:28 1479834 dinov2 param_groups.py:87] blocks.3.9.attn.proj.weight: lr_multiplier: 0.7290000000000001, wd_multiplier: 1.0
+I20260717 08:48:28 1479834 dinov2 param_groups.py:87] blocks.3.9.attn.proj.bias: lr_multiplier: 0.7290000000000001, wd_multiplier: 0.0
+I20260717 08:48:28 1479834 dinov2 param_groups.py:87] blocks.3.9.ls1.gamma: lr_multiplier: 0.7290000000000001, wd_multiplier: 0.0
+I20260717 08:48:28 1479834 dinov2 param_groups.py:87] blocks.3.9.norm2.weight: lr_multiplier: 0.7290000000000001, wd_multiplier: 0.0
+I20260717 08:48:28 1479834 dinov2 param_groups.py:87] blocks.3.9.norm2.bias: lr_multiplier: 0.7290000000000001, wd_multiplier: 0.0
+I20260717 08:48:28 1479834 dinov2 param_groups.py:87] blocks.3.9.mlp.fc1.weight: lr_multiplier: 0.7290000000000001, wd_multiplier: 1.0
+I20260717 08:48:28 1479834 dinov2 param_groups.py:87] blocks.3.9.mlp.fc1.bias: lr_multiplier: 0.7290000000000001, wd_multiplier: 0.0
+I20260717 08:48:28 1479834 dinov2 param_groups.py:87] blocks.3.9.mlp.fc2.weight: lr_multiplier: 0.7290000000000001, wd_multiplier: 1.0
+I20260717 08:48:28 1479834 dinov2 param_groups.py:87] blocks.3.9.mlp.fc2.bias: lr_multiplier: 0.7290000000000001, wd_multiplier: 0.0
+I20260717 08:48:28 1479834 dinov2 param_groups.py:87] blocks.3.9.ls2.gamma: lr_multiplier: 0.7290000000000001, wd_multiplier: 0.0
+I20260717 08:48:28 1479834 dinov2 param_groups.py:87] blocks.3.10.norm1.weight: lr_multiplier: 0.81, wd_multiplier: 0.0
+I20260717 08:48:28 1479834 dinov2 param_groups.py:87] blocks.3.10.norm1.bias: lr_multiplier: 0.81, wd_multiplier: 0.0
+I20260717 08:48:28 1479834 dinov2 param_groups.py:87] blocks.3.10.attn.qkv.weight: lr_multiplier: 0.81, wd_multiplier: 1.0
+I20260717 08:48:28 1479834 dinov2 param_groups.py:87] blocks.3.10.attn.qkv.bias: lr_multiplier: 0.81, wd_multiplier: 0.0
+I20260717 08:48:28 1479834 dinov2 param_groups.py:87] blocks.3.10.attn.proj.weight: lr_multiplier: 0.81, wd_multiplier: 1.0
+I20260717 08:48:28 1479834 dinov2 param_groups.py:87] blocks.3.10.attn.proj.bias: lr_multiplier: 0.81, wd_multiplier: 0.0
+I20260717 08:48:28 1479834 dinov2 param_groups.py:87] blocks.3.10.ls1.gamma: lr_multiplier: 0.81, wd_multiplier: 0.0
+I20260717 08:48:28 1479834 dinov2 param_groups.py:87] blocks.3.10.norm2.weight: lr_multiplier: 0.81, wd_multiplier: 0.0
+I20260717 08:48:28 1479834 dinov2 param_groups.py:87] blocks.3.10.norm2.bias: lr_multiplier: 0.81, wd_multiplier: 0.0
+I20260717 08:48:28 1479834 dinov2 param_groups.py:87] blocks.3.10.mlp.fc1.weight: lr_multiplier: 0.81, wd_multiplier: 1.0
+I20260717 08:48:28 1479834 dinov2 param_groups.py:87] blocks.3.10.mlp.fc1.bias: lr_multiplier: 0.81, wd_multiplier: 0.0
+I20260717 08:48:28 1479834 dinov2 param_groups.py:87] blocks.3.10.mlp.fc2.weight: lr_multiplier: 0.81, wd_multiplier: 1.0
+I20260717 08:48:28 1479834 dinov2 param_groups.py:87] blocks.3.10.mlp.fc2.bias: lr_multiplier: 0.81, wd_multiplier: 0.0
+I20260717 08:48:28 1479834 dinov2 param_groups.py:87] blocks.3.10.ls2.gamma: lr_multiplier: 0.81, wd_multiplier: 0.0
+I20260717 08:48:28 1479834 dinov2 param_groups.py:87] blocks.3.11.norm1.weight: lr_multiplier: 0.9, wd_multiplier: 0.0
+I20260717 08:48:28 1479834 dinov2 param_groups.py:87] blocks.3.11.norm1.bias: lr_multiplier: 0.9, wd_multiplier: 0.0
+I20260717 08:48:28 1479834 dinov2 param_groups.py:87] blocks.3.11.attn.qkv.weight: lr_multiplier: 0.9, wd_multiplier: 1.0
+I20260717 08:48:28 1479834 dinov2 param_groups.py:87] blocks.3.11.attn.qkv.bias: lr_multiplier: 0.9, wd_multiplier: 0.0
+I20260717 08:48:28 1479834 dinov2 param_groups.py:87] blocks.3.11.attn.proj.weight: lr_multiplier: 0.9, wd_multiplier: 1.0
+I20260717 08:48:28 1479834 dinov2 param_groups.py:87] blocks.3.11.attn.proj.bias: lr_multiplier: 0.9, wd_multiplier: 0.0
+I20260717 08:48:28 1479834 dinov2 param_groups.py:87] blocks.3.11.ls1.gamma: lr_multiplier: 0.9, wd_multiplier: 0.0
+I20260717 08:48:28 1479834 dinov2 param_groups.py:87] blocks.3.11.norm2.weight: lr_multiplier: 0.9, wd_multiplier: 0.0
+I20260717 08:48:28 1479834 dinov2 param_groups.py:87] blocks.3.11.norm2.bias: lr_multiplier: 0.9, wd_multiplier: 0.0
+I20260717 08:48:28 1479834 dinov2 param_groups.py:87] blocks.3.11.mlp.fc1.weight: lr_multiplier: 0.9, wd_multiplier: 1.0
+I20260717 08:48:28 1479834 dinov2 param_groups.py:87] blocks.3.11.mlp.fc1.bias: lr_multiplier: 0.9, wd_multiplier: 0.0
+I20260717 08:48:28 1479834 dinov2 param_groups.py:87] blocks.3.11.mlp.fc2.weight: lr_multiplier: 0.9, wd_multiplier: 1.0
+I20260717 08:48:28 1479834 dinov2 param_groups.py:87] blocks.3.11.mlp.fc2.bias: lr_multiplier: 0.9, wd_multiplier: 0.0
+I20260717 08:48:28 1479834 dinov2 param_groups.py:87] blocks.3.11.ls2.gamma: lr_multiplier: 0.9, wd_multiplier: 0.0
+I20260717 08:48:28 1479834 dinov2 param_groups.py:87] norm.weight: lr_multiplier: 1.0, wd_multiplier: 0.0
+I20260717 08:48:28 1479834 dinov2 param_groups.py:87] norm.bias: lr_multiplier: 1.0, wd_multiplier: 0.0
+I20260717 08:48:28 1479834 dinov2 ssl_meta_arch.py:384] fusing param groups
+I20260717 08:48:28 1479834 dinov2 param_groups.py:64] else code branch
+I20260717 08:48:28 1479834 dinov2 param_groups.py:87] mlp.0.weight: lr_multiplier: 1.0, wd_multiplier: 1.0
+I20260717 08:48:28 1479834 dinov2 param_groups.py:87] mlp.0.bias: lr_multiplier: 1.0, wd_multiplier: 0.0
+I20260717 08:48:28 1479834 dinov2 param_groups.py:87] mlp.2.weight: lr_multiplier: 1.0, wd_multiplier: 1.0
+I20260717 08:48:28 1479834 dinov2 param_groups.py:87] mlp.2.bias: lr_multiplier: 1.0, wd_multiplier: 0.0
+I20260717 08:48:28 1479834 dinov2 param_groups.py:87] mlp.4.weight: lr_multiplier: 1.0, wd_multiplier: 1.0
+I20260717 08:48:28 1479834 dinov2 param_groups.py:87] mlp.4.bias: lr_multiplier: 1.0, wd_multiplier: 0.0
+I20260717 08:48:28 1479834 dinov2 param_groups.py:87] last_layer.weight_g: lr_multiplier: 1.0, wd_multiplier: 1.0
+I20260717 08:48:28 1479834 dinov2 param_groups.py:87] last_layer.weight_v: lr_multiplier: 1.0, wd_multiplier: 1.0
+I20260717 08:48:28 1479834 dinov2 ssl_meta_arch.py:384] fusing param groups
+I20260717 08:48:28 1479834 dinov2 train.py:102] Schedulers ready.
+W20260717 08:48:28 1479834 py.warnings warnings.py:109] /sci/labs/arieljaffe/dan.abergel1/torch_env/lib/python3.11/site-packages/torch/distributed/fsdp/fully_sharded_data_parallel.py:822: FutureWarning: FSDP.state_dict_type() and FSDP.set_state_dict_type() are being deprecated. Please use APIs, get_state_dict() and set_state_dict(), which can support different parallelisms, FSDP1, FSDP2, DDP. API doc: https://pytorch.org/docs/stable/distributed.checkpoint.html#torch.distributed.checkpoint.state_dict.get_state_dict .Tutorial: https://pytorch.org/tutorials/recipes/distributed_checkpoint_recipe.html .
+  prev_state_dict_settings = FullyShardedDataParallel.set_state_dict_type(
+
+I20260717 08:48:28 1479834 fvcore.common.checkpoint checkpoint.py:148] No checkpoint found. Initializing model from scratch
+W20260717 08:48:28 1479834 py.warnings warnings.py:109] /sci/labs/arieljaffe/dan.abergel1/torch_env/lib/python3.11/site-packages/torch/distributed/fsdp/fully_sharded_data_parallel.py:829: FutureWarning: FSDP.state_dict_type() and FSDP.set_state_dict_type() are being deprecated. Please use APIs, get_state_dict() and set_state_dict(), which can support different parallelisms, FSDP1, FSDP2, DDP. API doc: https://pytorch.org/docs/stable/distributed.checkpoint.html#torch.distributed.checkpoint.state_dict.get_state_dict .Tutorial: https://pytorch.org/tutorials/recipes/distributed_checkpoint_recipe.html .
+  FullyShardedDataParallel.set_state_dict_type(
+
+I20260717 08:48:28 1479834 dinov2 augmentations.py:34] ###################################
+I20260717 08:48:28 1479834 dinov2 augmentations.py:35] Using data augmentation parameters:
+I20260717 08:48:28 1479834 dinov2 augmentations.py:36] global_crops_scale: [0.32, 1.0]
+I20260717 08:48:28 1479834 dinov2 augmentations.py:37] local_crops_scale: [0.05, 0.32]
+I20260717 08:48:28 1479834 dinov2 augmentations.py:38] local_crops_number: 8
+I20260717 08:48:28 1479834 dinov2 augmentations.py:39] global_crops_size: 224
+I20260717 08:48:28 1479834 dinov2 augmentations.py:40] local_crops_size: 96
+I20260717 08:48:28 1479834 dinov2 augmentations.py:41] ###################################
+I20260717 08:48:28 1479834 dinov2 loaders.py:96] using dataset: "ImageFolder:root=/sci/labs/arieljaffe/dan.abergel1/data/imagenette/imagenette2-320/train"
+I20260717 08:48:34 1479834 dinov2 image_folder.py:47] IMAGENETTE_OVERFIT_N=16: OVERFIT MODE -- keeping 16 images:
+I20260717 08:48:34 1479834 dinov2 image_folder.py:49]     class 0  /sci/labs/arieljaffe/dan.abergel1/data/imagenette/imagenette2-320/train/n01440764/ILSVRC2012_val_00000293.JPEG
+I20260717 08:48:34 1479834 dinov2 image_folder.py:49]     class 0  /sci/labs/arieljaffe/dan.abergel1/data/imagenette/imagenette2-320/train/n01440764/n01440764_4613.JPEG
+I20260717 08:48:34 1479834 dinov2 image_folder.py:49]     class 1  /sci/labs/arieljaffe/dan.abergel1/data/imagenette/imagenette2-320/train/n02102040/n02102040_205.JPEG
+I20260717 08:48:34 1479834 dinov2 image_folder.py:49]     class 1  /sci/labs/arieljaffe/dan.abergel1/data/imagenette/imagenette2-320/train/n02102040/n02102040_743.JPEG
+I20260717 08:48:34 1479834 dinov2 image_folder.py:49]     class 2  /sci/labs/arieljaffe/dan.abergel1/data/imagenette/imagenette2-320/train/n02979186/n02979186_19604.JPEG
+I20260717 08:48:34 1479834 dinov2 image_folder.py:49]     class 3  /sci/labs/arieljaffe/dan.abergel1/data/imagenette/imagenette2-320/train/n03000684/n03000684_10259.JPEG
+I20260717 08:48:34 1479834 dinov2 image_folder.py:49]     class 3  /sci/labs/arieljaffe/dan.abergel1/data/imagenette/imagenette2-320/train/n03000684/n03000684_3784.JPEG
+I20260717 08:48:34 1479834 dinov2 image_folder.py:49]     class 4  /sci/labs/arieljaffe/dan.abergel1/data/imagenette/imagenette2-320/train/n03028079/n03028079_2437.JPEG
+I20260717 08:48:34 1479834 dinov2 image_folder.py:49]     class 5  /sci/labs/arieljaffe/dan.abergel1/data/imagenette/imagenette2-320/train/n03394916/ILSVRC2012_val_00028399.JPEG
+I20260717 08:48:34 1479834 dinov2 image_folder.py:49]     class 5  /sci/labs/arieljaffe/dan.abergel1/data/imagenette/imagenette2-320/train/n03394916/n03394916_40495.JPEG
+I20260717 08:48:34 1479834 dinov2 image_folder.py:49]     class 6  /sci/labs/arieljaffe/dan.abergel1/data/imagenette/imagenette2-320/train/n03417042/n03417042_16087.JPEG
+I20260717 08:48:34 1479834 dinov2 image_folder.py:49]     class 6  /sci/labs/arieljaffe/dan.abergel1/data/imagenette/imagenette2-320/train/n03417042/n03417042_7349.JPEG
+I20260717 08:48:34 1479834 dinov2 image_folder.py:49]     class 7  /sci/labs/arieljaffe/dan.abergel1/data/imagenette/imagenette2-320/train/n03425413/n03425413_18649.JPEG
+I20260717 08:48:34 1479834 dinov2 image_folder.py:49]     class 8  /sci/labs/arieljaffe/dan.abergel1/data/imagenette/imagenette2-320/train/n03445777/n03445777_12947.JPEG
+I20260717 08:48:34 1479834 dinov2 image_folder.py:49]     class 8  /sci/labs/arieljaffe/dan.abergel1/data/imagenette/imagenette2-320/train/n03445777/n03445777_6606.JPEG
+I20260717 08:48:34 1479834 dinov2 image_folder.py:49]     class 9  /sci/labs/arieljaffe/dan.abergel1/data/imagenette/imagenette2-320/train/n03888257/n03888257_21119.JPEG
+I20260717 08:48:34 1479834 dinov2 image_folder.py:51] ImageFolder: 16 images at /sci/labs/arieljaffe/dan.abergel1/data/imagenette/imagenette2-320/train
+I20260717 08:48:34 1479834 dinov2 loaders.py:101] # of dataset samples: 16
+I20260717 08:48:34 1479834 dinov2 loaders.py:134] sampler: sharded infinite
+I20260717 08:48:34 1479834 dinov2 loaders.py:218] using PyTorch data loader
+I20260717 08:48:34 1479834 dinov2 loaders.py:233] infinite data loader
+I20260717 08:48:34 1479834 dinov2 train.py:226] Starting training from iteration 0
+I20260717 08:48:58 1479834 dinov2 helpers.py:102] Training  [   0/2000]  eta: 13:18:10  lr: 0.0000 (0.0000)  wd: 0.0400 (0.0400)  mom: 0.9920 (0.9920)  last_layer_lr: 0.0000 (0.0000)  current_batch_size: 16.0000 (16.0000)  total_loss: 5.4680 (5.4680)  dino_local_crops_loss: 3.7669 (3.7669)  dino_global_crops_loss: 0.4709 (0.4709)  ibot_loss: 1.2302 (1.2302)  time: 23.945065  data: 2.331731  max mem: 1940
+I20260717 08:48:58 1479834 dinov2 helpers.py:102] Training  [  10/2000]  eta: 1:14:37  lr: 0.0001 (0.0001)  wd: 0.0400 (0.0400)  mom: 0.9920 (0.9920)  last_layer_lr: 0.0001 (0.0001)  current_batch_size: 16.0000 (16.0000)  total_loss: 5.7793 (5.7364)  dino_local_crops_loss: 4.0508 (4.0151)  dino_global_crops_loss: 0.5064 (0.5019)  ibot_loss: 1.2221 (1.2194)  time: 2.250238  data: 0.212174  max mem: 2148
+I20260717 08:48:59 1479834 dinov2 helpers.py:102] Training  [  20/2000]  eta: 0:40:18  lr: 0.0001 (0.0001)  wd: 0.0400 (0.0400)  mom: 0.9920 (0.9920)  last_layer_lr: 0.0001 (0.0001)  current_batch_size: 16.0000 (16.0000)  total_loss: 5.9559 (5.8654)  dino_local_crops_loss: 4.2280 (4.1470)  dino_global_crops_loss: 0.5285 (0.5184)  ibot_loss: 1.1949 (1.2001)  time: 0.085207  data: 0.000199  max mem: 2148
+I20260717 08:49:00 1479834 dinov2 helpers.py:102] Training  [  30/2000]  eta: 0:27:58  lr: 0.0003 (0.0002)  wd: 0.0401 (0.0401)  mom: 0.9920 (0.9920)  last_layer_lr: 0.0003 (0.0002)  current_batch_size: 16.0000 (16.0000)  total_loss: 6.0117 (5.9103)  dino_local_crops_loss: 4.3129 (4.2014)  dino_global_crops_loss: 0.5389 (0.5251)  ibot_loss: 1.1642 (1.1838)  time: 0.082985  data: 0.000199  max mem: 2148
+I20260717 08:49:01 1479834 dinov2 helpers.py:102] Training  [  40/2000]  eta: 0:21:43  lr: 0.0004 (0.0003)  wd: 0.0402 (0.0401)  mom: 0.9920 (0.9920)  last_layer_lr: 0.0004 (0.0003)  current_batch_size: 16.0000 (16.0000)  total_loss: 5.9973 (5.9297)  dino_local_crops_loss: 4.3116 (4.2268)  dino_global_crops_loss: 0.5389 (0.5283)  ibot_loss: 1.1496 (1.1746)  time: 0.081199  data: 0.000648  max mem: 2148
+I20260717 08:49:02 1479834 dinov2 helpers.py:102] Training  [  50/2000]  eta: 0:17:51  lr: 0.0005 (0.0003)  wd: 0.0404 (0.0402)  mom: 0.9920 (0.9920)  last_layer_lr: 0.0005 (0.0003)  current_batch_size: 16.0000 (16.0000)  total_loss: 5.9896 (5.9402)  dino_local_crops_loss: 4.3006 (4.2409)  dino_global_crops_loss: 0.5375 (0.5301)  ibot_loss: 1.1502 (1.1693)  time: 0.081048  data: 0.000661  max mem: 2148
+I20260717 08:49:03 1479834 dinov2 helpers.py:102] Training  [  60/2000]  eta: 0:15:17  lr: 0.0006 (0.0004)  wd: 0.0406 (0.0403)  mom: 0.9920 (0.9920)  last_layer_lr: 0.0006 (0.0004)  current_batch_size: 16.0000 (16.0000)  total_loss: 5.9849 (5.9482)  dino_local_crops_loss: 4.2985 (4.2504)  dino_global_crops_loss: 0.5373 (0.5313)  ibot_loss: 1.1504 (1.1665)  time: 0.078465  data: 0.000234  max mem: 2148
+I20260717 08:49:03 1479834 dinov2 helpers.py:102] Training  [  70/2000]  eta: 0:13:25  lr: 0.0008 (0.0004)  wd: 0.0408 (0.0404)  mom: 0.9920 (0.9920)  last_layer_lr: 0.0008 (0.0004)  current_batch_size: 16.0000 (16.0000)  total_loss: 5.9944 (5.9551)  dino_local_crops_loss: 4.3008 (4.2578)  dino_global_crops_loss: 0.5375 (0.5322)  ibot_loss: 1.1538 (1.1650)  time: 0.080636  data: 0.000225  max mem: 2148
+I20260717 08:49:04 1479834 dinov2 helpers.py:102] Training  [  80/2000]  eta: 0:12:02  lr: 0.0009 (0.0005)  wd: 0.0411 (0.0405)  mom: 0.9920 (0.9920)  last_layer_lr: 0.0009 (0.0005)  current_batch_size: 16.0000 (16.0000)  total_loss: 6.0017 (5.9628)  dino_local_crops_loss: 4.3047 (4.2639)  dino_global_crops_loss: 0.5381 (0.5330)  ibot_loss: 1.1592 (1.1660)  time: 0.082212  data: 0.000457  max mem: 2148
+I20260717 08:49:05 1479834 dinov2 helpers.py:102] Training  [  90/2000]  eta: 0:10:56  lr: 0.0010 (0.0006)  wd: 0.0414 (0.0406)  mom: 0.9920 (0.9920)  last_layer_lr: 0.0010 (0.0006)  current_batch_size: 16.0000 (16.0000)  total_loss: 6.0170 (5.9688)  dino_local_crops_loss: 4.3080 (4.2689)  dino_global_crops_loss: 0.5385 (0.5336)  ibot_loss: 1.1713 (1.1663)  time: 0.081159  data: 0.000444  max mem: 2148
+I20260717 08:49:06 1479834 dinov2 helpers.py:102] Training  [ 100/2000]  eta: 0:10:01  lr: 0.0011 (0.0006)  wd: 0.0418 (0.0407)  mom: 0.9920 (0.9920)  last_layer_lr: 0.0011 (0.0006)  current_batch_size: 16.0000 (16.0000)  total_loss: 6.0220 (5.9749)  dino_local_crops_loss: 4.3108 (4.2731)  dino_global_crops_loss: 0.5388 (0.5341)  ibot_loss: 1.1732 (1.1677)  time: 0.074769  data: 0.000216  max mem: 2148
+I20260717 08:49:06 1479834 dinov2 helpers.py:102] Training  [ 110/2000]  eta: 0:09:17  lr: 0.0012 (0.0007)  wd: 0.0422 (0.0409)  mom: 0.9920 (0.9920)  last_layer_lr: 0.0012 (0.0007)  current_batch_size: 16.0000 (16.0000)  total_loss: 6.0303 (5.9802)  dino_local_crops_loss: 4.3115 (4.2766)  dino_global_crops_loss: 0.5389 (0.5346)  ibot_loss: 1.1791 (1.1690)  time: 0.073683  data: 0.000212  max mem: 2148
+I20260717 08:49:07 1479834 dinov2 helpers.py:102] Training  [ 120/2000]  eta: 0:08:41  lr: 0.0012 (0.0007)  wd: 0.0427 (0.0411)  mom: 0.9921 (0.9920)  last_layer_lr: 0.0012 (0.0007)  current_batch_size: 16.0000 (16.0000)  total_loss: 6.0356 (5.9851)  dino_local_crops_loss: 4.3121 (4.2796)  dino_global_crops_loss: 0.5390 (0.5349)  ibot_loss: 1.1838 (1.1705)  time: 0.078002  data: 0.000200  max mem: 2148
+I20260717 08:49:08 1479834 dinov2 helpers.py:102] Training  [ 130/2000]  eta: 0:08:08  lr: 0.0012 (0.0008)  wd: 0.0432 (0.0413)  mom: 0.9921 (0.9920)  last_layer_lr: 0.0012 (0.0008)  current_batch_size: 16.0000 (16.0000)  total_loss: 6.0398 (5.9893)  dino_local_crops_loss: 4.3128 (4.2822)  dino_global_crops_loss: 0.5391 (0.5353)  ibot_loss: 1.1869 (1.1718)  time: 0.075026  data: 0.000231  max mem: 2148
+I20260717 08:49:09 1479834 dinov2 helpers.py:102] Training  [ 140/2000]  eta: 0:07:42  lr: 0.0012 (0.0008)  wd: 0.0437 (0.0415)  mom: 0.9921 (0.9920)  last_layer_lr: 0.0012 (0.0008)  current_batch_size: 16.0000 (16.0000)  total_loss: 6.0398 (5.9931)  dino_local_crops_loss: 4.3127 (4.2843)  dino_global_crops_loss: 0.5391 (0.5355)  ibot_loss: 1.1879 (1.1732)  time: 0.077433  data: 0.000226  max mem: 2148
+I20260717 08:49:10 1479834 dinov2 helpers.py:102] Training  [ 150/2000]  eta: 0:07:19  lr: 0.0012 (0.0008)  wd: 0.0443 (0.0417)  mom: 0.9921 (0.9920)  last_layer_lr: 0.0012 (0.0008)  current_batch_size: 16.0000 (16.0000)  total_loss: 6.0409 (5.9964)  dino_local_crops_loss: 4.3126 (4.2862)  dino_global_crops_loss: 0.5391 (0.5358)  ibot_loss: 1.1892 (1.1744)  time: 0.081052  data: 0.000192  max mem: 2148
+I20260717 08:49:10 1479834 dinov2 helpers.py:102] Training  [ 160/2000]  eta: 0:06:58  lr: 0.0012 (0.0009)  wd: 0.0450 (0.0419)  mom: 0.9921 (0.9920)  last_layer_lr: 0.0012 (0.0009)  current_batch_size: 16.0000 (16.0000)  total_loss: 6.0460 (5.9994)  dino_local_crops_loss: 4.3127 (4.2879)  dino_global_crops_loss: 0.5391 (0.5360)  ibot_loss: 1.1941 (1.1756)  time: 0.075478  data: 0.000178  max mem: 2148
+I20260717 08:49:11 1479834 dinov2 helpers.py:102] Training  [ 170/2000]  eta: 0:06:39  lr: 0.0012 (0.0009)  wd: 0.0457 (0.0421)  mom: 0.9921 (0.9920)  last_layer_lr: 0.0012 (0.0009)  current_batch_size: 16.0000 (16.0000)  total_loss: 6.0460 (6.0020)  dino_local_crops_loss: 4.3127 (4.2893)  dino_global_crops_loss: 0.5391 (0.5362)  ibot_loss: 1.1943 (1.1765)  time: 0.072378  data: 0.000189  max mem: 2148
+I20260717 08:49:12 1479834 dinov2 helpers.py:102] Training  [ 180/2000]  eta: 0:06:23  lr: 0.0012 (0.0009)  wd: 0.0464 (0.0424)  mom: 0.9921 (0.9921)  last_layer_lr: 0.0012 (0.0009)  current_batch_size: 16.0000 (16.0000)  total_loss: 6.0462 (6.0045)  dino_local_crops_loss: 4.3128 (4.2906)  dino_global_crops_loss: 0.5391 (0.5363)  ibot_loss: 1.1944 (1.1775)  time: 0.077991  data: 0.000218  max mem: 2148
+I20260717 08:49:13 1479834 dinov2 helpers.py:102] Training  [ 190/2000]  eta: 0:06:08  lr: 0.0012 (0.0009)  wd: 0.0471 (0.0427)  mom: 0.9922 (0.9921)  last_layer_lr: 0.0012 (0.0009)  current_batch_size: 16.0000 (16.0000)  total_loss: 6.0464 (6.0067)  dino_local_crops_loss: 4.3128 (4.2918)  dino_global_crops_loss: 0.5391 (0.5365)  ibot_loss: 1.1946 (1.1784)  time: 0.079930  data: 0.000220  max mem: 2148
+I20260717 08:49:13 1479834 dinov2 helpers.py:102] Training  [ 200/2000]  eta: 0:05:55  lr: 0.0012 (0.0009)  wd: 0.0480 (0.0430)  mom: 0.9922 (0.9921)  last_layer_lr: 0.0012 (0.0009)  current_batch_size: 16.0000 (16.0000)  total_loss: 6.0473 (6.0088)  dino_local_crops_loss: 4.3128 (4.2928)  dino_global_crops_loss: 0.5391 (0.5366)  ibot_loss: 1.1952 (1.1794)  time: 0.077004  data: 0.000200  max mem: 2148
+I20260717 08:49:14 1479834 dinov2 helpers.py:102] Training  [ 210/2000]  eta: 0:05:42  lr: 0.0012 (0.0010)  wd: 0.0488 (0.0433)  mom: 0.9922 (0.9921)  last_layer_lr: 0.0012 (0.0010)  current_batch_size: 16.0000 (16.0000)  total_loss: 6.0489 (6.0107)  dino_local_crops_loss: 4.3130 (4.2938)  dino_global_crops_loss: 0.5392 (0.5367)  ibot_loss: 1.1967 (1.1802)  time: 0.075199  data: 0.000220  max mem: 2148
+I20260717 08:49:15 1479834 dinov2 helpers.py:102] Training  [ 220/2000]  eta: 0:05:31  lr: 0.0012 (0.0010)  wd: 0.0497 (0.0436)  mom: 0.9922 (0.9921)  last_layer_lr: 0.0012 (0.0010)  current_batch_size: 16.0000 (16.0000)  total_loss: 6.0484 (6.0125)  dino_local_crops_loss: 4.3130 (4.2947)  dino_global_crops_loss: 0.5391 (0.5368)  ibot_loss: 1.1963 (1.1810)  time: 0.071330  data: 0.000214  max mem: 2148
+I20260717 08:49:16 1479834 dinov2 helpers.py:102] Training  [ 230/2000]  eta: 0:05:21  lr: 0.0012 (0.0010)  wd: 0.0506 (0.0439)  mom: 0.9922 (0.9921)  last_layer_lr: 0.0012 (0.0010)  current_batch_size: 16.0000 (16.0000)  total_loss: 6.0483 (6.0141)  dino_local_crops_loss: 4.3130 (4.2955)  dino_global_crops_loss: 0.5391 (0.5369)  ibot_loss: 1.1963 (1.1817)  time: 0.074128  data: 0.000190  max mem: 2148
+I20260717 08:49:16 1479834 dinov2 helpers.py:102] Training  [ 240/2000]  eta: 0:05:11  lr: 0.0012 (0.0010)  wd: 0.0516 (0.0442)  mom: 0.9923 (0.9921)  last_layer_lr: 0.0012 (0.0010)  current_batch_size: 16.0000 (16.0000)  total_loss: 6.0503 (6.0157)  dino_local_crops_loss: 4.3129 (4.2962)  dino_global_crops_loss: 0.5391 (0.5370)  ibot_loss: 1.1982 (1.1825)  time: 0.075682  data: 0.000194  max mem: 2148
+I20260717 08:49:17 1479834 dinov2 helpers.py:102] Training  [ 250/2000]  eta: 0:05:02  lr: 0.0012 (0.0010)  wd: 0.0526 (0.0446)  mom: 0.9923 (0.9921)  last_layer_lr: 0.0012 (0.0010)  current_batch_size: 16.0000 (16.0000)  total_loss: 6.0520 (6.0172)  dino_local_crops_loss: 4.3131 (4.2969)  dino_global_crops_loss: 0.5391 (0.5371)  ibot_loss: 1.2000 (1.1832)  time: 0.074699  data: 0.000185  max mem: 2148
+I20260717 08:49:18 1479834 dinov2 helpers.py:102] Training  [ 260/2000]  eta: 0:04:54  lr: 0.0012 (0.0010)  wd: 0.0537 (0.0450)  mom: 0.9923 (0.9921)  last_layer_lr: 0.0012 (0.0010)  current_batch_size: 16.0000 (16.0000)  total_loss: 6.0524 (6.0185)  dino_local_crops_loss: 4.3131 (4.2975)  dino_global_crops_loss: 0.5391 (0.5372)  ibot_loss: 1.2002 (1.1839)  time: 0.072986  data: 0.000207  max mem: 2148
+I20260717 08:49:19 1479834 dinov2 helpers.py:102] Training  [ 270/2000]  eta: 0:04:46  lr: 0.0012 (0.0010)  wd: 0.0548 (0.0454)  mom: 0.9923 (0.9921)  last_layer_lr: 0.0012 (0.0010)  current_batch_size: 16.0000 (16.0000)  total_loss: 6.0518 (6.0198)  dino_local_crops_loss: 4.3131 (4.2981)  dino_global_crops_loss: 0.5391 (0.5373)  ibot_loss: 1.1995 (1.1845)  time: 0.070575  data: 0.000206  max mem: 2148
+I20260717 08:49:19 1479834 dinov2 helpers.py:102] Training  [ 280/2000]  eta: 0:04:39  lr: 0.0012 (0.0010)  wd: 0.0559 (0.0458)  mom: 0.9924 (0.9921)  last_layer_lr: 0.0012 (0.0010)  current_batch_size: 16.0000 (16.0000)  total_loss: 6.0534 (6.0210)  dino_local_crops_loss: 4.3131 (4.2986)  dino_global_crops_loss: 0.5391 (0.5373)  ibot_loss: 1.2012 (1.1851)  time: 0.077371  data: 0.000349  max mem: 2148
+I20260717 08:49:20 1479834 dinov2 helpers.py:102] Training  [ 290/2000]  eta: 0:04:32  lr: 0.0012 (0.0010)  wd: 0.0571 (0.0462)  mom: 0.9924 (0.9921)  last_layer_lr: 0.0012 (0.0010)  current_batch_size: 16.0000 (16.0000)  total_loss: 6.0552 (6.0222)  dino_local_crops_loss: 4.3130 (4.2991)  dino_global_crops_loss: 0.5391 (0.5374)  ibot_loss: 1.2030 (1.1857)  time: 0.078876  data: 0.000356  max mem: 2148
+W20260717 08:49:21 1479834 py.warnings warnings.py:109] /sci/labs/arieljaffe/dan.abergel1/torch_env/lib/python3.11/site-packages/torch/distributed/fsdp/fully_sharded_data_parallel.py:822: FutureWarning: FSDP.state_dict_type() and FSDP.set_state_dict_type() are being deprecated. Please use APIs, get_state_dict() and set_state_dict(), which can support different parallelisms, FSDP1, FSDP2, DDP. API doc: https://pytorch.org/docs/stable/distributed.checkpoint.html#torch.distributed.checkpoint.state_dict.get_state_dict .Tutorial: https://pytorch.org/tutorials/recipes/distributed_checkpoint_recipe.html .
+  prev_state_dict_settings = FullyShardedDataParallel.set_state_dict_type(
+
+W20260717 08:49:21 1479834 py.warnings warnings.py:109] /sci/labs/arieljaffe/dan.abergel1/torch_env/lib/python3.11/site-packages/torch/utils/_contextlib.py:124: UserWarning: When using ``NO_SHARD`` for ``ShardingStrategy``, full_state_dict will be returned.
+  return func(*args, **kwargs)
+
+W20260717 08:49:21 1479834 py.warnings warnings.py:109] /sci/labs/arieljaffe/dan.abergel1/torch_env/lib/python3.11/site-packages/torch/distributed/fsdp/fully_sharded_data_parallel.py:829: FutureWarning: FSDP.state_dict_type() and FSDP.set_state_dict_type() are being deprecated. Please use APIs, get_state_dict() and set_state_dict(), which can support different parallelisms, FSDP1, FSDP2, DDP. API doc: https://pytorch.org/docs/stable/distributed.checkpoint.html#torch.distributed.checkpoint.state_dict.get_state_dict .Tutorial: https://pytorch.org/tutorials/recipes/distributed_checkpoint_recipe.html .
+  FullyShardedDataParallel.set_state_dict_type(
+
+I20260717 08:49:21 1479834 fvcore.common.checkpoint __init__.py:109] Saving checkpoint to /sci/labs/arieljaffe/dan.abergel1/runs/imagenette/proto128/model_0000299.rank_0.pth
+W20260717 08:49:22 1479834 py.warnings warnings.py:109] /sci/labs/arieljaffe/dan.abergel1/torch_env/lib/python3.11/site-packages/torch/distributed/c10d_logger.py:83: UserWarning: barrier(): using the device under current context. You can specify `device_id` in `init_process_group` to mute this warning.
+  return func(*args, **kwargs)
+
+I20260717 08:49:22 1479834 dinov2 helpers.py:102] Training  [ 300/2000]  eta: 0:04:32  lr: 0.0012 (0.0010)  wd: 0.0584 (0.0466)  mom: 0.9924 (0.9921)  last_layer_lr: 0.0012 (0.0010)  current_batch_size: 16.0000 (16.0000)  total_loss: 6.0535 (6.0232)  dino_local_crops_loss: 4.3130 (4.2995)  dino_global_crops_loss: 0.5391 (0.5374)  ibot_loss: 1.2014 (1.1863)  time: 0.130667  data: 0.000203  max mem: 2148
+I20260717 08:49:23 1479834 dinov2 helpers.py:102] Training  [ 310/2000]  eta: 0:04:26  lr: 0.0012 (0.0010)  wd: 0.0596 (0.0470)  mom: 0.9924 (0.9922)  last_layer_lr: 0.0012 (0.0010)  current_batch_size: 16.0000 (16.0000)  total_loss: 6.0543 (6.0243)  dino_local_crops_loss: 4.3130 (4.3000)  dino_global_crops_loss: 0.5391 (0.5375)  ibot_loss: 1.2022 (1.1868)  time: 0.130342  data: 0.000202  max mem: 2148
+I20260717 08:49:24 1479834 dinov2 helpers.py:102] Training  [ 320/2000]  eta: 0:04:20  lr: 0.0012 (0.0010)  wd: 0.0609 (0.0475)  mom: 0.9925 (0.9922)  last_layer_lr: 0.0012 (0.0010)  current_batch_size: 16.0000 (16.0000)  total_loss: 6.0554 (6.0253)  dino_local_crops_loss: 4.3130 (4.3004)  dino_global_crops_loss: 0.5391 (0.5375)  ibot_loss: 1.2031 (1.1873)  time: 0.075414  data: 0.000192  max mem: 2148
+I20260717 08:49:24 1479834 dinov2 helpers.py:102] Training  [ 330/2000]  eta: 0:04:15  lr: 0.0012 (0.0011)  wd: 0.0623 (0.0480)  mom: 0.9925 (0.9922)  last_layer_lr: 0.0012 (0.0011)  current_batch_size: 16.0000 (16.0000)  total_loss: 6.0556 (6.0262)  dino_local_crops_loss: 4.3130 (4.3008)  dino_global_crops_loss: 0.5391 (0.5376)  ibot_loss: 1.2035 (1.1878)  time: 0.078359  data: 0.000199  max mem: 2148
+I20260717 08:49:25 1479834 dinov2 helpers.py:102] Training  [ 340/2000]  eta: 0:04:09  lr: 0.0012 (0.0011)  wd: 0.0636 (0.0484)  mom: 0.9925 (0.9922)  last_layer_lr: 0.0012 (0.0011)  current_batch_size: 16.0000 (16.0000)  total_loss: 6.0559 (6.0270)  dino_local_crops_loss: 4.3130 (4.3011)  dino_global_crops_loss: 0.5391 (0.5376)  ibot_loss: 1.2038 (1.1883)  time: 0.076374  data: 0.000207  max mem: 2148
+I20260717 08:49:26 1479834 dinov2 helpers.py:102] Training  [ 350/2000]  eta: 0:04:04  lr: 0.0012 (0.0011)  wd: 0.0651 (0.0489)  mom: 0.9926 (0.9922)  last_layer_lr: 0.0012 (0.0011)  current_batch_size: 16.0000 (16.0000)  total_loss: 6.0562 (6.0279)  dino_local_crops_loss: 4.3130 (4.3015)  dino_global_crops_loss: 0.5391 (0.5377)  ibot_loss: 1.2040 (1.1887)  time: 0.074810  data: 0.000196  max mem: 2148
+I20260717 08:49:27 1479834 dinov2 helpers.py:102] Training  [ 360/2000]  eta: 0:03:59  lr: 0.0012 (0.0011)  wd: 0.0665 (0.0495)  mom: 0.9926 (0.9922)  last_layer_lr: 0.0012 (0.0011)  current_batch_size: 16.0000 (16.0000)  total_loss: 6.0562 (6.0287)  dino_local_crops_loss: 4.3130 (4.3018)  dino_global_crops_loss: 0.5391 (0.5377)  ibot_loss: 1.2040 (1.1892)  time: 0.073596  data: 0.000198  max mem: 2148
+I20260717 08:49:27 1479834 dinov2 helpers.py:102] Training  [ 370/2000]  eta: 0:03:55  lr: 0.0012 (0.0011)  wd: 0.0680 (0.0500)  mom: 0.9926 (0.9922)  last_layer_lr: 0.0012 (0.0011)  current_batch_size: 16.0000 (16.0000)  total_loss: 6.0562 (6.0294)  dino_local_crops_loss: 4.3129 (4.3021)  dino_global_crops_loss: 0.5391 (0.5378)  ibot_loss: 1.2041 (1.1896)  time: 0.073639  data: 0.000215  max mem: 2148
+I20260717 08:49:28 1479834 dinov2 helpers.py:102] Training  [ 380/2000]  eta: 0:03:50  lr: 0.0012 (0.0011)  wd: 0.0696 (0.0505)  mom: 0.9927 (0.9922)  last_layer_lr: 0.0012 (0.0011)  current_batch_size: 16.0000 (16.0000)  total_loss: 6.0575 (6.0302)  dino_local_crops_loss: 4.3130 (4.3024)  dino_global_crops_loss: 0.5391 (0.5378)  ibot_loss: 1.2053 (1.1900)  time: 0.075445  data: 0.000220  max mem: 2148
+I20260717 08:49:29 1479834 dinov2 helpers.py:102] Training  [ 390/2000]  eta: 0:03:46  lr: 0.0012 (0.0011)  wd: 0.0711 (0.0511)  mom: 0.9927 (0.9922)  last_layer_lr: 0.0012 (0.0011)  current_batch_size: 16.0000 (16.0000)  total_loss: 6.0579 (6.0309)  dino_local_crops_loss: 4.3133 (4.3027)  dino_global_crops_loss: 0.5392 (0.5378)  ibot_loss: 1.2053 (1.1904)  time: 0.075377  data: 0.000210  max mem: 2148
+I20260717 08:49:30 1479834 dinov2 helpers.py:102] Training  [ 400/2000]  eta: 0:03:42  lr: 0.0012 (0.0011)  wd: 0.0727 (0.0516)  mom: 0.9927 (0.9923)  last_layer_lr: 0.0012 (0.0011)  current_batch_size: 16.0000 (16.0000)  total_loss: 6.0570 (6.0315)  dino_local_crops_loss: 4.3132 (4.3029)  dino_global_crops_loss: 0.5392 (0.5379)  ibot_loss: 1.2045 (1.1908)  time: 0.075130  data: 0.000215  max mem: 2148
+I20260717 08:49:30 1479834 dinov2 helpers.py:102] Training  [ 410/2000]  eta: 0:03:38  lr: 0.0012 (0.0011)  wd: 0.0744 (0.0522)  mom: 0.9928 (0.9923)  last_layer_lr: 0.0012 (0.0011)  current_batch_size: 16.0000 (16.0000)  total_loss: 6.0574 (6.0322)  dino_local_crops_loss: 4.3131 (4.3032)  dino_global_crops_loss: 0.5391 (0.5379)  ibot_loss: 1.2051 (1.1911)  time: 0.077335  data: 0.000206  max mem: 2148
+I20260717 08:49:31 1479834 dinov2 helpers.py:102] Training  [ 420/2000]  eta: 0:03:35  lr: 0.0012 (0.0011)  wd: 0.0761 (0.0528)  mom: 0.9928 (0.9923)  last_layer_lr: 0.0012 (0.0011)  current_batch_size: 16.0000 (16.0000)  total_loss: 6.0581 (6.0328)  dino_local_crops_loss: 4.3131 (4.3034)  dino_global_crops_loss: 0.5391 (0.5379)  ibot_loss: 1.2058 (1.1915)  time: 0.081653  data: 0.000185  max mem: 2148
+I20260717 08:49:32 1479834 dinov2 helpers.py:102] Training  [ 430/2000]  eta: 0:03:31  lr: 0.0012 (0.0011)  wd: 0.0778 (0.0534)  mom: 0.9928 (0.9923)  last_layer_lr: 0.0012 (0.0011)  current_batch_size: 16.0000 (16.0000)  total_loss: 6.0575 (6.0334)  dino_local_crops_loss: 4.3131 (4.3036)  dino_global_crops_loss: 0.5391 (0.5380)  ibot_loss: 1.2054 (1.1918)  time: 0.079440  data: 0.000197  max mem: 2148
+I20260717 08:49:33 1479834 dinov2 helpers.py:102] Training  [ 440/2000]  eta: 0:03:28  lr: 0.0012 (0.0011)  wd: 0.0795 (0.0540)  mom: 0.9929 (0.9923)  last_layer_lr: 0.0012 (0.0011)  current_batch_size: 16.0000 (16.0000)  total_loss: 6.0574 (6.0339)  dino_local_crops_loss: 4.3130 (4.3038)  dino_global_crops_loss: 0.5391 (0.5380)  ibot_loss: 1.2052 (1.1921)  time: 0.074976  data: 0.000196  max mem: 2148
+I20260717 08:49:34 1479834 dinov2 helpers.py:102] Training  [ 450/2000]  eta: 0:03:25  lr: 0.0012 (0.0011)  wd: 0.0813 (0.0546)  mom: 0.9929 (0.9923)  last_layer_lr: 0.0012 (0.0011)  current_batch_size: 16.0000 (16.0000)  total_loss: 6.0585 (6.0345)  dino_local_crops_loss: 4.3130 (4.3040)  dino_global_crops_loss: 0.5391 (0.5380)  ibot_loss: 1.2062 (1.1924)  time: 0.076331  data: 0.000187  max mem: 2148
+I20260717 08:49:34 1479834 dinov2 helpers.py:102] Training  [ 460/2000]  eta: 0:03:21  lr: 0.0011 (0.0011)  wd: 0.0831 (0.0553)  mom: 0.9930 (0.9923)  last_layer_lr: 0.0011 (0.0011)  current_batch_size: 16.0000 (16.0000)  total_loss: 6.0582 (6.0350)  dino_local_crops_loss: 4.3130 (4.3042)  dino_global_crops_loss: 0.5391 (0.5380)  ibot_loss: 1.2061 (1.1927)  time: 0.075006  data: 0.000211  max mem: 2148
+I20260717 08:49:35 1479834 dinov2 helpers.py:102] Training  [ 470/2000]  eta: 0:03:18  lr: 0.0011 (0.0011)  wd: 0.0850 (0.0559)  mom: 0.9930 (0.9924)  last_layer_lr: 0.0011 (0.0011)  current_batch_size: 16.0000 (16.0000)  total_loss: 6.0582 (6.0355)  dino_local_crops_loss: 4.3130 (4.3044)  dino_global_crops_loss: 0.5391 (0.5381)  ibot_loss: 1.2061 (1.1930)  time: 0.072849  data: 0.000215  max mem: 2148
+I20260717 08:49:36 1479834 dinov2 helpers.py:102] Training  [ 480/2000]  eta: 0:03:15  lr: 0.0011 (0.0011)  wd: 0.0869 (0.0566)  mom: 0.9930 (0.9924)  last_layer_lr: 0.0011 (0.0011)  current_batch_size: 16.0000 (16.0000)  total_loss: 6.0584 (6.0360)  dino_local_crops_loss: 4.3130 (4.3046)  dino_global_crops_loss: 0.5391 (0.5381)  ibot_loss: 1.2063 (1.1933)  time: 0.074990  data: 0.000189  max mem: 2148
+I20260717 08:49:36 1479834 dinov2 helpers.py:102] Training  [ 490/2000]  eta: 0:03:12  lr: 0.0011 (0.0011)  wd: 0.0888 (0.0573)  mom: 0.9931 (0.9924)  last_layer_lr: 0.0011 (0.0011)  current_batch_size: 16.0000 (16.0000)  total_loss: 6.0582 (6.0364)  dino_local_crops_loss: 4.3130 (4.3048)  dino_global_crops_loss: 0.5391 (0.5381)  ibot_loss: 1.2060 (1.1935)  time: 0.075201  data: 0.000188  max mem: 2148
+I20260717 08:49:37 1479834 dinov2 helpers.py:102] Training  [ 500/2000]  eta: 0:03:09  lr: 0.0011 (0.0011)  wd: 0.0907 (0.0580)  mom: 0.9931 (0.9924)  last_layer_lr: 0.0011 (0.0011)  current_batch_size: 16.0000 (16.0000)  total_loss: 6.0591 (6.0369)  dino_local_crops_loss: 4.3130 (4.3049)  dino_global_crops_loss: 0.5391 (0.5381)  ibot_loss: 1.2070 (1.1938)  time: 0.076266  data: 0.000204  max mem: 2148
+I20260717 08:49:38 1479834 dinov2 helpers.py:102] Training  [ 510/2000]  eta: 0:03:07  lr: 0.0011 (0.0011)  wd: 0.0927 (0.0587)  mom: 0.9932 (0.9924)  last_layer_lr: 0.0011 (0.0011)  current_batch_size: 16.0000 (16.0000)  total_loss: 6.0590 (6.0373)  dino_local_crops_loss: 4.3130 (4.3051)  dino_global_crops_loss: 0.5391 (0.5381)  ibot_loss: 1.2068 (1.1940)  time: 0.076938  data: 0.000214  max mem: 2148
+I20260717 08:49:39 1479834 dinov2 helpers.py:102] Training  [ 520/2000]  eta: 0:03:04  lr: 0.0011 (0.0011)  wd: 0.0947 (0.0594)  mom: 0.9932 (0.9924)  last_layer_lr: 0.0011 (0.0011)  current_batch_size: 16.0000 (16.0000)  total_loss: 6.0589 (6.0377)  dino_local_crops_loss: 4.3130 (4.3052)  dino_global_crops_loss: 0.5391 (0.5382)  ibot_loss: 1.2067 (1.1943)  time: 0.075360  data: 0.000215  max mem: 2148
+I20260717 08:49:39 1479834 dinov2 helpers.py:102] Training  [ 530/2000]  eta: 0:03:01  lr: 0.0011 (0.0011)  wd: 0.0968 (0.0601)  mom: 0.9933 (0.9924)  last_layer_lr: 0.0011 (0.0011)  current_batch_size: 16.0000 (16.0000)  total_loss: 6.0593 (6.0381)  dino_local_crops_loss: 4.3130 (4.3054)  dino_global_crops_loss: 0.5391 (0.5382)  ibot_loss: 1.2072 (1.1945)  time: 0.074311  data: 0.000208  max mem: 2148
+I20260717 08:49:40 1479834 dinov2 helpers.py:102] Training  [ 540/2000]  eta: 0:02:59  lr: 0.0011 (0.0011)  wd: 0.0989 (0.0608)  mom: 0.9933 (0.9925)  last_layer_lr: 0.0011 (0.0011)  current_batch_size: 16.0000 (16.0000)  total_loss: 6.0595 (6.0385)  dino_local_crops_loss: 4.3130 (4.3055)  dino_global_crops_loss: 0.5391 (0.5382)  ibot_loss: 1.2074 (1.1948)  time: 0.074847  data: 0.000199  max mem: 2148
+I20260717 08:49:41 1479834 dinov2 helpers.py:102] Training  [ 550/2000]  eta: 0:02:56  lr: 0.0011 (0.0011)  wd: 0.1010 (0.0616)  mom: 0.9934 (0.9925)  last_layer_lr: 0.0011 (0.0011)  current_batch_size: 16.0000 (16.0000)  total_loss: 6.0595 (6.0389)  dino_local_crops_loss: 4.3130 (4.3057)  dino_global_crops_loss: 0.5391 (0.5382)  ibot_loss: 1.2074 (1.1950)  time: 0.076255  data: 0.000209  max mem: 2148
+I20260717 08:49:42 1479834 dinov2 helpers.py:102] Training  [ 560/2000]  eta: 0:02:54  lr: 0.0011 (0.0011)  wd: 0.1031 (0.0623)  mom: 0.9934 (0.9925)  last_layer_lr: 0.0011 (0.0011)  current_batch_size: 16.0000 (16.0000)  total_loss: 6.0588 (6.0392)  dino_local_crops_loss: 4.3130 (4.3058)  dino_global_crops_loss: 0.5391 (0.5382)  ibot_loss: 1.2067 (1.1952)  time: 0.077847  data: 0.000434  max mem: 2148
+I20260717 08:49:43 1479834 dinov2 helpers.py:102] Training  [ 570/2000]  eta: 0:02:52  lr: 0.0011 (0.0011)  wd: 0.1053 (0.0631)  mom: 0.9935 (0.9925)  last_layer_lr: 0.0011 (0.0011)  current_batch_size: 16.0000 (16.0000)  total_loss: 6.0588 (6.0396)  dino_local_crops_loss: 4.3130 (4.3059)  dino_global_crops_loss: 0.5391 (0.5382)  ibot_loss: 1.2067 (1.1954)  time: 0.079911  data: 0.000465  max mem: 2148
+I20260717 08:49:43 1479834 dinov2 helpers.py:102] Training  [ 580/2000]  eta: 0:02:50  lr: 0.0011 (0.0011)  wd: 0.1075 (0.0639)  mom: 0.9935 (0.9925)  last_layer_lr: 0.0011 (0.0011)  current_batch_size: 16.0000 (16.0000)  total_loss: 6.0588 (6.0399)  dino_local_crops_loss: 4.3130 (4.3060)  dino_global_crops_loss: 0.5391 (0.5383)  ibot_loss: 1.2067 (1.1956)  time: 0.078621  data: 0.000365  max mem: 2148
+I20260717 08:49:44 1479834 dinov2 helpers.py:102] Training  [ 590/2000]  eta: 0:02:47  lr: 0.0011 (0.0011)  wd: 0.1097 (0.0647)  mom: 0.9935 (0.9925)  last_layer_lr: 0.0011 (0.0011)  current_batch_size: 16.0000 (16.0000)  total_loss: 6.0596 (6.0403)  dino_local_crops_loss: 4.3130 (4.3062)  dino_global_crops_loss: 0.5391 (0.5383)  ibot_loss: 1.2075 (1.1958)  time: 0.076423  data: 0.000315  max mem: 2148
+I20260717 08:49:45 1479834 fvcore.common.checkpoint __init__.py:109] Saving checkpoint to /sci/labs/arieljaffe/dan.abergel1/runs/imagenette/proto128/model_0000599.rank_0.pth
+I20260717 08:49:46 1479834 dinov2 helpers.py:102] Training  [ 600/2000]  eta: 0:02:47  lr: 0.0011 (0.0011)  wd: 0.1119 (0.0655)  mom: 0.9936 (0.9926)  last_layer_lr: 0.0011 (0.0011)  current_batch_size: 16.0000 (16.0000)  total_loss: 6.0597 (6.0406)  dino_local_crops_loss: 4.3130 (4.3063)  dino_global_crops_loss: 0.5391 (0.5383)  ibot_loss: 1.2075 (1.1960)  time: 0.126246  data: 0.000192  max mem: 2148
+I20260717 08:49:47 1479834 dinov2 helpers.py:102] Training  [ 610/2000]  eta: 0:02:45  lr: 0.0010 (0.0011)  wd: 0.1142 (0.0663)  mom: 0.9936 (0.9926)  last_layer_lr: 0.0010 (0.0011)  current_batch_size: 16.0000 (16.0000)  total_loss: 6.0592 (6.0409)  dino_local_crops_loss: 4.3130 (4.3064)  dino_global_crops_loss: 0.5391 (0.5383)  ibot_loss: 1.2071 (1.1962)  time: 0.124562  data: 0.000199  max mem: 2148
+I20260717 08:49:47 1479834 dinov2 helpers.py:102] Training  [ 620/2000]  eta: 0:02:43  lr: 0.0010 (0.0011)  wd: 0.1165 (0.0672)  mom: 0.9937 (0.9926)  last_layer_lr: 0.0010 (0.0011)  current_batch_size: 16.0000 (16.0000)  total_loss: 6.0594 (6.0412)  dino_local_crops_loss: 4.3130 (4.3065)  dino_global_crops_loss: 0.5391 (0.5383)  ibot_loss: 1.2073 (1.1964)  time: 0.074650  data: 0.000199  max mem: 2148
+I20260717 08:49:48 1479834 dinov2 helpers.py:102] Training  [ 630/2000]  eta: 0:02:41  lr: 0.0010 (0.0011)  wd: 0.1188 (0.0680)  mom: 0.9938 (0.9926)  last_layer_lr: 0.0010 (0.0011)  current_batch_size: 16.0000 (16.0000)  total_loss: 6.0593 (6.0415)  dino_local_crops_loss: 4.3130 (4.3066)  dino_global_crops_loss: 0.5391 (0.5383)  ibot_loss: 1.2071 (1.1966)  time: 0.076552  data: 0.000198  max mem: 2148
+I20260717 08:49:49 1479834 dinov2 helpers.py:102] Training  [ 640/2000]  eta: 0:02:39  lr: 0.0010 (0.0011)  wd: 0.1212 (0.0688)  mom: 0.9938 (0.9926)  last_layer_lr: 0.0010 (0.0011)  current_batch_size: 16.0000 (16.0000)  total_loss: 6.0597 (6.0418)  dino_local_crops_loss: 4.3130 (4.3067)  dino_global_crops_loss: 0.5391 (0.5383)  ibot_loss: 1.2075 (1.1967)  time: 0.075625  data: 0.000196  max mem: 2148
+I20260717 08:49:50 1479834 dinov2 helpers.py:102] Training  [ 650/2000]  eta: 0:02:37  lr: 0.0010 (0.0011)  wd: 0.1236 (0.0697)  mom: 0.9939 (0.9927)  last_layer_lr: 0.0010 (0.0011)  current_batch_size: 16.0000 (16.0000)  total_loss: 6.0599 (6.0420)  dino_local_crops_loss: 4.3130 (4.3068)  dino_global_crops_loss: 0.5391 (0.5383)  ibot_loss: 1.2078 (1.1969)  time: 0.074734  data: 0.000193  max mem: 2148
+I20260717 08:49:51 1479834 dinov2 helpers.py:102] Training  [ 660/2000]  eta: 0:02:35  lr: 0.0010 (0.0011)  wd: 0.1260 (0.0706)  mom: 0.9939 (0.9927)  last_layer_lr: 0.0010 (0.0011)  current_batch_size: 16.0000 (16.0000)  total_loss: 6.0595 (6.0423)  dino_local_crops_loss: 4.3130 (4.3069)  dino_global_crops_loss: 0.5391 (0.5384)  ibot_loss: 1.2074 (1.1971)  time: 0.077924  data: 0.000203  max mem: 2148
+I20260717 08:49:51 1479834 dinov2 helpers.py:102] Training  [ 670/2000]  eta: 0:02:33  lr: 0.0010 (0.0011)  wd: 0.1284 (0.0715)  mom: 0.9940 (0.9927)  last_layer_lr: 0.0010 (0.0011)  current_batch_size: 16.0000 (16.0000)  total_loss: 6.0592 (6.0426)  dino_local_crops_loss: 4.3130 (4.3070)  dino_global_crops_loss: 0.5391 (0.5384)  ibot_loss: 1.2071 (1.1972)  time: 0.084672  data: 0.000267  max mem: 2148
+I20260717 08:49:52 1479834 dinov2 helpers.py:102] Training  [ 680/2000]  eta: 0:02:31  lr: 0.0010 (0.0011)  wd: 0.1308 (0.0723)  mom: 0.9940 (0.9927)  last_layer_lr: 0.0010 (0.0011)  current_batch_size: 16.0000 (16.0000)  total_loss: 6.0587 (6.0428)  dino_local_crops_loss: 4.3130 (4.3071)  dino_global_crops_loss: 0.5391 (0.5384)  ibot_loss: 1.2066 (1.1973)  time: 0.080547  data: 0.000252  max mem: 2148
+I20260717 08:49:53 1479834 dinov2 helpers.py:102] Training  [ 690/2000]  eta: 0:02:29  lr: 0.0010 (0.0011)  wd: 0.1333 (0.0733)  mom: 0.9941 (0.9927)  last_layer_lr: 0.0010 (0.0011)  current_batch_size: 16.0000 (16.0000)  total_loss: 6.0597 (6.0430)  dino_local_crops_loss: 4.3129 (4.3072)  dino_global_crops_loss: 0.5391 (0.5384)  ibot_loss: 1.2076 (1.1975)  time: 0.074464  data: 0.000192  max mem: 2148
+I20260717 08:49:54 1479834 dinov2 helpers.py:102] Training  [ 700/2000]  eta: 0:02:27  lr: 0.0010 (0.0011)  wd: 0.1358 (0.0742)  mom: 0.9941 (0.9928)  last_layer_lr: 0.0010 (0.0011)  current_batch_size: 16.0000 (16.0000)  total_loss: 6.0591 (6.0433)  dino_local_crops_loss: 4.3130 (4.3072)  dino_global_crops_loss: 0.5391 (0.5384)  ibot_loss: 1.2070 (1.1976)  time: 0.075407  data: 0.000201  max mem: 2148
+I20260717 08:49:54 1479834 dinov2 helpers.py:102] Training  [ 710/2000]  eta: 0:02:26  lr: 0.0010 (0.0011)  wd: 0.1383 (0.0751)  mom: 0.9942 (0.9928)  last_layer_lr: 0.0010 (0.0011)  current_batch_size: 16.0000 (16.0000)  total_loss: 6.0592 (6.0435)  dino_local_crops_loss: 4.3130 (4.3073)  dino_global_crops_loss: 0.5391 (0.5384)  ibot_loss: 1.2070 (1.1978)  time: 0.075401  data: 0.000213  max mem: 2148
+I20260717 08:49:55 1479834 dinov2 helpers.py:102] Training  [ 720/2000]  eta: 0:02:24  lr: 0.0010 (0.0011)  wd: 0.1408 (0.0760)  mom: 0.9942 (0.9928)  last_layer_lr: 0.0010 (0.0011)  current_batch_size: 16.0000 (16.0000)  total_loss: 6.0595 (6.0437)  dino_local_crops_loss: 4.3130 (4.3074)  dino_global_crops_loss: 0.5391 (0.5384)  ibot_loss: 1.2073 (1.1979)  time: 0.077785  data: 0.000215  max mem: 2148
+I20260717 08:49:56 1479834 dinov2 helpers.py:102] Training  [ 730/2000]  eta: 0:02:22  lr: 0.0009 (0.0011)  wd: 0.1434 (0.0770)  mom: 0.9943 (0.9928)  last_layer_lr: 0.0009 (0.0011)  current_batch_size: 16.0000 (16.0000)  total_loss: 6.0591 (6.0439)  dino_local_crops_loss: 4.3130 (4.3075)  dino_global_crops_loss: 0.5391 (0.5384)  ibot_loss: 1.2069 (1.1980)  time: 0.079717  data: 0.000204  max mem: 2148
+I20260717 08:49:57 1479834 dinov2 helpers.py:102] Training  [ 740/2000]  eta: 0:02:21  lr: 0.0009 (0.0011)  wd: 0.1459 (0.0779)  mom: 0.9944 (0.9928)  last_layer_lr: 0.0009 (0.0011)  current_batch_size: 16.0000 (16.0000)  total_loss: 6.0603 (6.0442)  dino_local_crops_loss: 4.3130 (4.3075)  dino_global_crops_loss: 0.5391 (0.5384)  ibot_loss: 1.2082 (1.1982)  time: 0.079817  data: 0.000203  max mem: 2148
+I20260717 08:49:58 1479834 dinov2 helpers.py:102] Training  [ 750/2000]  eta: 0:02:19  lr: 0.0009 (0.0011)  wd: 0.1485 (0.0789)  mom: 0.9944 (0.9929)  last_layer_lr: 0.0009 (0.0011)  current_batch_size: 16.0000 (16.0000)  total_loss: 6.0598 (6.0444)  dino_local_crops_loss: 4.3129 (4.3076)  dino_global_crops_loss: 0.5391 (0.5385)  ibot_loss: 1.2077 (1.1983)  time: 0.078019  data: 0.000206  max mem: 2148
+I20260717 08:49:58 1479834 dinov2 helpers.py:102] Training  [ 760/2000]  eta: 0:02:17  lr: 0.0009 (0.0011)  wd: 0.1511 (0.0798)  mom: 0.9945 (0.9929)  last_layer_lr: 0.0009 (0.0011)  current_batch_size: 16.0000 (16.0000)  total_loss: 6.0592 (6.0445)  dino_local_crops_loss: 4.3130 (4.3077)  dino_global_crops_loss: 0.5391 (0.5385)  ibot_loss: 1.2072 (1.1984)  time: 0.077053  data: 0.000194  max mem: 2148
+I20260717 08:49:59 1479834 dinov2 helpers.py:102] Training  [ 770/2000]  eta: 0:02:15  lr: 0.0009 (0.0011)  wd: 0.1537 (0.0808)  mom: 0.9945 (0.9929)  last_layer_lr: 0.0009 (0.0011)  current_batch_size: 16.0000 (16.0000)  total_loss: 6.0591 (6.0447)  dino_local_crops_loss: 4.3129 (4.3078)  dino_global_crops_loss: 0.5391 (0.5385)  ibot_loss: 1.2071 (1.1985)  time: 0.074914  data: 0.000198  max mem: 2148
+I20260717 08:50:00 1479834 dinov2 helpers.py:102] Training  [ 780/2000]  eta: 0:02:14  lr: 0.0009 (0.0011)  wd: 0.1564 (0.0818)  mom: 0.9946 (0.9929)  last_layer_lr: 0.0009 (0.0011)  current_batch_size: 16.0000 (16.0000)  total_loss: 6.0591 (6.0449)  dino_local_crops_loss: 4.3130 (4.3078)  dino_global_crops_loss: 0.5391 (0.5385)  ibot_loss: 1.2071 (1.1986)  time: 0.073726  data: 0.000209  max mem: 2148
+I20260717 08:50:01 1479834 dinov2 helpers.py:102] Training  [ 790/2000]  eta: 0:02:12  lr: 0.0009 (0.0011)  wd: 0.1590 (0.0828)  mom: 0.9946 (0.9930)  last_layer_lr: 0.0009 (0.0011)  current_batch_size: 16.0000 (16.0000)  total_loss: 6.0595 (6.0451)  dino_local_crops_loss: 4.3130 (4.3079)  dino_global_crops_loss: 0.5391 (0.5385)  ibot_loss: 1.2073 (1.1987)  time: 0.077447  data: 0.000207  max mem: 2148
+I20260717 08:50:01 1479834 dinov2 helpers.py:102] Training  [ 800/2000]  eta: 0:02:11  lr: 0.0009 (0.0011)  wd: 0.1617 (0.0838)  mom: 0.9947 (0.9930)  last_layer_lr: 0.0009 (0.0011)  current_batch_size: 16.0000 (16.0000)  total_loss: 6.0595 (6.0453)  dino_local_crops_loss: 4.3130 (4.3080)  dino_global_crops_loss: 0.5391 (0.5385)  ibot_loss: 1.2074 (1.1988)  time: 0.081984  data: 0.000204  max mem: 2148
+I20260717 08:50:02 1479834 dinov2 helpers.py:102] Training  [ 810/2000]  eta: 0:02:09  lr: 0.0009 (0.0011)  wd: 0.1644 (0.0848)  mom: 0.9948 (0.9930)  last_layer_lr: 0.0009 (0.0011)  current_batch_size: 16.0000 (16.0000)  total_loss: 6.0589 (6.0455)  dino_local_crops_loss: 4.3130 (4.3080)  dino_global_crops_loss: 0.5391 (0.5385)  ibot_loss: 1.2068 (1.1989)  time: 0.082975  data: 0.000192  max mem: 2148
+I20260717 08:50:03 1479834 dinov2 helpers.py:102] Training  [ 820/2000]  eta: 0:02:08  lr: 0.0009 (0.0011)  wd: 0.1671 (0.0858)  mom: 0.9948 (0.9930)  last_layer_lr: 0.0009 (0.0011)  current_batch_size: 16.0000 (16.0000)  total_loss: 6.0593 (6.0456)  dino_local_crops_loss: 4.3130 (4.3081)  dino_global_crops_loss: 0.5391 (0.5385)  ibot_loss: 1.2072 (1.1991)  time: 0.077792  data: 0.000208  max mem: 2148
+I20260717 08:50:04 1479834 dinov2 helpers.py:102] Training  [ 830/2000]  eta: 0:02:06  lr: 0.0009 (0.0011)  wd: 0.1698 (0.0869)  mom: 0.9949 (0.9930)  last_layer_lr: 0.0009 (0.0011)  current_batch_size: 16.0000 (16.0000)  total_loss: 6.0594 (6.0458)  dino_local_crops_loss: 4.3130 (4.3081)  dino_global_crops_loss: 0.5391 (0.5385)  ibot_loss: 1.2073 (1.1992)  time: 0.075620  data: 0.000208  max mem: 2148
+I20260717 08:50:05 1479834 dinov2 helpers.py:102] Training  [ 840/2000]  eta: 0:02:05  lr: 0.0008 (0.0010)  wd: 0.1725 (0.0879)  mom: 0.9949 (0.9931)  last_layer_lr: 0.0008 (0.0010)  current_batch_size: 16.0000 (16.0000)  total_loss: 6.0596 (6.0460)  dino_local_crops_loss: 4.3130 (4.3082)  dino_global_crops_loss: 0.5391 (0.5385)  ibot_loss: 1.2075 (1.1993)  time: 0.076825  data: 0.000199  max mem: 2148
+I20260717 08:50:05 1479834 dinov2 helpers.py:102] Training  [ 850/2000]  eta: 0:02:03  lr: 0.0008 (0.0010)  wd: 0.1752 (0.0889)  mom: 0.9950 (0.9931)  last_layer_lr: 0.0008 (0.0010)  current_batch_size: 16.0000 (16.0000)  total_loss: 6.0598 (6.0461)  dino_local_crops_loss: 4.3130 (4.3082)  dino_global_crops_loss: 0.5391 (0.5385)  ibot_loss: 1.2078 (1.1994)  time: 0.078846  data: 0.000199  max mem: 2148
+I20260717 08:50:06 1479834 dinov2 helpers.py:102] Training  [ 860/2000]  eta: 0:02:02  lr: 0.0008 (0.0010)  wd: 0.1780 (0.0900)  mom: 0.9951 (0.9931)  last_layer_lr: 0.0008 (0.0010)  current_batch_size: 16.0000 (16.0000)  total_loss: 6.0598 (6.0463)  dino_local_crops_loss: 4.3130 (4.3083)  dino_global_crops_loss: 0.5391 (0.5385)  ibot_loss: 1.2078 (1.1995)  time: 0.077365  data: 0.000189  max mem: 2148
+I20260717 08:50:07 1479834 dinov2 helpers.py:102] Training  [ 870/2000]  eta: 0:02:00  lr: 0.0008 (0.0010)  wd: 0.1807 (0.0910)  mom: 0.9951 (0.9931)  last_layer_lr: 0.0008 (0.0010)  current_batch_size: 16.0000 (16.0000)  total_loss: 6.0596 (6.0464)  dino_local_crops_loss: 4.3130 (4.3084)  dino_global_crops_loss: 0.5391 (0.5385)  ibot_loss: 1.2073 (1.1995)  time: 0.078360  data: 0.000193  max mem: 2148
+I20260717 08:50:08 1479834 dinov2 helpers.py:102] Training  [ 880/2000]  eta: 0:01:59  lr: 0.0008 (0.0010)  wd: 0.1835 (0.0921)  mom: 0.9952 (0.9932)  last_layer_lr: 0.0008 (0.0010)  current_batch_size: 16.0000 (16.0000)  total_loss: 6.0599 (6.0466)  dino_local_crops_loss: 4.3132 (4.3084)  dino_global_crops_loss: 0.5391 (0.5386)  ibot_loss: 1.2076 (1.1996)  time: 0.078933  data: 0.000387  max mem: 2148
+I20260717 08:50:09 1479834 dinov2 helpers.py:102] Training  [ 890/2000]  eta: 0:01:57  lr: 0.0008 (0.0010)  wd: 0.1863 (0.0932)  mom: 0.9953 (0.9932)  last_layer_lr: 0.0008 (0.0010)  current_batch_size: 16.0000 (16.0000)  total_loss: 6.0605 (6.0468)  dino_local_crops_loss: 4.3131 (4.3085)  dino_global_crops_loss: 0.5391 (0.5386)  ibot_loss: 1.2082 (1.1997)  time: 0.080148  data: 0.000384  max mem: 2148
+I20260717 08:50:09 1479834 fvcore.common.checkpoint __init__.py:109] Saving checkpoint to /sci/labs/arieljaffe/dan.abergel1/runs/imagenette/proto128/model_0000899.rank_0.pth
+I20260717 08:50:10 1479834 dinov2 helpers.py:102] Training  [ 900/2000]  eta: 0:01:57  lr: 0.0008 (0.0010)  wd: 0.1891 (0.0943)  mom: 0.9953 (0.9932)  last_layer_lr: 0.0008 (0.0010)  current_batch_size: 16.0000 (16.0000)  total_loss: 6.0597 (6.0469)  dino_local_crops_loss: 4.3130 (4.3085)  dino_global_crops_loss: 0.5391 (0.5386)  ibot_loss: 1.2076 (1.1998)  time: 0.131731  data: 0.000213  max mem: 2148
+I20260717 08:50:11 1479834 dinov2 helpers.py:102] Training  [ 910/2000]  eta: 0:01:56  lr: 0.0008 (0.0010)  wd: 0.1918 (0.0954)  mom: 0.9954 (0.9932)  last_layer_lr: 0.0008 (0.0010)  current_batch_size: 16.0000 (16.0000)  total_loss: 6.0596 (6.0470)  dino_local_crops_loss: 4.3130 (4.3086)  dino_global_crops_loss: 0.5391 (0.5386)  ibot_loss: 1.2075 (1.1999)  time: 0.125362  data: 0.000228  max mem: 2148
+I20260717 08:50:12 1479834 dinov2 helpers.py:102] Training  [ 920/2000]  eta: 0:01:54  lr: 0.0008 (0.0010)  wd: 0.1946 (0.0965)  mom: 0.9954 (0.9933)  last_layer_lr: 0.0008 (0.0010)  current_batch_size: 16.0000 (16.0000)  total_loss: 6.0599 (6.0472)  dino_local_crops_loss: 4.3130 (4.3086)  dino_global_crops_loss: 0.5391 (0.5386)  ibot_loss: 1.2078 (1.2000)  time: 0.074286  data: 0.000201  max mem: 2148
+I20260717 08:50:13 1479834 dinov2 helpers.py:102] Training  [ 930/2000]  eta: 0:01:53  lr: 0.0008 (0.0010)  wd: 0.1974 (0.0976)  mom: 0.9955 (0.9933)  last_layer_lr: 0.0008 (0.0010)  current_batch_size: 16.0000 (16.0000)  total_loss: 6.0600 (6.0473)  dino_local_crops_loss: 4.3130 (4.3087)  dino_global_crops_loss: 0.5391 (0.5386)  ibot_loss: 1.2079 (1.2001)  time: 0.075308  data: 0.000191  max mem: 2148
+I20260717 08:50:13 1479834 dinov2 helpers.py:102] Training  [ 940/2000]  eta: 0:01:51  lr: 0.0007 (0.0010)  wd: 0.2002 (0.0987)  mom: 0.9956 (0.9933)  last_layer_lr: 0.0007 (0.0010)  current_batch_size: 16.0000 (16.0000)  total_loss: 6.0599 (6.0475)  dino_local_crops_loss: 4.3129 (4.3087)  dino_global_crops_loss: 0.5391 (0.5386)  ibot_loss: 1.2078 (1.2002)  time: 0.074475  data: 0.000191  max mem: 2148
+I20260717 08:50:14 1479834 dinov2 helpers.py:102] Training  [ 950/2000]  eta: 0:01:50  lr: 0.0007 (0.0010)  wd: 0.2031 (0.0998)  mom: 0.9956 (0.9933)  last_layer_lr: 0.0007 (0.0010)  current_batch_size: 16.0000 (16.0000)  total_loss: 6.0601 (6.0476)  dino_local_crops_loss: 4.3129 (4.3088)  dino_global_crops_loss: 0.5391 (0.5386)  ibot_loss: 1.2080 (1.2002)  time: 0.074059  data: 0.000195  max mem: 2148
+I20260717 08:50:15 1479834 dinov2 helpers.py:102] Training  [ 960/2000]  eta: 0:01:49  lr: 0.0007 (0.0010)  wd: 0.2059 (0.1009)  mom: 0.9957 (0.9934)  last_layer_lr: 0.0007 (0.0010)  current_batch_size: 16.0000 (16.0000)  total_loss: 6.0596 (6.0477)  dino_local_crops_loss: 4.3129 (4.3088)  dino_global_crops_loss: 0.5391 (0.5386)  ibot_loss: 1.2075 (1.2003)  time: 0.075552  data: 0.000201  max mem: 2148
+I20260717 08:50:16 1479834 dinov2 helpers.py:102] Training  [ 970/2000]  eta: 0:01:47  lr: 0.0007 (0.0010)  wd: 0.2087 (0.1020)  mom: 0.9957 (0.9934)  last_layer_lr: 0.0007 (0.0010)  current_batch_size: 16.0000 (16.0000)  total_loss: 6.0594 (6.0478)  dino_local_crops_loss: 4.3130 (4.3088)  dino_global_crops_loss: 0.5391 (0.5386)  ibot_loss: 1.2074 (1.2004)  time: 0.077360  data: 0.000209  max mem: 2148
+I20260717 08:50:16 1479834 dinov2 helpers.py:102] Training  [ 980/2000]  eta: 0:01:46  lr: 0.0007 (0.0010)  wd: 0.2115 (0.1032)  mom: 0.9958 (0.9934)  last_layer_lr: 0.0007 (0.0010)  current_batch_size: 16.0000 (16.0000)  total_loss: 6.0597 (6.0480)  dino_local_crops_loss: 4.3130 (4.3089)  dino_global_crops_loss: 0.5391 (0.5386)  ibot_loss: 1.2075 (1.2005)  time: 0.078779  data: 0.000215  max mem: 2148
+I20260717 08:50:17 1479834 dinov2 helpers.py:102] Training  [ 990/2000]  eta: 0:01:45  lr: 0.0007 (0.0010)  wd: 0.2143 (0.1043)  mom: 0.9959 (0.9934)  last_layer_lr: 0.0007 (0.0010)  current_batch_size: 16.0000 (16.0000)  total_loss: 6.0597 (6.0481)  dino_local_crops_loss: 4.3130 (4.3089)  dino_global_crops_loss: 0.5391 (0.5386)  ibot_loss: 1.2076 (1.2005)  time: 0.075599  data: 0.000204  max mem: 2148
+I20260717 08:50:18 1479834 dinov2 helpers.py:102] Training  [1000/2000]  eta: 0:01:43  lr: 0.0007 (0.0010)  wd: 0.2172 (0.1054)  mom: 0.9959 (0.9935)  last_layer_lr: 0.0007 (0.0010)  current_batch_size: 16.0000 (16.0000)  total_loss: 6.0602 (6.0482)  dino_local_crops_loss: 4.3130 (4.3090)  dino_global_crops_loss: 0.5391 (0.5386)  ibot_loss: 1.2082 (1.2006)  time: 0.071585  data: 0.000195  max mem: 2148
+I20260717 08:50:19 1479834 dinov2 helpers.py:102] Training  [1010/2000]  eta: 0:01:42  lr: 0.0007 (0.0010)  wd: 0.2200 (0.1066)  mom: 0.9960 (0.9935)  last_layer_lr: 0.0007 (0.0010)  current_batch_size: 16.0000 (16.0000)  total_loss: 6.0599 (6.0483)  dino_local_crops_loss: 4.3130 (4.3090)  dino_global_crops_loss: 0.5391 (0.5386)  ibot_loss: 1.2077 (1.2007)  time: 0.073838  data: 0.000197  max mem: 2148
+I20260717 08:50:19 1479834 dinov2 helpers.py:102] Training  [1020/2000]  eta: 0:01:41  lr: 0.0007 (0.0010)  wd: 0.2228 (0.1077)  mom: 0.9961 (0.9935)  last_layer_lr: 0.0007 (0.0010)  current_batch_size: 16.0000 (16.0000)  total_loss: 6.0593 (6.0484)  dino_local_crops_loss: 4.3129 (4.3090)  dino_global_crops_loss: 0.5391 (0.5386)  ibot_loss: 1.2073 (1.2008)  time: 0.075741  data: 0.000218  max mem: 2148
+I20260717 08:50:20 1479834 dinov2 helpers.py:102] Training  [1030/2000]  eta: 0:01:39  lr: 0.0007 (0.0010)  wd: 0.2257 (0.1089)  mom: 0.9961 (0.9935)  last_layer_lr: 0.0007 (0.0010)  current_batch_size: 16.0000 (16.0000)  total_loss: 6.0602 (6.0485)  dino_local_crops_loss: 4.3129 (4.3091)  dino_global_crops_loss: 0.5391 (0.5386)  ibot_loss: 1.2082 (1.2008)  time: 0.076610  data: 0.000233  max mem: 2148
+I20260717 08:50:21 1479834 dinov2 helpers.py:102] Training  [1040/2000]  eta: 0:01:38  lr: 0.0006 (0.0010)  wd: 0.2285 (0.1101)  mom: 0.9962 (0.9936)  last_layer_lr: 0.0006 (0.0010)  current_batch_size: 16.0000 (16.0000)  total_loss: 6.0601 (6.0486)  dino_local_crops_loss: 4.3129 (4.3091)  dino_global_crops_loss: 0.5391 (0.5386)  ibot_loss: 1.2081 (1.2009)  time: 0.076262  data: 0.000211  max mem: 2148
+I20260717 08:50:22 1479834 dinov2 helpers.py:102] Training  [1050/2000]  eta: 0:01:37  lr: 0.0006 (0.0010)  wd: 0.2313 (0.1112)  mom: 0.9963 (0.9936)  last_layer_lr: 0.0006 (0.0010)  current_batch_size: 16.0000 (16.0000)  total_loss: 6.0592 (6.0487)  dino_local_crops_loss: 4.3130 (4.3092)  dino_global_crops_loss: 0.5391 (0.5386)  ibot_loss: 1.2071 (1.2010)  time: 0.081777  data: 0.000199  max mem: 2148
+I20260717 08:50:23 1479834 dinov2 helpers.py:102] Training  [1060/2000]  eta: 0:01:36  lr: 0.0006 (0.0010)  wd: 0.2341 (0.1124)  mom: 0.9963 (0.9936)  last_layer_lr: 0.0006 (0.0010)  current_batch_size: 16.0000 (16.0000)  total_loss: 6.0592 (6.0489)  dino_local_crops_loss: 4.3130 (4.3092)  dino_global_crops_loss: 0.5391 (0.5386)  ibot_loss: 1.2071 (1.2010)  time: 0.080957  data: 0.000273  max mem: 2148
+I20260717 08:50:23 1479834 dinov2 helpers.py:102] Training  [1070/2000]  eta: 0:01:34  lr: 0.0006 (0.0010)  wd: 0.2369 (0.1136)  mom: 0.9964 (0.9936)  last_layer_lr: 0.0006 (0.0010)  current_batch_size: 16.0000 (16.0000)  total_loss: 6.0596 (6.0490)  dino_local_crops_loss: 4.3130 (4.3092)  dino_global_crops_loss: 0.5391 (0.5387)  ibot_loss: 1.2075 (1.2011)  time: 0.076290  data: 0.000442  max mem: 2148
+I20260717 08:50:24 1479834 dinov2 helpers.py:102] Training  [1080/2000]  eta: 0:01:33  lr: 0.0006 (0.0010)  wd: 0.2398 (0.1148)  mom: 0.9964 (0.9937)  last_layer_lr: 0.0006 (0.0010)  current_batch_size: 16.0000 (16.0000)  total_loss: 6.0594 (6.0491)  dino_local_crops_loss: 4.3129 (4.3093)  dino_global_crops_loss: 0.5391 (0.5387)  ibot_loss: 1.2074 (1.2011)  time: 0.079874  data: 0.000377  max mem: 2148
+I20260717 08:50:25 1479834 dinov2 helpers.py:102] Training  [1090/2000]  eta: 0:01:32  lr: 0.0006 (0.0010)  wd: 0.2426 (0.1159)  mom: 0.9965 (0.9937)  last_layer_lr: 0.0006 (0.0010)  current_batch_size: 16.0000 (16.0000)  total_loss: 6.0593 (6.0491)  dino_local_crops_loss: 4.3129 (4.3093)  dino_global_crops_loss: 0.5391 (0.5387)  ibot_loss: 1.2072 (1.2012)  time: 0.076223  data: 0.000218  max mem: 2148
+I20260717 08:50:26 1479834 dinov2 helpers.py:102] Training  [1100/2000]  eta: 0:01:31  lr: 0.0006 (0.0010)  wd: 0.2454 (0.1171)  mom: 0.9966 (0.9937)  last_layer_lr: 0.0006 (0.0010)  current_batch_size: 16.0000 (16.0000)  total_loss: 6.0592 (6.0492)  dino_local_crops_loss: 4.3129 (4.3093)  dino_global_crops_loss: 0.5391 (0.5387)  ibot_loss: 1.2071 (1.2012)  time: 0.075588  data: 0.000223  max mem: 2148
+I20260717 08:50:26 1479834 dinov2 helpers.py:102] Training  [1110/2000]  eta: 0:01:30  lr: 0.0006 (0.0010)  wd: 0.2482 (0.1183)  mom: 0.9966 (0.9937)  last_layer_lr: 0.0006 (0.0010)  current_batch_size: 16.0000 (16.0000)  total_loss: 6.0596 (6.0493)  dino_local_crops_loss: 4.3129 (4.3094)  dino_global_crops_loss: 0.5391 (0.5387)  ibot_loss: 1.2076 (1.2013)  time: 0.075192  data: 0.000201  max mem: 2148
+I20260717 08:50:27 1479834 dinov2 helpers.py:102] Training  [1120/2000]  eta: 0:01:28  lr: 0.0006 (0.0010)  wd: 0.2509 (0.1195)  mom: 0.9967 (0.9938)  last_layer_lr: 0.0006 (0.0010)  current_batch_size: 16.0000 (16.0000)  total_loss: 6.0598 (6.0494)  dino_local_crops_loss: 4.3129 (4.3094)  dino_global_crops_loss: 0.5391 (0.5387)  ibot_loss: 1.2078 (1.2014)  time: 0.073335  data: 0.000206  max mem: 2148
+I20260717 08:50:28 1479834 dinov2 helpers.py:102] Training  [1130/2000]  eta: 0:01:27  lr: 0.0006 (0.0010)  wd: 0.2537 (0.1207)  mom: 0.9967 (0.9938)  last_layer_lr: 0.0006 (0.0010)  current_batch_size: 16.0000 (16.0000)  total_loss: 6.0598 (6.0495)  dino_local_crops_loss: 4.3129 (4.3094)  dino_global_crops_loss: 0.5391 (0.5387)  ibot_loss: 1.2077 (1.2014)  time: 0.078492  data: 0.000356  max mem: 2148
+I20260717 08:50:29 1479834 dinov2 helpers.py:102] Training  [1140/2000]  eta: 0:01:26  lr: 0.0005 (0.0010)  wd: 0.2565 (0.1219)  mom: 0.9968 (0.9938)  last_layer_lr: 0.0005 (0.0010)  current_batch_size: 16.0000 (16.0000)  total_loss: 6.0597 (6.0496)  dino_local_crops_loss: 4.3129 (4.3095)  dino_global_crops_loss: 0.5391 (0.5387)  ibot_loss: 1.2076 (1.2015)  time: 0.078063  data: 0.000332  max mem: 2148
+I20260717 08:50:29 1479834 dinov2 helpers.py:102] Training  [1150/2000]  eta: 0:01:25  lr: 0.0005 (0.0009)  wd: 0.2593 (0.1231)  mom: 0.9969 (0.9938)  last_layer_lr: 0.0005 (0.0009)  current_batch_size: 16.0000 (16.0000)  total_loss: 6.0599 (6.0497)  dino_local_crops_loss: 4.3129 (4.3095)  dino_global_crops_loss: 0.5391 (0.5387)  ibot_loss: 1.2078 (1.2015)  time: 0.073154  data: 0.000192  max mem: 2148
+I20260717 08:50:30 1479834 dinov2 helpers.py:102] Training  [1160/2000]  eta: 0:01:24  lr: 0.0005 (0.0009)  wd: 0.2620 (0.1243)  mom: 0.9969 (0.9939)  last_layer_lr: 0.0005 (0.0009)  current_batch_size: 16.0000 (16.0000)  total_loss: 6.0592 (6.0498)  dino_local_crops_loss: 4.3129 (4.3095)  dino_global_crops_loss: 0.5391 (0.5387)  ibot_loss: 1.2072 (1.2016)  time: 0.076781  data: 0.000205  max mem: 2148
+I20260717 08:50:31 1479834 dinov2 helpers.py:102] Training  [1170/2000]  eta: 0:01:22  lr: 0.0005 (0.0009)  wd: 0.2648 (0.1256)  mom: 0.9970 (0.9939)  last_layer_lr: 0.0005 (0.0009)  current_batch_size: 16.0000 (16.0000)  total_loss: 6.0592 (6.0499)  dino_local_crops_loss: 4.3129 (4.3095)  dino_global_crops_loss: 0.5391 (0.5387)  ibot_loss: 1.2072 (1.2016)  time: 0.081957  data: 0.000214  max mem: 2148
+I20260717 08:50:32 1479834 dinov2 helpers.py:102] Training  [1180/2000]  eta: 0:01:21  lr: 0.0005 (0.0009)  wd: 0.2675 (0.1268)  mom: 0.9971 (0.9939)  last_layer_lr: 0.0005 (0.0009)  current_batch_size: 16.0000 (16.0000)  total_loss: 6.0595 (6.0499)  dino_local_crops_loss: 4.3129 (4.3096)  dino_global_crops_loss: 0.5391 (0.5387)  ibot_loss: 1.2075 (1.2017)  time: 0.078147  data: 0.000228  max mem: 2148
+I20260717 08:50:33 1479834 dinov2 helpers.py:102] Training  [1190/2000]  eta: 0:01:20  lr: 0.0005 (0.0009)  wd: 0.2702 (0.1280)  mom: 0.9971 (0.9940)  last_layer_lr: 0.0005 (0.0009)  current_batch_size: 16.0000 (16.0000)  total_loss: 6.0595 (6.0500)  dino_local_crops_loss: 4.3129 (4.3096)  dino_global_crops_loss: 0.5391 (0.5387)  ibot_loss: 1.2075 (1.2017)  time: 0.074834  data: 0.000228  max mem: 2148
+I20260717 08:50:33 1479834 fvcore.common.checkpoint __init__.py:109] Saving checkpoint to /sci/labs/arieljaffe/dan.abergel1/runs/imagenette/proto128/model_0001199.rank_0.pth
+I20260717 08:50:34 1479834 dinov2 helpers.py:102] Training  [1200/2000]  eta: 0:01:20  lr: 0.0005 (0.0009)  wd: 0.2729 (0.1292)  mom: 0.9972 (0.9940)  last_layer_lr: 0.0005 (0.0009)  current_batch_size: 16.0000 (16.0000)  total_loss: 6.0590 (6.0501)  dino_local_crops_loss: 4.3130 (4.3096)  dino_global_crops_loss: 0.5391 (0.5387)  ibot_loss: 1.2070 (1.2018)  time: 0.124674  data: 0.000359  max mem: 2148
+I20260717 08:50:35 1479834 dinov2 helpers.py:102] Training  [1210/2000]  eta: 0:01:18  lr: 0.0005 (0.0009)  wd: 0.2756 (0.1304)  mom: 0.9972 (0.9940)  last_layer_lr: 0.0005 (0.0009)  current_batch_size: 16.0000 (16.0000)  total_loss: 6.0590 (6.0502)  dino_local_crops_loss: 4.3130 (4.3097)  dino_global_crops_loss: 0.5391 (0.5387)  ibot_loss: 1.2069 (1.2018)  time: 0.123015  data: 0.000346  max mem: 2148
+I20260717 08:50:36 1479834 dinov2 helpers.py:102] Training  [1220/2000]  eta: 0:01:17  lr: 0.0005 (0.0009)  wd: 0.2783 (0.1316)  mom: 0.9973 (0.9940)  last_layer_lr: 0.0005 (0.0009)  current_batch_size: 16.0000 (16.0000)  total_loss: 6.0594 (6.0502)  dino_local_crops_loss: 4.3130 (4.3097)  dino_global_crops_loss: 0.5391 (0.5387)  ibot_loss: 1.2074 (1.2019)  time: 0.073811  data: 0.000191  max mem: 2148
+I20260717 08:50:37 1479834 dinov2 helpers.py:102] Training  [1230/2000]  eta: 0:01:16  lr: 0.0005 (0.0009)  wd: 0.2810 (0.1329)  mom: 0.9974 (0.9941)  last_layer_lr: 0.0005 (0.0009)  current_batch_size: 16.0000 (16.0000)  total_loss: 6.0588 (6.0503)  dino_local_crops_loss: 4.3130 (4.3097)  dino_global_crops_loss: 0.5391 (0.5387)  ibot_loss: 1.2068 (1.2019)  time: 0.075300  data: 0.000189  max mem: 2148
+I20260717 08:50:37 1479834 dinov2 helpers.py:102] Training  [1240/2000]  eta: 0:01:15  lr: 0.0004 (0.0009)  wd: 0.2836 (0.1341)  mom: 0.9974 (0.9941)  last_layer_lr: 0.0004 (0.0009)  current_batch_size: 16.0000 (16.0000)  total_loss: 6.0584 (6.0504)  dino_local_crops_loss: 4.3130 (4.3097)  dino_global_crops_loss: 0.5391 (0.5387)  ibot_loss: 1.2063 (1.2019)  time: 0.075266  data: 0.000192  max mem: 2148
+I20260717 08:50:38 1479834 dinov2 helpers.py:102] Training  [1250/2000]  eta: 0:01:14  lr: 0.0004 (0.0009)  wd: 0.2863 (0.1353)  mom: 0.9975 (0.9941)  last_layer_lr: 0.0004 (0.0009)  current_batch_size: 16.0000 (16.0000)  total_loss: 6.0589 (6.0504)  dino_local_crops_loss: 4.3129 (4.3098)  dino_global_crops_loss: 0.5391 (0.5387)  ibot_loss: 1.2068 (1.2020)  time: 0.077491  data: 0.000213  max mem: 2148
+I20260717 08:50:39 1479834 dinov2 helpers.py:102] Training  [1260/2000]  eta: 0:01:13  lr: 0.0004 (0.0009)  wd: 0.2889 (0.1366)  mom: 0.9975 (0.9941)  last_layer_lr: 0.0004 (0.0009)  current_batch_size: 16.0000 (16.0000)  total_loss: 6.0588 (6.0505)  dino_local_crops_loss: 4.3129 (4.3098)  dino_global_crops_loss: 0.5391 (0.5387)  ibot_loss: 1.2067 (1.2020)  time: 0.074679  data: 0.000206  max mem: 2148
+I20260717 08:50:39 1479834 dinov2 helpers.py:102] Training  [1270/2000]  eta: 0:01:12  lr: 0.0004 (0.0009)  wd: 0.2915 (0.1378)  mom: 0.9976 (0.9942)  last_layer_lr: 0.0004 (0.0009)  current_batch_size: 16.0000 (16.0000)  total_loss: 6.0590 (6.0506)  dino_local_crops_loss: 4.3129 (4.3098)  dino_global_crops_loss: 0.5391 (0.5387)  ibot_loss: 1.2070 (1.2020)  time: 0.070255  data: 0.000186  max mem: 2148
+I20260717 08:50:40 1479834 dinov2 helpers.py:102] Training  [1280/2000]  eta: 0:01:10  lr: 0.0004 (0.0009)  wd: 0.2941 (0.1390)  mom: 0.9976 (0.9942)  last_layer_lr: 0.0004 (0.0009)  current_batch_size: 16.0000 (16.0000)  total_loss: 6.0592 (6.0507)  dino_local_crops_loss: 4.3129 (4.3098)  dino_global_crops_loss: 0.5391 (0.5387)  ibot_loss: 1.2071 (1.2021)  time: 0.070096  data: 0.000205  max mem: 2148
+I20260717 08:50:41 1479834 dinov2 helpers.py:102] Training  [1290/2000]  eta: 0:01:09  lr: 0.0004 (0.0009)  wd: 0.2966 (0.1403)  mom: 0.9977 (0.9942)  last_layer_lr: 0.0004 (0.0009)  current_batch_size: 16.0000 (16.0000)  total_loss: 6.0591 (6.0507)  dino_local_crops_loss: 4.3129 (4.3099)  dino_global_crops_loss: 0.5391 (0.5387)  ibot_loss: 1.2070 (1.2021)  time: 0.071433  data: 0.000216  max mem: 2148
+I20260717 08:50:42 1479834 dinov2 helpers.py:102] Training  [1300/2000]  eta: 0:01:08  lr: 0.0004 (0.0009)  wd: 0.2992 (0.1415)  mom: 0.9978 (0.9943)  last_layer_lr: 0.0004 (0.0009)  current_batch_size: 16.0000 (16.0000)  total_loss: 6.0590 (6.0508)  dino_local_crops_loss: 4.3129 (4.3099)  dino_global_crops_loss: 0.5391 (0.5387)  ibot_loss: 1.2069 (1.2022)  time: 0.077029  data: 0.000209  max mem: 2148
+I20260717 08:50:43 1479834 dinov2 helpers.py:102] Training  [1310/2000]  eta: 0:01:07  lr: 0.0004 (0.0009)  wd: 0.3017 (0.1427)  mom: 0.9978 (0.9943)  last_layer_lr: 0.0004 (0.0009)  current_batch_size: 16.0000 (16.0000)  total_loss: 6.0591 (6.0508)  dino_local_crops_loss: 4.3130 (4.3099)  dino_global_crops_loss: 0.5391 (0.5387)  ibot_loss: 1.2069 (1.2022)  time: 0.086160  data: 0.000455  max mem: 2148
+I20260717 08:50:43 1479834 dinov2 helpers.py:102] Training  [1320/2000]  eta: 0:01:06  lr: 0.0004 (0.0009)  wd: 0.3042 (0.1439)  mom: 0.9979 (0.9943)  last_layer_lr: 0.0004 (0.0009)  current_batch_size: 16.0000 (16.0000)  total_loss: 6.0591 (6.0509)  dino_local_crops_loss: 4.3130 (4.3099)  dino_global_crops_loss: 0.5391 (0.5387)  ibot_loss: 1.2070 (1.2022)  time: 0.082203  data: 0.000460  max mem: 2148
+I20260717 08:50:44 1479834 dinov2 helpers.py:102] Training  [1330/2000]  eta: 0:01:05  lr: 0.0004 (0.0009)  wd: 0.3067 (0.1452)  mom: 0.9979 (0.9943)  last_layer_lr: 0.0004 (0.0009)  current_batch_size: 16.0000 (16.0000)  total_loss: 6.0598 (6.0510)  dino_local_crops_loss: 4.3130 (4.3100)  dino_global_crops_loss: 0.5391 (0.5387)  ibot_loss: 1.2077 (1.2023)  time: 0.072365  data: 0.000222  max mem: 2148
+I20260717 08:50:45 1479834 dinov2 helpers.py:102] Training  [1340/2000]  eta: 0:01:04  lr: 0.0003 (0.0009)  wd: 0.3092 (0.1464)  mom: 0.9980 (0.9944)  last_layer_lr: 0.0003 (0.0009)  current_batch_size: 16.0000 (16.0000)  total_loss: 6.0595 (6.0510)  dino_local_crops_loss: 4.3129 (4.3100)  dino_global_crops_loss: 0.5391 (0.5387)  ibot_loss: 1.2074 (1.2023)  time: 0.077433  data: 0.000205  max mem: 2148
+I20260717 08:50:46 1479834 dinov2 helpers.py:102] Training  [1350/2000]  eta: 0:01:03  lr: 0.0003 (0.0009)  wd: 0.3116 (0.1476)  mom: 0.9980 (0.9944)  last_layer_lr: 0.0003 (0.0009)  current_batch_size: 16.0000 (16.0000)  total_loss: 6.0588 (6.0511)  dino_local_crops_loss: 4.3129 (4.3100)  dino_global_crops_loss: 0.5391 (0.5387)  ibot_loss: 1.2067 (1.2023)  time: 0.079288  data: 0.000199  max mem: 2148
+I20260717 08:50:47 1479834 dinov2 helpers.py:102] Training  [1360/2000]  eta: 0:01:02  lr: 0.0003 (0.0009)  wd: 0.3140 (0.1489)  mom: 0.9981 (0.9944)  last_layer_lr: 0.0003 (0.0009)  current_batch_size: 16.0000 (16.0000)  total_loss: 6.0590 (6.0511)  dino_local_crops_loss: 4.3129 (4.3100)  dino_global_crops_loss: 0.5391 (0.5388)  ibot_loss: 1.2069 (1.2024)  time: 0.079333  data: 0.000234  max mem: 2148
+I20260717 08:50:47 1479834 dinov2 helpers.py:102] Training  [1370/2000]  eta: 0:01:01  lr: 0.0003 (0.0009)  wd: 0.3164 (0.1501)  mom: 0.9981 (0.9944)  last_layer_lr: 0.0003 (0.0009)  current_batch_size: 16.0000 (16.0000)  total_loss: 6.0593 (6.0512)  dino_local_crops_loss: 4.3129 (4.3100)  dino_global_crops_loss: 0.5391 (0.5388)  ibot_loss: 1.2072 (1.2024)  time: 0.078966  data: 0.000216  max mem: 2148
+I20260717 08:50:48 1479834 dinov2 helpers.py:102] Training  [1380/2000]  eta: 0:01:00  lr: 0.0003 (0.0009)  wd: 0.3188 (0.1513)  mom: 0.9982 (0.9945)  last_layer_lr: 0.0003 (0.0009)  current_batch_size: 16.0000 (16.0000)  total_loss: 6.0590 (6.0513)  dino_local_crops_loss: 4.3129 (4.3101)  dino_global_crops_loss: 0.5391 (0.5388)  ibot_loss: 1.2070 (1.2024)  time: 0.075744  data: 0.000193  max mem: 2148
+I20260717 08:50:49 1479834 dinov2 helpers.py:102] Training  [1390/2000]  eta: 0:00:59  lr: 0.0003 (0.0009)  wd: 0.3212 (0.1526)  mom: 0.9982 (0.9945)  last_layer_lr: 0.0003 (0.0009)  current_batch_size: 16.0000 (16.0000)  total_loss: 6.0586 (6.0513)  dino_local_crops_loss: 4.3129 (4.3101)  dino_global_crops_loss: 0.5391 (0.5388)  ibot_loss: 1.2065 (1.2025)  time: 0.077269  data: 0.000198  max mem: 2148
+I20260717 08:50:50 1479834 dinov2 helpers.py:102] Training  [1400/2000]  eta: 0:00:58  lr: 0.0003 (0.0009)  wd: 0.3235 (0.1538)  mom: 0.9983 (0.9945)  last_layer_lr: 0.0003 (0.0009)  current_batch_size: 16.0000 (16.0000)  total_loss: 6.0589 (6.0514)  dino_local_crops_loss: 4.3129 (4.3101)  dino_global_crops_loss: 0.5391 (0.5388)  ibot_loss: 1.2068 (1.2025)  time: 0.074199  data: 0.000191  max mem: 2148
+I20260717 08:50:50 1479834 dinov2 helpers.py:102] Training  [1410/2000]  eta: 0:00:56  lr: 0.0003 (0.0008)  wd: 0.3258 (0.1550)  mom: 0.9984 (0.9946)  last_layer_lr: 0.0003 (0.0008)  current_batch_size: 16.0000 (16.0000)  total_loss: 6.0587 (6.0514)  dino_local_crops_loss: 4.3130 (4.3101)  dino_global_crops_loss: 0.5391 (0.5388)  ibot_loss: 1.2067 (1.2025)  time: 0.072038  data: 0.000200  max mem: 2148
+I20260717 08:50:51 1479834 dinov2 helpers.py:102] Training  [1420/2000]  eta: 0:00:55  lr: 0.0003 (0.0008)  wd: 0.3281 (0.1563)  mom: 0.9984 (0.9946)  last_layer_lr: 0.0003 (0.0008)  current_batch_size: 16.0000 (16.0000)  total_loss: 6.0587 (6.0515)  dino_local_crops_loss: 4.3130 (4.3101)  dino_global_crops_loss: 0.5391 (0.5388)  ibot_loss: 1.2066 (1.2026)  time: 0.073054  data: 0.000195  max mem: 2148
+I20260717 08:50:52 1479834 dinov2 helpers.py:102] Training  [1430/2000]  eta: 0:00:54  lr: 0.0003 (0.0008)  wd: 0.3303 (0.1575)  mom: 0.9985 (0.9946)  last_layer_lr: 0.0003 (0.0008)  current_batch_size: 16.0000 (16.0000)  total_loss: 6.0587 (6.0515)  dino_local_crops_loss: 4.3130 (4.3102)  dino_global_crops_loss: 0.5391 (0.5388)  ibot_loss: 1.2065 (1.2026)  time: 0.076513  data: 0.000182  max mem: 2148
+I20260717 08:50:53 1479834 dinov2 helpers.py:102] Training  [1440/2000]  eta: 0:00:53  lr: 0.0003 (0.0008)  wd: 0.3325 (0.1587)  mom: 0.9985 (0.9946)  last_layer_lr: 0.0003 (0.0008)  current_batch_size: 16.0000 (16.0000)  total_loss: 6.0592 (6.0516)  dino_local_crops_loss: 4.3130 (4.3102)  dino_global_crops_loss: 0.5391 (0.5388)  ibot_loss: 1.2071 (1.2026)  time: 0.077390  data: 0.000199  max mem: 2148
+I20260717 08:50:53 1479834 dinov2 helpers.py:102] Training  [1450/2000]  eta: 0:00:52  lr: 0.0002 (0.0008)  wd: 0.3347 (0.1599)  mom: 0.9985 (0.9947)  last_layer_lr: 0.0002 (0.0008)  current_batch_size: 16.0000 (16.0000)  total_loss: 6.0592 (6.0516)  dino_local_crops_loss: 4.3129 (4.3102)  dino_global_crops_loss: 0.5391 (0.5388)  ibot_loss: 1.2071 (1.2027)  time: 0.074655  data: 0.000201  max mem: 2148
+I20260717 08:50:54 1479834 dinov2 helpers.py:102] Training  [1460/2000]  eta: 0:00:51  lr: 0.0002 (0.0008)  wd: 0.3369 (0.1611)  mom: 0.9986 (0.9947)  last_layer_lr: 0.0002 (0.0008)  current_batch_size: 16.0000 (16.0000)  total_loss: 6.0585 (6.0517)  dino_local_crops_loss: 4.3129 (4.3102)  dino_global_crops_loss: 0.5391 (0.5388)  ibot_loss: 1.2064 (1.2027)  time: 0.078312  data: 0.000187  max mem: 2148
+I20260717 08:50:55 1479834 dinov2 helpers.py:102] Training  [1470/2000]  eta: 0:00:50  lr: 0.0002 (0.0008)  wd: 0.3390 (0.1624)  mom: 0.9986 (0.9947)  last_layer_lr: 0.0002 (0.0008)  current_batch_size: 16.0000 (16.0000)  total_loss: 6.0588 (6.0517)  dino_local_crops_loss: 4.3129 (4.3102)  dino_global_crops_loss: 0.5391 (0.5388)  ibot_loss: 1.2068 (1.2027)  time: 0.078750  data: 0.000183  max mem: 2148
+I20260717 08:50:56 1479834 dinov2 helpers.py:102] Training  [1480/2000]  eta: 0:00:49  lr: 0.0002 (0.0008)  wd: 0.3411 (0.1636)  mom: 0.9987 (0.9947)  last_layer_lr: 0.0002 (0.0008)  current_batch_size: 16.0000 (16.0000)  total_loss: 6.0591 (6.0518)  dino_local_crops_loss: 4.3129 (4.3103)  dino_global_crops_loss: 0.5391 (0.5388)  ibot_loss: 1.2070 (1.2027)  time: 0.077023  data: 0.000190  max mem: 2148
+I20260717 08:50:56 1479834 dinov2 helpers.py:102] Training  [1490/2000]  eta: 0:00:48  lr: 0.0002 (0.0008)  wd: 0.3432 (0.1648)  mom: 0.9987 (0.9948)  last_layer_lr: 0.0002 (0.0008)  current_batch_size: 16.0000 (16.0000)  total_loss: 6.0593 (6.0518)  dino_local_crops_loss: 4.3129 (4.3103)  dino_global_crops_loss: 0.5391 (0.5388)  ibot_loss: 1.2073 (1.2028)  time: 0.075633  data: 0.000197  max mem: 2148
+I20260717 08:50:57 1479834 fvcore.common.checkpoint __init__.py:109] Saving checkpoint to /sci/labs/arieljaffe/dan.abergel1/runs/imagenette/proto128/model_0001499.rank_0.pth
+I20260717 08:50:58 1479834 dinov2 helpers.py:102] Training  [1500/2000]  eta: 0:00:48  lr: 0.0002 (0.0008)  wd: 0.3453 (0.1660)  mom: 0.9988 (0.9948)  last_layer_lr: 0.0002 (0.0008)  current_batch_size: 16.0000 (16.0000)  total_loss: 6.0594 (6.0519)  dino_local_crops_loss: 4.3129 (4.3103)  dino_global_crops_loss: 0.5391 (0.5388)  ibot_loss: 1.2073 (1.2028)  time: 0.123840  data: 0.000206  max mem: 2148
+I20260717 08:50:59 1479834 dinov2 helpers.py:102] Training  [1510/2000]  eta: 0:00:46  lr: 0.0002 (0.0008)  wd: 0.3473 (0.1672)  mom: 0.9988 (0.9948)  last_layer_lr: 0.0002 (0.0008)  current_batch_size: 16.0000 (16.0000)  total_loss: 6.0588 (6.0519)  dino_local_crops_loss: 4.3129 (4.3103)  dino_global_crops_loss: 0.5391 (0.5388)  ibot_loss: 1.2067 (1.2028)  time: 0.124123  data: 0.000200  max mem: 2148
+I20260717 08:51:00 1479834 dinov2 helpers.py:102] Training  [1520/2000]  eta: 0:00:45  lr: 0.0002 (0.0008)  wd: 0.3493 (0.1684)  mom: 0.9989 (0.9949)  last_layer_lr: 0.0002 (0.0008)  current_batch_size: 16.0000 (16.0000)  total_loss: 6.0588 (6.0520)  dino_local_crops_loss: 4.3129 (4.3103)  dino_global_crops_loss: 0.5391 (0.5388)  ibot_loss: 1.2067 (1.2029)  time: 0.076369  data: 0.000385  max mem: 2148
+I20260717 08:51:01 1479834 dinov2 helpers.py:102] Training  [1530/2000]  eta: 0:00:44  lr: 0.0002 (0.0008)  wd: 0.3512 (0.1696)  mom: 0.9989 (0.9949)  last_layer_lr: 0.0002 (0.0008)  current_batch_size: 16.0000 (16.0000)  total_loss: 6.0589 (6.0520)  dino_local_crops_loss: 4.3129 (4.3103)  dino_global_crops_loss: 0.5391 (0.5388)  ibot_loss: 1.2069 (1.2029)  time: 0.083062  data: 0.000410  max mem: 2148
+I20260717 08:51:01 1479834 dinov2 helpers.py:102] Training  [1540/2000]  eta: 0:00:43  lr: 0.0002 (0.0008)  wd: 0.3531 (0.1708)  mom: 0.9990 (0.9949)  last_layer_lr: 0.0002 (0.0008)  current_batch_size: 16.0000 (16.0000)  total_loss: 6.0590 (6.0521)  dino_local_crops_loss: 4.3129 (4.3104)  dino_global_crops_loss: 0.5391 (0.5388)  ibot_loss: 1.2070 (1.2029)  time: 0.081031  data: 0.000241  max mem: 2148
+I20260717 08:51:02 1479834 dinov2 helpers.py:102] Training  [1550/2000]  eta: 0:00:42  lr: 0.0002 (0.0008)  wd: 0.3550 (0.1720)  mom: 0.9990 (0.9949)  last_layer_lr: 0.0002 (0.0008)  current_batch_size: 16.0000 (16.0000)  total_loss: 6.0584 (6.0521)  dino_local_crops_loss: 4.3129 (4.3104)  dino_global_crops_loss: 0.5391 (0.5388)  ibot_loss: 1.2064 (1.2029)  time: 0.077201  data: 0.000226  max mem: 2148
+I20260717 08:51:03 1479834 dinov2 helpers.py:102] Training  [1560/2000]  eta: 0:00:41  lr: 0.0002 (0.0008)  wd: 0.3569 (0.1732)  mom: 0.9990 (0.9950)  last_layer_lr: 0.0002 (0.0008)  current_batch_size: 16.0000 (16.0000)  total_loss: 6.0583 (6.0521)  dino_local_crops_loss: 4.3129 (4.3104)  dino_global_crops_loss: 0.5391 (0.5388)  ibot_loss: 1.2063 (1.2029)  time: 0.080760  data: 0.000219  max mem: 2148
+I20260717 08:51:04 1479834 dinov2 helpers.py:102] Training  [1570/2000]  eta: 0:00:40  lr: 0.0002 (0.0008)  wd: 0.3587 (0.1744)  mom: 0.9991 (0.9950)  last_layer_lr: 0.0002 (0.0008)  current_batch_size: 16.0000 (16.0000)  total_loss: 6.0583 (6.0522)  dino_local_crops_loss: 4.3129 (4.3104)  dino_global_crops_loss: 0.5391 (0.5388)  ibot_loss: 1.2063 (1.2030)  time: 0.081544  data: 0.000213  max mem: 2148
+I20260717 08:51:04 1479834 dinov2 helpers.py:102] Training  [1580/2000]  eta: 0:00:39  lr: 0.0002 (0.0008)  wd: 0.3605 (0.1756)  mom: 0.9991 (0.9950)  last_layer_lr: 0.0002 (0.0008)  current_batch_size: 16.0000 (16.0000)  total_loss: 6.0585 (6.0522)  dino_local_crops_loss: 4.3129 (4.3104)  dino_global_crops_loss: 0.5391 (0.5388)  ibot_loss: 1.2065 (1.2030)  time: 0.079012  data: 0.000211  max mem: 2148
+I20260717 08:51:05 1479834 dinov2 helpers.py:102] Training  [1590/2000]  eta: 0:00:38  lr: 0.0001 (0.0008)  wd: 0.3622 (0.1767)  mom: 0.9992 (0.9950)  last_layer_lr: 0.0001 (0.0008)  current_batch_size: 16.0000 (16.0000)  total_loss: 6.0587 (6.0523)  dino_local_crops_loss: 4.3129 (4.3104)  dino_global_crops_loss: 0.5391 (0.5388)  ibot_loss: 1.2067 (1.2030)  time: 0.074396  data: 0.000219  max mem: 2148
+I20260717 08:51:06 1479834 dinov2 helpers.py:102] Training  [1600/2000]  eta: 0:00:37  lr: 0.0001 (0.0008)  wd: 0.3639 (0.1779)  mom: 0.9992 (0.9951)  last_layer_lr: 0.0001 (0.0008)  current_batch_size: 16.0000 (16.0000)  total_loss: 6.0583 (6.0523)  dino_local_crops_loss: 4.3129 (4.3105)  dino_global_crops_loss: 0.5391 (0.5388)  ibot_loss: 1.2063 (1.2030)  time: 0.074898  data: 0.000199  max mem: 2148
+I20260717 08:51:07 1479834 dinov2 helpers.py:102] Training  [1610/2000]  eta: 0:00:36  lr: 0.0001 (0.0008)  wd: 0.3656 (0.1791)  mom: 0.9992 (0.9951)  last_layer_lr: 0.0001 (0.0008)  current_batch_size: 16.0000 (16.0000)  total_loss: 6.0580 (6.0523)  dino_local_crops_loss: 4.3129 (4.3105)  dino_global_crops_loss: 0.5391 (0.5388)  ibot_loss: 1.2060 (1.2031)  time: 0.076769  data: 0.000196  max mem: 2148
+I20260717 08:51:08 1479834 dinov2 helpers.py:102] Training  [1620/2000]  eta: 0:00:35  lr: 0.0001 (0.0008)  wd: 0.3673 (0.1803)  mom: 0.9993 (0.9951)  last_layer_lr: 0.0001 (0.0008)  current_batch_size: 16.0000 (16.0000)  total_loss: 6.0586 (6.0524)  dino_local_crops_loss: 4.3129 (4.3105)  dino_global_crops_loss: 0.5391 (0.5388)  ibot_loss: 1.2066 (1.2031)  time: 0.076452  data: 0.000381  max mem: 2148
+I20260717 08:51:08 1479834 dinov2 helpers.py:102] Training  [1630/2000]  eta: 0:00:34  lr: 0.0001 (0.0008)  wd: 0.3689 (0.1814)  mom: 0.9993 (0.9951)  last_layer_lr: 0.0001 (0.0008)  current_batch_size: 16.0000 (16.0000)  total_loss: 6.0588 (6.0524)  dino_local_crops_loss: 4.3129 (4.3105)  dino_global_crops_loss: 0.5391 (0.5388)  ibot_loss: 1.2067 (1.2031)  time: 0.076513  data: 0.000377  max mem: 2148
+I20260717 08:51:09 1479834 dinov2 helpers.py:102] Training  [1640/2000]  eta: 0:00:34  lr: 0.0001 (0.0008)  wd: 0.3704 (0.1826)  mom: 0.9993 (0.9952)  last_layer_lr: 0.0001 (0.0008)  current_batch_size: 16.0000 (16.0000)  total_loss: 6.0589 (6.0524)  dino_local_crops_loss: 4.3129 (4.3105)  dino_global_crops_loss: 0.5391 (0.5388)  ibot_loss: 1.2068 (1.2031)  time: 0.080059  data: 0.000205  max mem: 2148
+I20260717 08:51:10 1479834 dinov2 helpers.py:102] Training  [1650/2000]  eta: 0:00:33  lr: 0.0001 (0.0008)  wd: 0.3720 (0.1837)  mom: 0.9994 (0.9952)  last_layer_lr: 0.0001 (0.0008)  current_batch_size: 16.0000 (16.0000)  total_loss: 6.0586 (6.0525)  dino_local_crops_loss: 4.3129 (4.3105)  dino_global_crops_loss: 0.5391 (0.5388)  ibot_loss: 1.2065 (1.2031)  time: 0.081873  data: 0.000228  max mem: 2148
+I20260717 08:51:11 1479834 dinov2 helpers.py:102] Training  [1660/2000]  eta: 0:00:32  lr: 0.0001 (0.0007)  wd: 0.3735 (0.1849)  mom: 0.9994 (0.9952)  last_layer_lr: 0.0001 (0.0007)  current_batch_size: 16.0000 (16.0000)  total_loss: 6.0585 (6.0525)  dino_local_crops_loss: 4.3129 (4.3105)  dino_global_crops_loss: 0.5391 (0.5388)  ibot_loss: 1.2065 (1.2032)  time: 0.076478  data: 0.000222  max mem: 2148
+I20260717 08:51:11 1479834 dinov2 helpers.py:102] Training  [1670/2000]  eta: 0:00:31  lr: 0.0001 (0.0007)  wd: 0.3749 (0.1860)  mom: 0.9994 (0.9952)  last_layer_lr: 0.0001 (0.0007)  current_batch_size: 16.0000 (16.0000)  total_loss: 6.0588 (6.0526)  dino_local_crops_loss: 4.3129 (4.3106)  dino_global_crops_loss: 0.5391 (0.5388)  ibot_loss: 1.2067 (1.2032)  time: 0.074242  data: 0.000205  max mem: 2148
+I20260717 08:51:12 1479834 dinov2 helpers.py:102] Training  [1680/2000]  eta: 0:00:30  lr: 0.0001 (0.0007)  wd: 0.3764 (0.1872)  mom: 0.9995 (0.9953)  last_layer_lr: 0.0001 (0.0007)  current_batch_size: 16.0000 (16.0000)  total_loss: 6.0588 (6.0526)  dino_local_crops_loss: 4.3129 (4.3106)  dino_global_crops_loss: 0.5391 (0.5388)  ibot_loss: 1.2067 (1.2032)  time: 0.075043  data: 0.000211  max mem: 2148
+I20260717 08:51:13 1479834 dinov2 helpers.py:102] Training  [1690/2000]  eta: 0:00:29  lr: 0.0001 (0.0007)  wd: 0.3777 (0.1883)  mom: 0.9995 (0.9953)  last_layer_lr: 0.0001 (0.0007)  current_batch_size: 16.0000 (16.0000)  total_loss: 6.0585 (6.0526)  dino_local_crops_loss: 4.3129 (4.3106)  dino_global_crops_loss: 0.5391 (0.5388)  ibot_loss: 1.2065 (1.2032)  time: 0.075249  data: 0.000208  max mem: 2148
+I20260717 08:51:14 1479834 dinov2 helpers.py:102] Training  [1700/2000]  eta: 0:00:28  lr: 0.0001 (0.0007)  wd: 0.3791 (0.1894)  mom: 0.9995 (0.9953)  last_layer_lr: 0.0001 (0.0007)  current_batch_size: 16.0000 (16.0000)  total_loss: 6.0586 (6.0527)  dino_local_crops_loss: 4.3129 (4.3106)  dino_global_crops_loss: 0.5391 (0.5388)  ibot_loss: 1.2066 (1.2032)  time: 0.074995  data: 0.000198  max mem: 2148
+I20260717 08:51:14 1479834 dinov2 helpers.py:102] Training  [1710/2000]  eta: 0:00:27  lr: 0.0001 (0.0007)  wd: 0.3804 (0.1905)  mom: 0.9996 (0.9953)  last_layer_lr: 0.0001 (0.0007)  current_batch_size: 16.0000 (16.0000)  total_loss: 6.0586 (6.0527)  dino_local_crops_loss: 4.3129 (4.3106)  dino_global_crops_loss: 0.5391 (0.5388)  ibot_loss: 1.2066 (1.2033)  time: 0.075867  data: 0.000199  max mem: 2148
+I20260717 08:51:15 1479834 dinov2 helpers.py:102] Training  [1720/2000]  eta: 0:00:26  lr: 0.0001 (0.0007)  wd: 0.3816 (0.1916)  mom: 0.9996 (0.9954)  last_layer_lr: 0.0001 (0.0007)  current_batch_size: 16.0000 (16.0000)  total_loss: 6.0582 (6.0527)  dino_local_crops_loss: 4.3129 (4.3106)  dino_global_crops_loss: 0.5391 (0.5388)  ibot_loss: 1.2061 (1.2033)  time: 0.074782  data: 0.000198  max mem: 2148
+I20260717 08:51:16 1479834 dinov2 helpers.py:102] Training  [1730/2000]  eta: 0:00:25  lr: 0.0001 (0.0007)  wd: 0.3829 (0.1928)  mom: 0.9996 (0.9954)  last_layer_lr: 0.0001 (0.0007)  current_batch_size: 16.0000 (16.0000)  total_loss: 6.0580 (6.0528)  dino_local_crops_loss: 4.3129 (4.3106)  dino_global_crops_loss: 0.5391 (0.5388)  ibot_loss: 1.2060 (1.2033)  time: 0.074145  data: 0.000199  max mem: 2148
+I20260717 08:51:17 1479834 dinov2 helpers.py:102] Training  [1740/2000]  eta: 0:00:24  lr: 0.0001 (0.0007)  wd: 0.3841 (0.1939)  mom: 0.9996 (0.9954)  last_layer_lr: 0.0001 (0.0007)  current_batch_size: 16.0000 (16.0000)  total_loss: 6.0588 (6.0528)  dino_local_crops_loss: 4.3129 (4.3107)  dino_global_crops_loss: 0.5391 (0.5388)  ibot_loss: 1.2068 (1.2033)  time: 0.076813  data: 0.000205  max mem: 2148
+I20260717 08:51:17 1479834 dinov2 helpers.py:102] Training  [1750/2000]  eta: 0:00:23  lr: 0.0001 (0.0007)  wd: 0.3852 (0.1950)  mom: 0.9997 (0.9954)  last_layer_lr: 0.0001 (0.0007)  current_batch_size: 16.0000 (16.0000)  total_loss: 6.0587 (6.0528)  dino_local_crops_loss: 4.3129 (4.3107)  dino_global_crops_loss: 0.5391 (0.5388)  ibot_loss: 1.2067 (1.2033)  time: 0.077238  data: 0.000198  max mem: 2148
+I20260717 08:51:18 1479834 dinov2 helpers.py:102] Training  [1760/2000]  eta: 0:00:22  lr: 0.0001 (0.0007)  wd: 0.3863 (0.1960)  mom: 0.9997 (0.9955)  last_layer_lr: 0.0001 (0.0007)  current_batch_size: 16.0000 (16.0000)  total_loss: 6.0582 (6.0529)  dino_local_crops_loss: 4.3129 (4.3107)  dino_global_crops_loss: 0.5391 (0.5388)  ibot_loss: 1.2061 (1.2033)  time: 0.074739  data: 0.000183  max mem: 2148
+I20260717 08:51:19 1479834 dinov2 helpers.py:102] Training  [1770/2000]  eta: 0:00:21  lr: 0.0000 (0.0007)  wd: 0.3874 (0.1971)  mom: 0.9997 (0.9955)  last_layer_lr: 0.0000 (0.0007)  current_batch_size: 16.0000 (16.0000)  total_loss: 6.0582 (6.0529)  dino_local_crops_loss: 4.3129 (4.3107)  dino_global_crops_loss: 0.5391 (0.5388)  ibot_loss: 1.2062 (1.2034)  time: 0.077297  data: 0.000191  max mem: 2148
+I20260717 08:51:20 1479834 dinov2 helpers.py:102] Training  [1780/2000]  eta: 0:00:20  lr: 0.0000 (0.0007)  wd: 0.3884 (0.1982)  mom: 0.9997 (0.9955)  last_layer_lr: 0.0000 (0.0007)  current_batch_size: 16.0000 (16.0000)  total_loss: 6.0583 (6.0529)  dino_local_crops_loss: 4.3129 (4.3107)  dino_global_crops_loss: 0.5391 (0.5388)  ibot_loss: 1.2062 (1.2034)  time: 0.077195  data: 0.000208  max mem: 2148
+I20260717 08:51:20 1479834 dinov2 helpers.py:102] Training  [1790/2000]  eta: 0:00:19  lr: 0.0000 (0.0007)  wd: 0.3894 (0.1993)  mom: 0.9998 (0.9955)  last_layer_lr: 0.0000 (0.0007)  current_batch_size: 16.0000 (16.0000)  total_loss: 6.0584 (6.0529)  dino_local_crops_loss: 4.3129 (4.3107)  dino_global_crops_loss: 0.5391 (0.5388)  ibot_loss: 1.2063 (1.2034)  time: 0.072926  data: 0.000212  max mem: 2148
+I20260717 08:51:21 1479834 fvcore.common.checkpoint __init__.py:109] Saving checkpoint to /sci/labs/arieljaffe/dan.abergel1/runs/imagenette/proto128/model_0001799.rank_0.pth
+I20260717 08:51:22 1479834 dinov2 helpers.py:102] Training  [1800/2000]  eta: 0:00:18  lr: 0.0000 (0.0007)  wd: 0.3903 (0.2003)  mom: 0.9998 (0.9956)  last_layer_lr: 0.0000 (0.0007)  current_batch_size: 16.0000 (16.0000)  total_loss: 6.0588 (6.0530)  dino_local_crops_loss: 4.3129 (4.3107)  dino_global_crops_loss: 0.5391 (0.5388)  ibot_loss: 1.2068 (1.2034)  time: 0.122185  data: 0.000200  max mem: 2148
+I20260717 08:51:23 1479834 dinov2 helpers.py:102] Training  [1810/2000]  eta: 0:00:17  lr: 0.0000 (0.0007)  wd: 0.3912 (0.2014)  mom: 0.9998 (0.9956)  last_layer_lr: 0.0000 (0.0007)  current_batch_size: 16.0000 (16.0000)  total_loss: 6.0587 (6.0530)  dino_local_crops_loss: 4.3129 (4.3107)  dino_global_crops_loss: 0.5391 (0.5388)  ibot_loss: 1.2066 (1.2034)  time: 0.124836  data: 0.000198  max mem: 2148
+I20260717 08:51:24 1479834 dinov2 helpers.py:102] Training  [1820/2000]  eta: 0:00:16  lr: 0.0000 (0.0007)  wd: 0.3920 (0.2024)  mom: 0.9998 (0.9956)  last_layer_lr: 0.0000 (0.0007)  current_batch_size: 16.0000 (16.0000)  total_loss: 6.0580 (6.0530)  dino_local_crops_loss: 4.3129 (4.3108)  dino_global_crops_loss: 0.5391 (0.5388)  ibot_loss: 1.2060 (1.2034)  time: 0.077608  data: 0.000200  max mem: 2148
+I20260717 08:51:25 1479834 dinov2 helpers.py:102] Training  [1830/2000]  eta: 0:00:15  lr: 0.0000 (0.0007)  wd: 0.3929 (0.2035)  mom: 0.9998 (0.9956)  last_layer_lr: 0.0000 (0.0007)  current_batch_size: 16.0000 (16.0000)  total_loss: 6.0585 (6.0531)  dino_local_crops_loss: 4.3129 (4.3108)  dino_global_crops_loss: 0.5391 (0.5388)  ibot_loss: 1.2065 (1.2035)  time: 0.078545  data: 0.000198  max mem: 2148
+I20260717 08:51:25 1479834 dinov2 helpers.py:102] Training  [1840/2000]  eta: 0:00:14  lr: 0.0000 (0.0007)  wd: 0.3936 (0.2045)  mom: 0.9999 (0.9957)  last_layer_lr: 0.0000 (0.0007)  current_batch_size: 16.0000 (16.0000)  total_loss: 6.0585 (6.0531)  dino_local_crops_loss: 4.3129 (4.3108)  dino_global_crops_loss: 0.5391 (0.5388)  ibot_loss: 1.2065 (1.2035)  time: 0.080971  data: 0.000195  max mem: 2148
+I20260717 08:51:26 1479834 dinov2 helpers.py:102] Training  [1850/2000]  eta: 0:00:13  lr: 0.0000 (0.0007)  wd: 0.3943 (0.2055)  mom: 0.9999 (0.9957)  last_layer_lr: 0.0000 (0.0007)  current_batch_size: 16.0000 (16.0000)  total_loss: 6.0584 (6.0531)  dino_local_crops_loss: 4.3129 (4.3108)  dino_global_crops_loss: 0.5391 (0.5388)  ibot_loss: 1.2063 (1.2035)  time: 0.080014  data: 0.000186  max mem: 2148
+I20260717 08:51:27 1479834 dinov2 helpers.py:102] Training  [1860/2000]  eta: 0:00:13  lr: 0.0000 (0.0007)  wd: 0.3950 (0.2066)  mom: 0.9999 (0.9957)  last_layer_lr: 0.0000 (0.0007)  current_batch_size: 16.0000 (16.0000)  total_loss: 6.0584 (6.0532)  dino_local_crops_loss: 4.3129 (4.3108)  dino_global_crops_loss: 0.5391 (0.5388)  ibot_loss: 1.2063 (1.2035)  time: 0.076328  data: 0.000186  max mem: 2148
+I20260717 08:51:28 1479834 dinov2 helpers.py:102] Training  [1870/2000]  eta: 0:00:12  lr: 0.0000 (0.0007)  wd: 0.3957 (0.2076)  mom: 0.9999 (0.9957)  last_layer_lr: 0.0000 (0.0007)  current_batch_size: 16.0000 (16.0000)  total_loss: 6.0581 (6.0532)  dino_local_crops_loss: 4.3129 (4.3108)  dino_global_crops_loss: 0.5391 (0.5389)  ibot_loss: 1.2060 (1.2035)  time: 0.074477  data: 0.000333  max mem: 2148
+I20260717 08:51:28 1479834 dinov2 helpers.py:102] Training  [1880/2000]  eta: 0:00:11  lr: 0.0000 (0.0007)  wd: 0.3963 (0.2086)  mom: 0.9999 (0.9957)  last_layer_lr: 0.0000 (0.0007)  current_batch_size: 16.0000 (16.0000)  total_loss: 6.0582 (6.0532)  dino_local_crops_loss: 4.3129 (4.3108)  dino_global_crops_loss: 0.5391 (0.5389)  ibot_loss: 1.2062 (1.2035)  time: 0.075653  data: 0.000335  max mem: 2148
+I20260717 08:51:29 1479834 dinov2 helpers.py:102] Training  [1890/2000]  eta: 0:00:10  lr: 0.0000 (0.0007)  wd: 0.3968 (0.2096)  mom: 0.9999 (0.9958)  last_layer_lr: 0.0000 (0.0007)  current_batch_size: 16.0000 (16.0000)  total_loss: 6.0581 (6.0532)  dino_local_crops_loss: 4.3129 (4.3108)  dino_global_crops_loss: 0.5391 (0.5389)  ibot_loss: 1.2061 (1.2036)  time: 0.079443  data: 0.000207  max mem: 2148
+I20260717 08:51:30 1479834 dinov2 helpers.py:102] Training  [1900/2000]  eta: 0:00:09  lr: 0.0000 (0.0007)  wd: 0.3973 (0.2106)  mom: 0.9999 (0.9958)  last_layer_lr: 0.0000 (0.0007)  current_batch_size: 16.0000 (16.0000)  total_loss: 6.0574 (6.0533)  dino_local_crops_loss: 4.3129 (4.3108)  dino_global_crops_loss: 0.5391 (0.5389)  ibot_loss: 1.2054 (1.2036)  time: 0.077409  data: 0.000203  max mem: 2148
+I20260717 08:51:31 1479834 dinov2 helpers.py:102] Training  [1910/2000]  eta: 0:00:08  lr: 0.0000 (0.0007)  wd: 0.3978 (0.2116)  mom: 1.0000 (0.9958)  last_layer_lr: 0.0000 (0.0007)  current_batch_size: 16.0000 (16.0000)  total_loss: 6.0579 (6.0533)  dino_local_crops_loss: 4.3129 (4.3109)  dino_global_crops_loss: 0.5391 (0.5389)  ibot_loss: 1.2059 (1.2036)  time: 0.076134  data: 0.000186  max mem: 2148
+I20260717 08:51:32 1479834 dinov2 helpers.py:102] Training  [1920/2000]  eta: 0:00:07  lr: 0.0000 (0.0007)  wd: 0.3982 (0.2125)  mom: 1.0000 (0.9958)  last_layer_lr: 0.0000 (0.0007)  current_batch_size: 16.0000 (16.0000)  total_loss: 6.0578 (6.0533)  dino_local_crops_loss: 4.3129 (4.3109)  dino_global_crops_loss: 0.5391 (0.5389)  ibot_loss: 1.2058 (1.2036)  time: 0.078094  data: 0.000192  max mem: 2148
+I20260717 08:51:32 1479834 dinov2 helpers.py:102] Training  [1930/2000]  eta: 0:00:06  lr: 0.0000 (0.0006)  wd: 0.3986 (0.2135)  mom: 1.0000 (0.9959)  last_layer_lr: 0.0000 (0.0006)  current_batch_size: 16.0000 (16.0000)  total_loss: 6.0582 (6.0533)  dino_local_crops_loss: 4.3129 (4.3109)  dino_global_crops_loss: 0.5391 (0.5389)  ibot_loss: 1.2062 (1.2036)  time: 0.075915  data: 0.000193  max mem: 2148
+I20260717 08:51:33 1479834 dinov2 helpers.py:102] Training  [1940/2000]  eta: 0:00:05  lr: 0.0000 (0.0006)  wd: 0.3989 (0.2144)  mom: 1.0000 (0.9959)  last_layer_lr: 0.0000 (0.0006)  current_batch_size: 16.0000 (16.0000)  total_loss: 6.0582 (6.0534)  dino_local_crops_loss: 4.3129 (4.3109)  dino_global_crops_loss: 0.5391 (0.5389)  ibot_loss: 1.2062 (1.2036)  time: 0.075491  data: 0.000197  max mem: 2148
+I20260717 08:51:34 1479834 dinov2 helpers.py:102] Training  [1950/2000]  eta: 0:00:04  lr: 0.0000 (0.0006)  wd: 0.3992 (0.2154)  mom: 1.0000 (0.9959)  last_layer_lr: 0.0000 (0.0006)  current_batch_size: 16.0000 (16.0000)  total_loss: 6.0576 (6.0534)  dino_local_crops_loss: 4.3129 (4.3109)  dino_global_crops_loss: 0.5391 (0.5389)  ibot_loss: 1.2056 (1.2036)  time: 0.076183  data: 0.000201  max mem: 2148
+I20260717 08:51:35 1479834 dinov2 helpers.py:102] Training  [1960/2000]  eta: 0:00:03  lr: 0.0000 (0.0006)  wd: 0.3994 (0.2163)  mom: 1.0000 (0.9959)  last_layer_lr: 0.0000 (0.0006)  current_batch_size: 16.0000 (16.0000)  total_loss: 6.0579 (6.0534)  dino_local_crops_loss: 4.3129 (4.3109)  dino_global_crops_loss: 0.5391 (0.5389)  ibot_loss: 1.2059 (1.2036)  time: 0.077733  data: 0.000204  max mem: 2148
+I20260717 08:51:35 1479834 dinov2 helpers.py:102] Training  [1970/2000]  eta: 0:00:02  lr: 0.0000 (0.0006)  wd: 0.3996 (0.2173)  mom: 1.0000 (0.9959)  last_layer_lr: 0.0000 (0.0006)  current_batch_size: 16.0000 (16.0000)  total_loss: 6.0584 (6.0534)  dino_local_crops_loss: 4.3129 (4.3109)  dino_global_crops_loss: 0.5391 (0.5389)  ibot_loss: 1.2064 (1.2037)  time: 0.076088  data: 0.000206  max mem: 2148
+I20260717 08:51:36 1479834 dinov2 helpers.py:102] Training  [1980/2000]  eta: 0:00:01  lr: 0.0000 (0.0006)  wd: 0.3998 (0.2182)  mom: 1.0000 (0.9960)  last_layer_lr: 0.0000 (0.0006)  current_batch_size: 16.0000 (16.0000)  total_loss: 6.0585 (6.0535)  dino_local_crops_loss: 4.3129 (4.3109)  dino_global_crops_loss: 0.5391 (0.5389)  ibot_loss: 1.2065 (1.2037)  time: 0.075809  data: 0.000201  max mem: 2148
+I20260717 08:51:37 1479834 dinov2 helpers.py:102] Training  [1990/2000]  eta: 0:00:00  lr: 0.0000 (0.0006)  wd: 0.3999 (0.2191)  mom: 1.0000 (0.9960)  last_layer_lr: 0.0000 (0.0006)  current_batch_size: 16.0000 (16.0000)  total_loss: 6.0588 (6.0535)  dino_local_crops_loss: 4.3129 (4.3109)  dino_global_crops_loss: 0.5391 (0.5389)  ibot_loss: 1.2068 (1.2037)  time: 0.079553  data: 0.000272  max mem: 2148
+I20260717 08:51:38 1479834 fvcore.common.checkpoint __init__.py:109] Saving checkpoint to /sci/labs/arieljaffe/dan.abergel1/runs/imagenette/proto128/model_final.rank_0.pth
+I20260717 08:51:39 1479834 dinov2 helpers.py:102] Training  [1999/2000]  eta: 0:00:00  lr: 0.0000 (0.0006)  wd: 0.4000 (0.2199)  mom: 1.0000 (0.9960)  last_layer_lr: 0.0000 (0.0006)  current_batch_size: 16.0000 (16.0000)  total_loss: 6.0585 (6.0535)  dino_local_crops_loss: 4.3129 (4.3109)  dino_global_crops_loss: 0.5391 (0.5389)  ibot_loss: 1.2064 (1.2037)  time: 0.134641  data: 0.000288  max mem: 2148
+I20260717 08:51:39 1479834 dinov2 helpers.py:130] Training Total time: 0:03:05 (0.092564 s / it)
+
+Imagenette control run done: Fri Jul 17 08:52:01 IDT 2026
