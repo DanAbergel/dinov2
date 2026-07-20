@@ -30,7 +30,9 @@ DATA_ROOT="${DATA_ROOT:-$LAB_DIR/brain2d}"   # source folder; only N images are 
 N="${N:-1}"                                  # number of images to overfit
 BATCH="${BATCH:-32}"                          # >1 so centering has a batch of augmented views
 PROTOS="${PROTOS:-128}"                       # few prototypes -> low loss floor
-TT="${TT:-0.02}"                              # sharp constant teacher temperature
+TT="${TT:-0.02}"                              # final teacher temperature
+WARMUP_TT="${WARMUP_TT:-$TT}"                 # start teacher temperature (defaults to TT = constant)
+WTE="${WTE:-1}"                               # teacher-temp warmup epochs
 LR="${LR:-0.01}"
 EPOCHS="${EPOCHS:-100}"; OEL="${OEL:-100}"    # 100*100 = 10000 iters
 OUTPUT_DIR="$LAB_DIR/runs/brain/$RUN"
@@ -45,7 +47,7 @@ export PYTHONPATH="$LAB_DIR/repos/FAIR_official:${PYTHONPATH:-}"
 export IMAGENETTE_OVERFIT_N="$N"             # ImageFolder reader keeps only N images (prints them)
 [ -d "$DATA_ROOT/HCP" ] || { echo "ERROR: $DATA_ROOT not found"; exit 1; }
 
-echo "=== OVERFIT $RUN : data=$(basename "$DATA_ROOT") N=$N batch=$BATCH protos=$PROTOS temp=$TT lr=$LR iters=$((EPOCHS*OEL))  $(date) ==="
+echo "=== OVERFIT $RUN : data=$(basename "$DATA_ROOT") N=$N batch=$BATCH protos=$PROTOS temp=$WARMUP_TT->$TT (warmup $WTE ep) lr=$LR iters=$((EPOCHS*OEL))  $(date) ==="
 
 srun python dinov2/train/train.py \
     --config-file "$CONFIG" --output-dir "$OUTPUT_DIR" \
@@ -53,7 +55,7 @@ srun python dinov2/train/train.py \
     train.batch_size_per_gpu="$BATCH" \
     dino.koleo_loss_weight=0 \
     dino.head_n_prototypes="$PROTOS" ibot.head_n_prototypes="$PROTOS" \
-    teacher.teacher_temp="$TT" teacher.warmup_teacher_temp="$TT" teacher.warmup_teacher_temp_epochs=1 \
+    teacher.teacher_temp="$TT" teacher.warmup_teacher_temp="$WARMUP_TT" teacher.warmup_teacher_temp_epochs="$WTE" \
     optim.base_lr="$LR" optim.warmup_epochs=1 optim.freeze_last_layer_epochs=0 \
     optim.epochs="$EPOCHS" train.OFFICIAL_EPOCH_LENGTH="$OEL"
 
