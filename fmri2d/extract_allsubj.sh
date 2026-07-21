@@ -21,15 +21,17 @@ set -euo pipefail
 
 LAB_DIR="/sci/labs/arieljaffe/dan.abergel1"
 GLOB="$LAB_DIR/HCP_data/downsampled/subject_*/rfMRI_REST1_LR_downsampled.pt"
-N="${N:-8}"                                   # slices per subject
-OUT="${OUT:-$LAB_DIR/brain2d_varied}"
+MODE="${MODE:-allsubj_tp}"                     # allsubj_tp = each image a DIFFERENT timepoint AND position
+                                               # allsubj    = temporal-mean volume, positions only
+N="${N:-8}"                                   # images per subject
+OUT="${OUT:-$LAB_DIR/brain2d_tp_varied}"
 
 export TMPDIR="$LAB_DIR/tmp"; export HOME="$LAB_DIR"; export XDG_CACHE_HOME="$LAB_DIR/cache"
 mkdir -p fmri2d/logs "$TMPDIR"
 source "$LAB_DIR/torch_env/bin/activate"
 export PYTHONPATH="$LAB_DIR/repos/FAIR_official:${PYTHONPATH:-}"
 
-echo "=== allsubj: every subject x $N varied slices -> $OUT   $(date) ==="
-python3 fmri2d/extract_slice_variety.py --mode allsubj --n-slices "$N" --axis 2 --size 224 \
+echo "=== $MODE: every subject x $N images -> $OUT   $(date) ==="
+python3 fmri2d/extract_slice_variety.py --mode "$MODE" --n-slices "$N" --axis 2 --size 224 \
     --input "$GLOB" --output "$OUT"
 echo "=== done: $(ls "$OUT/HCP" | wc -l) PNGs   $(date) ==="
