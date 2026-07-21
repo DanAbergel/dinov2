@@ -14,6 +14,7 @@ import torch
 
 from dinov2.data import SamplerType, make_data_loader, make_dataset
 from dinov2.data import collate_data_and_cast, DataAugmentationDINO, CellAugmentationDINO, MaskingGenerator
+from dinov2.data import MultiSliceAugmentationDINO
 import dinov2.distributed as distributed
 from dinov2.fsdp import FSDPCheckpointer
 from dinov2.logging import MetricLogger
@@ -186,6 +187,15 @@ def do_train(cfg, model, resume=False):
 
     if cfg.train.cell_augmentation:
         data_transform = CellAugmentationDINO(
+            cfg.crops.global_crops_scale,
+            cfg.crops.local_crops_scale,
+            cfg.crops.local_crops_number,
+            global_crops_size=cfg.crops.global_crops_size,
+            local_crops_size=cfg.crops.local_crops_size,
+        )
+    elif cfg.train.dataset_path.startswith("SubjectSliceFolder"):
+        # positive pair = 2 DIFFERENT slices of the same subject (input = list of slice paths)
+        data_transform = MultiSliceAugmentationDINO(
             cfg.crops.global_crops_scale,
             cfg.crops.local_crops_scale,
             cfg.crops.local_crops_number,

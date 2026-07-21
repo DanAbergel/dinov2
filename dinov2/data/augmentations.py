@@ -5,7 +5,9 @@
 
 import logging
 import os
+import random
 
+from PIL import Image
 from torchvision import transforms
 
 from .transforms import (
@@ -125,4 +127,30 @@ class DataAugmentationDINO(object):
         output["local_crops"] = local_crops
         output["offsets"] = ()
 
+        return output
+
+
+class MultiSliceAugmentationDINO(DataAugmentationDINO):
+    """Same crops/augmentations as DataAugmentationDINO, but each view comes from a DIFFERENT
+    randomly-sampled slice of the SAME subject. Input is the LIST of that subject's slice
+    PATHS (from SubjectSliceFolder). The 2 global crops = 2 different slices; the N local crops
+    = N other different slices. Position is randomised between the views to be aligned, so the
+    model can't use slice height as a shortcut and must rely on subject features. The batch
+    still contains slices at many positions, so the teacher target stays peaked (loss active)."""
+
+    def __call__(self, paths):
+        need = 2 + self.local_crops_number
+        chosen = random.sample(paths, need) if len(paths) >= need else [random.choice(paths) for _ in range(need)]
+        imgs = [Image.open(p).convert("RGB") for p in chosen]
+
+        output = {}
+        global_crop_1 = self.global_transfo1(self.geometric_augmentation_global(imgs[0]))
+        global_crop_2 = self.global_transfo2(self.geometric_augmentation_global(imgs[1]))
+        output["global_crops"] = [global_crop_1, global_crop_2]
+        output["global_crops_teacher"] = [global_crop_1, global_crop_2]
+        output["local_crops"] = [
+            self.local_transfo(self.geometric_augmentation_local(imgs[2 + i]))
+            for i in range(self.local_crops_number)
+        ]
+        output["offsets"] = ()
         return output
