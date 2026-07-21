@@ -45,7 +45,7 @@ source "$LAB_DIR/torch_env/bin/activate"
 export PYTHONPATH="$LAB_DIR/repos/FAIR_official:${PYTHONPATH:-}"
 
 export IMAGENETTE_OVERFIT_N="$N"             # ImageFolder reader keeps only N images (prints them)
-[ -d "$DATA_ROOT/HCP" ] || { echo "ERROR: $DATA_ROOT not found"; exit 1; }
+[ -d "$DATA_ROOT" ] || { echo "ERROR: $DATA_ROOT not found"; exit 1; }   # any ImageFolder root (brain2d, imagenette, ...)
 
 echo "=== OVERFIT $RUN : data=$(basename "$DATA_ROOT") N=$N batch=$BATCH protos=$PROTOS temp=$WARMUP_TT->$TT (warmup $WTE ep) lr=$LR iters=$((EPOCHS*OEL))  $(date) ==="
 
