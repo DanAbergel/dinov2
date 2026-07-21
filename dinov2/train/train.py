@@ -291,10 +291,13 @@ def do_train(cfg, model, resume=False):
                 torch.distributed.all_reduce(v)
         loss_dict_reduced = {k: v.item() / distributed.get_global_size() for k, v in loss_dict.items()}
 
-        if math.isnan(sum(loss_dict_reduced.values())):
+        # only keys ending in "_loss" are actual losses; diagnostics (e.g. teacher_entropy_ratio)
+        # are logged but excluded from total_loss / the NaN check.
+        _losses = {k: v for k, v in loss_dict_reduced.items() if k.endswith("_loss")}
+        if math.isnan(sum(_losses.values())):
             logger.info("NaN detected")
             raise AssertionError
-        losses_reduced = sum(loss for loss in loss_dict_reduced.values())
+        losses_reduced = sum(_losses.values())
 
         metric_logger.update(lr=lr)
         metric_logger.update(wd=wd)

@@ -5,6 +5,7 @@
 
 from functools import partial
 import logging
+import math
 
 import torch
 from torch import nn
@@ -230,6 +231,16 @@ class SSLMetaArch(nn.Module):
         reshard_fsdp_model(self.teacher)
 
         loss_dict = {}
+
+        # DIAGNOSTIC: normalised entropy of the teacher DINO target.
+        # target = softmax((teacher_out - center) / temp). If the batch images look alike,
+        # centering cancels them -> near-uniform target -> ratio ~1.0 (nothing to discriminate,
+        # dino_local freezes). A discriminable batch -> peaked target -> ratio << 1.0 (loss drops).
+        # This is exactly what separates HCP / 1-image (frozen) from Imagenette-16 (learns).
+        with torch.no_grad():
+            _t = teacher_dino_softmaxed_centered_list.reshape(-1, teacher_dino_softmaxed_centered_list.shape[-1])
+            _ent = -(_t * _t.clamp_min(1e-12).log()).sum(-1).mean()
+            loss_dict["teacher_entropy_ratio"] = _ent / math.log(_t.shape[-1])
 
         loss_accumulator = 0  # for backprop
         student_global_backbone_output_dict, student_local_backbone_output_dict = self.student.backbone(
