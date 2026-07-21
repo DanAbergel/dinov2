@@ -47,7 +47,7 @@ def main():
     ap = argparse.ArgumentParser()
     ap.add_argument("--input", required=True, help="glob of scans (quote it, ** for recursive)")
     ap.add_argument("--output", required=True)
-    ap.add_argument("--mode", required=True, choices=["onesubj", "multisubj"])
+    ap.add_argument("--mode", required=True, choices=["onesubj", "multisubj", "allsubj"])
     ap.add_argument("--n-slices", type=int, default=16)
     ap.add_argument("--class-name", default="HCP")
     ap.add_argument("--axis", type=int, default=2, help="0=sagittal 1=coronal 2=axial(default)")
@@ -70,7 +70,7 @@ def main():
             _write_png(np.take(vol, idx, axis=args.axis), args.output,
                        args.class_name, f"{stem}_z{idx:03d}", args.size)
 
-    else:  # multisubj: subject i -> position i (evenly spaced across ITS OWN valid range)
+    elif args.mode == "multisubj":  # subject i -> position i (evenly spaced across ITS OWN valid range)
         chosen = files[: args.n_slices]
         fracs = np.linspace(0.0, 1.0, len(chosen))            # 0=low cut ... 1=high cut
         for f, fr in zip(chosen, fracs):
@@ -81,6 +81,19 @@ def main():
             _write_png(np.take(vol, idx, axis=args.axis), args.output,
                        args.class_name, f"{stem}_z{idx:03d}", args.size)
             print(f"  {stem}: slice {idx}")
+
+    else:  # allsubj: EVERY subject -> N slices spanning its brain (full dataset, lots of variety)
+        for i, f in enumerate(files):
+            try:
+                vol = load_volume(f, args.tnorm)
+                stem = scan_stem(f)
+                for idx in spanning_positions(vol, args.axis, args.n_slices):
+                    _write_png(np.take(vol, idx, axis=args.axis), args.output,
+                               args.class_name, f"{stem}_z{idx:03d}", args.size)
+                if i < 3 or (i + 1) % 100 == 0:
+                    print(f"  {i + 1}/{len(files)} {stem}", flush=True)
+            except Exception as e:
+                print(f"  SKIP {f}: {e}", flush=True)
 
     print(f"-> {args.output}/{args.class_name}/  (ImageFolder root = {args.output})")
 
