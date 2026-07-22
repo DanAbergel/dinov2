@@ -6,8 +6,9 @@
 #   LIMIT=20 DST=$LAB/brain2d_hires_test sbatch -A arieljaffe fmri2d/extract_s3_highres.sh
 # Full run, single job (~20h):
 #   DST=$LAB/brain2d_hires sbatch -A arieljaffe fmri2d/extract_s3_highres.sh
-# Full run, faster via a 10-way job array (each shard ~2-3h):
-#   DST=$LAB/brain2d_hires sbatch -A arieljaffe --array=0-9 fmri2d/extract_s3_highres.sh
+# Full run, faster via a 10-way job array (each shard ~2-3h) — give per-shard log names with -o/-e:
+#   DST=$LAB/brain2d_hires sbatch -A arieljaffe --array=0-9 \
+#       -o fmri2d/logs/s3-hires_%a.out -e fmri2d/logs/s3-hires_%a.err fmri2d/extract_s3_highres.sh
 #
 #SBATCH --job-name=s3-hires
 #SBATCH --account=arieljaffe
@@ -17,8 +18,8 @@
 #SBATCH --mem=64G
 #SBATCH --time=24:00:00
 #SBATCH --chdir=/sci/labs/arieljaffe/dan.abergel1/repos/FAIR_official
-#SBATCH --output=fmri2d/logs/%x_%a.out
-#SBATCH --error=fmri2d/logs/%x_%a.err
+#SBATCH --output=fmri2d/logs/%x.out
+#SBATCH --error=fmri2d/logs/%x.err
 set -euo pipefail
 
 LAB_DIR="/sci/labs/arieljaffe/dan.abergel1"
