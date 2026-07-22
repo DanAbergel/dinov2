@@ -49,4 +49,13 @@ python3 fmri2d/extract_s3_highres.py \
     --shard "$SHARD" --n-shards "$NSHARDS"
 
 echo "=== shard $SHARD done: $(ls "$DST/HCP" 2>/dev/null | wc -l) PNGs total in $DST/HCP  $(date) ==="
+
+# QA (test mode only): build a low-res vs high-res comparison image for visual inspection
+LOWRES="${LOWRES:-$LAB_DIR/brain2d/HCP}"
+if [ "$LIMIT" -gt 0 ] && [ -d "$LOWRES" ]; then
+    python3 fmri2d/compare_res.py --lowres "$LOWRES" --hires "$DST/HCP" \
+        --out fmri2d/samples/compare_res.png --n 6 || true
+    echo ">>> QA image at fmri2d/samples/compare_res.png — git add/commit/push it to view it in Claude Code"
+fi
+
 rmdir "$TMPDIR" 2>/dev/null || true
