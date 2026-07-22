@@ -51,8 +51,8 @@ ours = np.squeeze(torch.load(our_pt, map_location="cpu", weights_only=True).nump
 img = nib.load(s3_nii)
 orig = np.squeeze(img.get_fdata())
 
-# our .pt is (T,X,Y,Z) [T first]; NIfTI is (X,Y,Z,T) [T last] -> compare the 3 spatial dims
-our_spatial = tuple(sorted(ours.shape)[-3:]) if ours.ndim == 4 else tuple(ours.shape)
+# our .pt is (T,X,Y,Z) [T first] -> spatial = last 3 dims; NIfTI is (X,Y,Z,T) [T last]
+our_spatial = tuple(ours.shape[1:]) if ours.ndim == 4 else tuple(ours.shape)
 orig_spatial = tuple(img.shape[:3])
 vox = img.header.get_zooms()[:3]
 
