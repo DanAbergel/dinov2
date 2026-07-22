@@ -25,8 +25,13 @@ SUBJ="${SUBJ:-100206}"
 OUR_PT="${OUR_PT:-$LAB_DIR/HCP_data/downsampled/subject_$SUBJ/rfMRI_REST1_LR_downsampled.pt}"
 S3_PATH="${S3_PATH:-s3://hcp-openaccess/HCP_1200/$SUBJ/MNINonLinear/Results/rfMRI_REST1_LR/rfMRI_REST1_LR.nii.gz}"
 
+# AWS credentials live in the REAL home; we override HOME below (for caches), so point AWS at them explicitly
+REAL_HOME="${HOME}"
+export AWS_SHARED_CREDENTIALS_FILE="${AWS_SHARED_CREDENTIALS_FILE:-$REAL_HOME/.aws/credentials}"
+export AWS_CONFIG_FILE="${AWS_CONFIG_FILE:-$REAL_HOME/.aws/config}"
 export TMPDIR="$LAB_DIR/tmp"; export HOME="$LAB_DIR"; export XDG_CACHE_HOME="$LAB_DIR/cache"
 mkdir -p fmri2d/logs "$TMPDIR"
+echo "AWS creds file: $AWS_SHARED_CREDENTIALS_FILE  (exists: $([ -f "$AWS_SHARED_CREDENTIALS_FILE" ] && echo yes || echo NO))"
 source "$LAB_DIR/torch_env/bin/activate"
 
 command -v aws >/dev/null || { echo "ERROR: awscli not found -> pip install awscli, or module load awscli"; exit 1; }
