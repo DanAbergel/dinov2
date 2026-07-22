@@ -31,6 +31,7 @@ DATA_ROOT="${DATA_ROOT:-$LAB_DIR/brain2d_pool}"     # pool of many slices per su
 LOCAL_GLOBAL="${LOCAL_GLOBAL:-1}"
 OUTPUT_DIR="$LAB_DIR/runs/brain/$RUN"
 
+export DINO_SLICE_WINDOW="${DINO_SLICE_WINDOW:-0}"   # >0 = pair NEARBY slices (share anatomy, avoids collapse)
 export TMPDIR="$LAB_DIR/tmp"; export XDG_CACHE_HOME="$LAB_DIR/cache"; export HOME="$LAB_DIR"
 export PYTORCH_CUDA_ALLOC_CONF=expandable_segments:True; export PYTHONUNBUFFERED=1
 export TRITON_CACHE_DIR="$LAB_DIR/cache/triton"; export TORCHINDUCTOR_CACHE_DIR="$LAB_DIR/cache/inductor"

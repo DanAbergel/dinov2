@@ -6,9 +6,17 @@
 import logging
 import os
 import random
+import re
 
 from PIL import Image
 from torchvision import transforms
+
+_Z_RE = re.compile(r"_z(\d+)")
+
+
+def _slice_z(path):
+    m = _Z_RE.search(os.path.basename(path))
+    return int(m.group(1)) if m else 0
 
 from .transforms import (
     GaussianBlur,
@@ -140,7 +148,18 @@ class MultiSliceAugmentationDINO(DataAugmentationDINO):
 
     def __call__(self, paths):
         need = 2 + self.local_crops_number
-        chosen = random.sample(paths, need) if len(paths) >= need else [random.choice(paths) for _ in range(need)]
+        window = int(os.environ.get("DINO_SLICE_WINDOW", "0"))
+        if window > 0 and len(paths) >= need:
+            # ADJACENT mode: sample all crops from a random consecutive window of positions,
+            # so the paired slices are NEARBY (share anatomy) -> alignable without collapse.
+            ordered = sorted(paths, key=_slice_z)
+            w = max(need, min(window, len(ordered)))
+            start = random.randint(0, len(ordered) - w)
+            chosen = random.sample(ordered[start:start + w], need)
+        elif len(paths) >= need:
+            chosen = random.sample(paths, need)          # RANDOM mode: any slices of the subject
+        else:
+            chosen = [random.choice(paths) for _ in range(need)]
         imgs = [Image.open(p).convert("RGB") for p in chosen]
 
         output = {}
