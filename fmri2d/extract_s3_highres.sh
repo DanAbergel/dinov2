@@ -24,6 +24,8 @@ set -euo pipefail
 
 LAB_DIR="/sci/labs/arieljaffe/dan.abergel1"
 DST="${DST:-$LAB_DIR/brain2d_hires}"
+# guard: if the caller's $LAB was empty, DST arrives like /brain2d_... (read-only root) -> repin under LAB_DIR
+[ "${DST#/sci/}" = "$DST" ] && { echo "WARN: DST '$DST' not under /sci -> repinning to $LAB_DIR/$(basename "$DST") (was \$LAB empty?)"; DST="$LAB_DIR/$(basename "$DST")"; }
 SUBJECTS_DIR="${SUBJECTS_DIR:-$LAB_DIR/HCP_data/downsampled}"
 N_FRAMES="${N_FRAMES:-0}"          # 0 = one temporal-mean image/subject (like brain2d); >0 = multi-frame
 AXIS="${AXIS:-2}"
