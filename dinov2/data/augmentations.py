@@ -149,17 +149,20 @@ class MultiSliceAugmentationDINO(DataAugmentationDINO):
     def __call__(self, paths):
         need = 2 + self.local_crops_number
         window = int(os.environ.get("DINO_SLICE_WINDOW", "0"))
-        if window > 0 and len(paths) >= need:
-            # ADJACENT mode: sample all crops from a random consecutive window of positions,
-            # so the paired slices are NEARBY (share anatomy) -> alignable without collapse.
-            ordered = sorted(paths, key=_slice_z)
-            w = max(need, min(window, len(ordered)))
+        ordered = sorted(paths, key=_slice_z)
+        if window > 0 and len(ordered) >= 2:
+            # NEARBY mode: all crops come from a SMALL consecutive window of positions, so every
+            # view (2 global + N local) is close in slice height -> alignable without collapse.
+            # A window SMALLER than `need` is allowed (sample with replacement); batch variety
+            # comes from each subject's window starting at a different random position.
+            w = min(window, len(ordered))
             start = random.randint(0, len(ordered) - w)
-            chosen = random.sample(ordered[start:start + w], need)
-        elif len(paths) >= need:
-            chosen = random.sample(paths, need)          # RANDOM mode: any slices of the subject
+            win = ordered[start:start + w]
+            chosen = random.sample(win, need) if w >= need else [random.choice(win) for _ in range(need)]
+        elif len(ordered) >= need:
+            chosen = random.sample(ordered, need)          # RANDOM mode: any slices of the subject
         else:
-            chosen = [random.choice(paths) for _ in range(need)]
+            chosen = [random.choice(ordered) for _ in range(need)]
         imgs = [Image.open(p).convert("RGB") for p in chosen]
 
         output = {}

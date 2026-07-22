@@ -47,7 +47,8 @@ def main():
     ap = argparse.ArgumentParser()
     ap.add_argument("--input", required=True, help="glob of scans (quote it, ** for recursive)")
     ap.add_argument("--output", required=True)
-    ap.add_argument("--mode", required=True, choices=["onesubj", "multisubj", "allsubj", "allsubj_tp"])
+    ap.add_argument("--mode", required=True,
+                    choices=["onesubj", "multisubj", "allsubj", "allsubj_tp", "allsubj_fixedt"])
     ap.add_argument("--n-slices", type=int, default=16)
     ap.add_argument("--class-name", default="HCP")
     ap.add_argument("--axis", type=int, default=2, help="0=sagittal 1=coronal 2=axial(default)")
@@ -95,7 +96,7 @@ def main():
             except Exception as e:
                 print(f"  SKIP {f}: {e}", flush=True)
 
-    else:  # allsubj_tp: EVERY subject -> N images, each a DIFFERENT timepoint AND a different position.
+    elif args.mode == "allsubj_tp":  # EVERY subject -> N images, each a DIFFERENT timepoint AND position
         for i, f in enumerate(files):
             try:
                 arr, t_first = load_4d(f)                       # (T,X,Y,Z) for .pt ; (X,Y,Z,T) for NIfTI
@@ -115,6 +116,28 @@ def main():
                                args.class_name, f"{stem}_t{int(t):03d}_z{int(z):03d}", args.size)
                 if i < 3 or (i + 1) % 100 == 0:
                     print(f"  {i + 1}/{len(files)} {stem}: t={list(timepoints)} z={list(positions)}", flush=True)
+            except Exception as e:
+                print(f"  SKIP {f}: {e}", flush=True)
+
+    else:  # allsubj_fixedt: EVERY subject -> ONE random timepoint, N slices at DIFFERENT positions of it.
+        for i, f in enumerate(files):
+            try:
+                arr, t_first = load_4d(f)
+                stem = scan_stem(f)
+                if arr.ndim != 4:
+                    for idx in spanning_positions(arr, args.axis, args.n_slices):
+                        _write_png(np.take(arr, idx, axis=args.axis), args.output,
+                                   args.class_name, f"{stem}_z{idx:03d}", args.size)
+                    continue
+                T = arr.shape[0] if t_first else arr.shape[-1]
+                t = int(np.random.randint(T))                            # ONE random timepoint, fixed for this subject
+                mean_vol = arr.mean(axis=(0 if t_first else -1))          # robust valid-slice range
+                vol_t = arr[t] if t_first else arr[..., t]                # 3D volume at that single timepoint
+                for z in spanning_positions(mean_vol, args.axis, args.n_slices):
+                    _write_png(np.take(vol_t, int(z), axis=args.axis), args.output,
+                               args.class_name, f"{stem}_t{t:03d}_z{int(z):03d}", args.size)
+                if i < 3 or (i + 1) % 100 == 0:
+                    print(f"  {i + 1}/{len(files)} {stem}: fixed t={t}", flush=True)
             except Exception as e:
                 print(f"  SKIP {f}: {e}", flush=True)
 
