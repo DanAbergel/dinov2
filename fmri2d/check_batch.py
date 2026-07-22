@@ -32,7 +32,7 @@ for i in range(min(n_show, len(ds.subjects))):
     else:
         chosen = random.sample(ordered, need)
     cz = sorted(_slice_z(p) for p in chosen)
-    g = cz[:2]                                          # the 2 global crops the teacher sees
+    g = [_slice_z(chosen[0]), _slice_z(chosen[1])]      # the ACTUAL 2 global crops (chosen[0], chosen[1])
     globals_z += g
     print(f"subj {sid}: pool z={sorted(set(_slice_z(p) for p in paths))}")
     print(f"            sampled z={cz}   ->  GLOBAL crops z={g}")
