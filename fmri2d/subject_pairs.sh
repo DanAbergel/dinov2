@@ -47,7 +47,7 @@ CROPS=()
 echo "=== SUBJECT-PAIRS $RUN : data=$(basename "$DATA_ROOT") local_global=$LOCAL_GLOBAL protos=$PROTOS temp=$WARMUP_TT->$TT (warmup $WARMUP_EPOCHS) cv=$CV  $(date) ==="
 
 # 1) TRAIN — positive pair = 2 slices of the same subject
-srun python dinov2/train/train.py \
+srun python dinov2/train/train.py --no-resume \
     --config-file "$CONFIG" --output-dir "$OUTPUT_DIR" \
     train.dataset_path="SubjectSliceFolder:root=$DATA_ROOT" \
     "${CROPS[@]}" \
