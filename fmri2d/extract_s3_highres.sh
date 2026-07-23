@@ -28,6 +28,7 @@ DST="${DST:-$LAB_DIR/brain2d_hires}"
 [ "${DST#/sci/}" = "$DST" ] && { echo "WARN: DST '$DST' not under /sci -> repinning to $LAB_DIR/$(basename "$DST") (was \$LAB empty?)"; DST="$LAB_DIR/$(basename "$DST")"; }
 SUBJECTS_DIR="${SUBJECTS_DIR:-$LAB_DIR/HCP_data/downsampled}"
 N_FRAMES="${N_FRAMES:-0}"          # 0 = one temporal-mean image/subject (like brain2d); >0 = multi-frame
+N_POSITIONS="${N_POSITIONS:-0}"    # >1 = pool of N spanning axial slices/subject (temporal mean) -> for montages
 AXIS="${AXIS:-2}"
 SIZE="${SIZE:-224}"
 LIMIT="${LIMIT:-0}"                 # >0 = only first N subjects (quick test)
@@ -48,7 +49,7 @@ echo "=== s3-hires shard $SHARD/$NSHARDS -> $DST  n_frames=$N_FRAMES limit=$LIMI
 
 python3 fmri2d/extract_s3_highres.py \
     --subjects-dir "$SUBJECTS_DIR" --out "$DST" --tmp "$TMPDIR" \
-    --axis "$AXIS" --size "$SIZE" --n-frames "$N_FRAMES" --limit "$LIMIT" \
+    --axis "$AXIS" --size "$SIZE" --n-frames "$N_FRAMES" --n-positions "$N_POSITIONS" --limit "$LIMIT" \
     --shard "$SHARD" --n-shards "$NSHARDS"
 
 echo "=== shard $SHARD done: $(ls "$DST/HCP" 2>/dev/null | wc -l) PNGs total in $DST/HCP  $(date) ==="

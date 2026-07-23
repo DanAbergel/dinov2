@@ -22,6 +22,16 @@ from extract_slices import (best_slice_index, frame_volumes, load_4d,
                             load_volume, save_slice, _write_png)
 
 
+def spanning_positions(vol3d, axis, n):
+    """N evenly-spaced slice indices along `axis`, spanning the slices that actually contain brain."""
+    thr = vol3d.mean()
+    areas = np.array([(np.take(vol3d, i, axis=axis) > thr).sum() for i in range(vol3d.shape[axis])])
+    valid = np.where(areas > 0.2 * areas.max())[0]
+    if len(valid) == 0:
+        valid = np.arange(vol3d.shape[axis])
+    return np.linspace(valid[0], valid[-1], n).astype(int)
+
+
 def list_subjects(ds_dir):
     subs = []
     for d in sorted(glob.glob(os.path.join(ds_dir, "subject_*"))):
@@ -39,6 +49,7 @@ def main():
     ap.add_argument("--axis", type=int, default=2, help="0=sag 1=cor 2=axial (default)")
     ap.add_argument("--size", type=int, default=224)
     ap.add_argument("--n-frames", type=int, default=0, help=">0: N slices at N timepoints (same slice idx); 0: temporal mean")
+    ap.add_argument("--n-positions", type=int, default=0, help=">1: N axial slices at spanning z POSITIONS (temporal mean) -> a pool for montages")
     ap.add_argument("--s3-template",
                     default="s3://hcp-openaccess/HCP_1200/{sid}/MNINonLinear/Results/rfMRI_REST1_LR/rfMRI_REST1_LR.nii.gz")
     ap.add_argument("--limit", type=int, default=0, help="only the first N subjects (0 = all) — for a quick test")
@@ -59,10 +70,15 @@ def main():
     done = skipped = failed = 0
     for i, sid in enumerate(subs):
         stem = f"subject_{sid}_rfMRI_REST1_LR"
-        first_png = os.path.join(args.out, cls, f"{stem}{'_t00' if args.n_frames else ''}.png")
-        if os.path.exists(first_png):        # resumable: already extracted
-            skipped += 1
-            continue
+        if args.n_positions > 1:             # resumable: any _z* slice already written
+            if glob.glob(os.path.join(args.out, cls, f"{stem}_z*.png")):
+                skipped += 1
+                continue
+        else:
+            first_png = os.path.join(args.out, cls, f"{stem}{'_t00' if args.n_frames else ''}.png")
+            if os.path.exists(first_png):    # resumable: already extracted
+                skipped += 1
+                continue
         s3 = args.s3_template.format(sid=sid)
         local = os.path.join(args.tmp, f"subject_{sid}.nii.gz")
         try:
@@ -72,7 +88,11 @@ def main():
             failed += 1
             continue
         try:
-            if args.n_frames > 0:
+            if args.n_positions > 1:                 # pool of N spanning axial slices (temporal mean) -> montages
+                data = load_volume(local, "mean")
+                for zi in spanning_positions(data, args.axis, args.n_positions):
+                    _write_png(np.take(data, int(zi), axis=args.axis), args.out, cls, f"{stem}_z{int(zi):03d}", args.size)
+            elif args.n_frames > 0:
                 arr, t_first = load_4d(local)
                 if arr.ndim != 4:
                     save_slice(arr, args.axis, args.out, cls, f"{stem}_t00", args.size)
