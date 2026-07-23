@@ -28,7 +28,8 @@ CV="${CV:-5}"
 DATA_ROOT="${DATA_ROOT:-$LAB_DIR/brain2d_frames}"  # ImageFolder root (multi-frame by default; brain2d = 1 mean image/scan)
 LOCAL_GLOBAL="${LOCAL_GLOBAL:-1}"                   # 1 = local crops = global (full-view) ; 0 = default 96px local
 LOCAL_EQ_GLOBAL="${LOCAL_EQ_GLOBAL:-0}"            # 1 = DIAGNOSTIC: local crops = pixel-identical copy of global crop
-DINO_WEIGHT="${DINO_WEIGHT:-1}"                    # 0 = iBOT-dominant (drop the DINO/CLS discriminative term)
+DINO_WEIGHT="${DINO_WEIGHT:-1}"                    # 0 = disable the DINO/CLS loss (iBOT-only run)
+IBOT_WEIGHT="${IBOT_WEIGHT:-1}"                    # 0 = disable the iBOT patch loss (DINO-only run)
 CENTERING="${CENTERING:-centering}"               # "centering" (default) or "sinkhorn_knopp" (forces spread) 1
 LR="${LR:-}"                                       # override optim.base_lr (e.g. 0.001); empty = config default (0.004)
 OUTPUT_DIR="$LAB_DIR/runs/brain/$RUN"
@@ -57,7 +58,8 @@ srun python dinov2/train/train.py --no-resume \
     train.dataset_path="ImageFolder:root=$DATA_ROOT" \
     "${CROPS[@]}" "${LR_OPT[@]}" \
     teacher.warmup_teacher_temp="$WARMUP_TT" teacher.teacher_temp="$TT" teacher.warmup_teacher_temp_epochs="$WARMUP_EPOCHS" \
-    dino.head_n_prototypes="$PROTOS" ibot.head_n_prototypes="$PROTOS" dino.koleo_loss_weight=0 dino.loss_weight="$DINO_WEIGHT" \
+    dino.head_n_prototypes="$PROTOS" ibot.head_n_prototypes="$PROTOS" dino.koleo_loss_weight=0 \
+    dino.loss_weight="$DINO_WEIGHT" ibot.loss_weight="$IBOT_WEIGHT" \
     train.centering="$CENTERING"
 
 # 2) PROBE — sex, subject-level k-fold CV (same job, right after)
