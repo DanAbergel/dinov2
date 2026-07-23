@@ -239,8 +239,16 @@ class SSLMetaArch(nn.Module):
         # This is exactly what separates HCP / 1-image (frozen) from Imagenette-16 (learns).
         with torch.no_grad():
             _t = teacher_dino_softmaxed_centered_list.reshape(-1, teacher_dino_softmaxed_centered_list.shape[-1])
+            _lnK = math.log(_t.shape[-1])
+            # per-image entropy: is the teacher decided (peaked, <<1) or indecisive (uniform, ~1)?
             _ent = -(_t * _t.clamp_min(1e-12).log()).sum(-1).mean()
-            loss_dict["teacher_entropy_ratio"] = _ent / math.log(_t.shape[-1])
+            loss_dict["teacher_entropy_ratio"] = _ent / _lnK
+            # batch-mean (inter-image) entropy: do images spread over MANY prototypes (~1, healthy)
+            # or pile onto the SAME few (<<1, collapse)? Read WITH the per-image ratio:
+            #   per-image low + batch high  = healthy learning; per-image low + batch low = collapse.
+            _mean = _t.mean(0)
+            _bent = -(_mean * _mean.clamp_min(1e-12).log()).sum()
+            loss_dict["teacher_batch_entropy_ratio"] = _bent / _lnK
 
         loss_accumulator = 0  # for backprop
         student_global_backbone_output_dict, student_local_backbone_output_dict = self.student.backbone(
