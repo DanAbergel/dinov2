@@ -30,6 +30,7 @@ LOCAL_GLOBAL="${LOCAL_GLOBAL:-1}"                   # 1 = local crops = global (
 LOCAL_EQ_GLOBAL="${LOCAL_EQ_GLOBAL:-0}"            # 1 = DIAGNOSTIC: local crops = pixel-identical copy of global crop
 DINO_WEIGHT="${DINO_WEIGHT:-1}"                    # 0 = iBOT-dominant (drop the DINO/CLS discriminative term)
 CENTERING="${CENTERING:-centering}"               # "centering" (default) or "sinkhorn_knopp" (forces spread) 1
+LR="${LR:-}"                                       # override optim.base_lr (e.g. 0.001); empty = config default (0.004)
 OUTPUT_DIR="$LAB_DIR/runs/brain/$RUN"
 
 export DINO_LOCAL_EQ_GLOBAL="$LOCAL_EQ_GLOBAL"    # read in dinov2/data/augmentations.py (propagated to srun)
@@ -45,14 +46,16 @@ export PYTHONPATH="$LAB_DIR/repos/FAIR_official:${PYTHONPATH:-}"
 # local=global crops only when LOCAL_GLOBAL=1 (array keeps the [..] scale from bash globbing/splitting)
 CROPS=()
 [ "$LOCAL_GLOBAL" = "1" ] && CROPS=(crops.local_crops_size=224 'crops.local_crops_scale=[0.32,1.0]')
+LR_OPT=()
+[ -n "$LR" ] && LR_OPT=(optim.base_lr="$LR")
 
-echo "=== ABLATION $RUN : data=$(basename "$DATA_ROOT") local_global=$LOCAL_GLOBAL local_eq_global=$LOCAL_EQ_GLOBAL protos=$PROTOS temp=$WARMUP_TT->$TT (warmup $WARMUP_EPOCHS) cv=$CV  $(date) ==="
+echo "=== ABLATION $RUN : data=$(basename "$DATA_ROOT") local_global=$LOCAL_GLOBAL local_eq_global=$LOCAL_EQ_GLOBAL protos=$PROTOS temp=$WARMUP_TT->$TT (warmup $WARMUP_EPOCHS) lr=${LR:-default} cv=$CV  $(date) ==="
 
 # 1) TRAIN
 srun python dinov2/train/train.py --no-resume \
     --config-file "$CONFIG" --output-dir "$OUTPUT_DIR" \
     train.dataset_path="ImageFolder:root=$DATA_ROOT" \
-    "${CROPS[@]}" \
+    "${CROPS[@]}" "${LR_OPT[@]}" \
     teacher.warmup_teacher_temp="$WARMUP_TT" teacher.teacher_temp="$TT" teacher.warmup_teacher_temp_epochs="$WARMUP_EPOCHS" \
     dino.head_n_prototypes="$PROTOS" ibot.head_n_prototypes="$PROTOS" dino.koleo_loss_weight=0 dino.loss_weight="$DINO_WEIGHT" \
     train.centering="$CENTERING"
