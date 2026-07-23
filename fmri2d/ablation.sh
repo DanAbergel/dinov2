@@ -64,8 +64,10 @@ srun python dinov2/train/train.py --no-resume \
 LABELS="$TMPDIR/HCP_YA_subjects.csv"
 git show origin/fmri-multi-source:data/HCP_YA_subjects.csv > "$LABELS"
 echo "=== PROBE $RUN  $(date) ==="
+AVGPOOL="${AVGPOOL:-1}"                            # 1 = official DINOv2 repr (CLS ++ avgpool patch tokens); "" = CLS-only
 srun python fmri2d/probe_brain.py \
     --config-file "$CONFIG" --output-dir "$OUTPUT_DIR" \
     --features-root "$DATA_ROOT" --labels-csv "$LABELS" --label-col Gender --test-frac 0.2 --cv "$CV" \
+    ${AVGPOOL:+--avgpool} \
     dino.head_n_prototypes="$PROTOS" ibot.head_n_prototypes="$PROTOS"
 echo "=== $RUN DONE  $(date) ==="
