@@ -48,14 +48,18 @@ def eval_transform():
 
 
 @torch.no_grad()
-def extract(backbone, root, tf, bs=128, workers=8):
+def extract(backbone, root, tf, bs=128, workers=8, avgpool=False):
     ds = datasets.ImageFolder(root, transform=tf)     # one folder; we ignore its label
     dl = DataLoader(ds, batch_size=bs, num_workers=workers, shuffle=False, pin_memory=True)
     feats = []
     for x, _ in dl:
         x = x.cuda(non_blocking=True)
         with torch.autocast("cuda", dtype=torch.float16):
-            feats.append(backbone.forward_features(x)["x_norm_clstoken"].float().cpu().numpy())
+            out = backbone.forward_features(x)
+            f = out["x_norm_clstoken"]
+            if avgpool:                                # DINOv2 official probe: CLS ++ mean(patch tokens)
+                f = torch.cat([f, out["x_norm_patchtokens"].mean(dim=1)], dim=-1)
+            feats.append(f.float().cpu().numpy())
     paths = [p for p, _ in ds.samples]
     return np.concatenate(feats), paths
 
@@ -74,6 +78,8 @@ def main():
     ap.add_argument("--test-frac", type=float, default=0.2)
     ap.add_argument("--cv", type=int, default=0,
                     help="if >1: k-fold GROUP cross-validation (by subject) -> mean±std, robust to split noise")
+    ap.add_argument("--avgpool", action="store_true",
+                    help="DINOv2 official probe representation: CLS token ++ mean(patch tokens) (captures iBOT signal)")
     args = ap.parse_args()
 
     cfg = setup(args)
@@ -83,8 +89,8 @@ def main():
     backbone = model.teacher.backbone
     backbone.eval()
 
-    print("extracting brain features...", flush=True)
-    X, paths = extract(backbone, args.features_root, eval_transform())
+    print(f"extracting brain features... (avgpool={args.avgpool})", flush=True)
+    X, paths = extract(backbone, args.features_root, eval_transform(), avgpool=args.avgpool)
 
     # subject_id -> label
     labmap = {}

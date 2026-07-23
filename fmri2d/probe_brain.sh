@@ -49,4 +49,5 @@ srun python fmri2d/probe_brain.py \
     --labels-csv "$LABELS" \
     --label-col "${LABEL_COL:-Gender}" \
     --test-frac "${TEST_FRAC:-0.2}" \
+    ${CV:+--cv "$CV"} ${AVGPOOL:+--avgpool} \
     ${PROBE_OPTS:-}
