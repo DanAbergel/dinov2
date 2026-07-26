@@ -27,14 +27,12 @@ WARMUP_EPOCHS="${WARMUP_EPOCHS:-25}"
 CV="${CV:-5}"
 DATA_ROOT="${DATA_ROOT:-$LAB_DIR/brain2d_frames}"  # ImageFolder root (multi-frame by default; brain2d = 1 mean image/scan)
 LOCAL_GLOBAL="${LOCAL_GLOBAL:-1}"                   # 1 = local crops = global (full-view) ; 0 = default 96px local
-LOCAL_EQ_GLOBAL="${LOCAL_EQ_GLOBAL:-0}"            # 1 = DIAGNOSTIC: local crops = pixel-identical copy of global crop
 DINO_WEIGHT="${DINO_WEIGHT:-1}"                    # 0 = disable the DINO/CLS loss (iBOT-only run)
 IBOT_WEIGHT="${IBOT_WEIGHT:-1}"                    # 0 = disable the iBOT patch loss (DINO-only run)
 CENTERING="${CENTERING:-centering}"               # "centering" (default) or "sinkhorn_knopp" (forces spread) 1
 LR="${LR:-}"                                       # override optim.base_lr (e.g. 0.001); empty = config default (0.004)
 OUTPUT_DIR="$LAB_DIR/runs/brain/$RUN"
 
-export DINO_LOCAL_EQ_GLOBAL="$LOCAL_EQ_GLOBAL"    # read in dinov2/data/augmentations.py (propagated to srun)
 export TMPDIR="$LAB_DIR/tmp"; export XDG_CACHE_HOME="$LAB_DIR/cache"; export HOME="$LAB_DIR"
 export PYTORCH_CUDA_ALLOC_CONF=expandable_segments:True; export PYTHONUNBUFFERED=1
 export TRITON_CACHE_DIR="$LAB_DIR/cache/triton"; export TORCHINDUCTOR_CACHE_DIR="$LAB_DIR/cache/inductor"
@@ -50,7 +48,7 @@ CROPS=()
 LR_OPT=()
 [ -n "$LR" ] && LR_OPT=(optim.base_lr="$LR")
 
-echo "=== ABLATION $RUN : data=$(basename "$DATA_ROOT") local_global=$LOCAL_GLOBAL local_eq_global=$LOCAL_EQ_GLOBAL protos=$PROTOS temp=$WARMUP_TT->$TT (warmup $WARMUP_EPOCHS) lr=${LR:-default} cv=$CV  $(date) ==="
+echo "=== ABLATION $RUN : data=$(basename "$DATA_ROOT") local_global=$LOCAL_GLOBAL protos=$PROTOS temp=$WARMUP_TT->$TT (warmup $WARMUP_EPOCHS) lr=${LR:-default} cv=$CV  $(date) ==="
 
 # 1) TRAIN
 srun python dinov2/train/train.py --no-resume \
