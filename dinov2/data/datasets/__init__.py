@@ -10,5 +10,4 @@ from .cell_dino.hpafov import HPAFoV
 from .cell_dino.chammi_cp import CHAMMI_CP
 from .cell_dino.chammi_hpa import CHAMMI_HPA
 from .cell_dino.chammi_wtc import CHAMMI_WTC
-from .image_folder import ImageFolder  # added for the Imagenette image control test
-from .subject_slices import SubjectSliceFolder  # slices grouped by subject (positive pair = 2 slices of same brain)
+from .image_folder import ImageFolder  # added to load a folder of PNGs (brain slices / Imagenette)

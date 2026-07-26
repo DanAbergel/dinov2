@@ -4,19 +4,8 @@
 # found in the LICENSE file in the root directory of this source tree.
 
 import logging
-import os
-import random
-import re
 
-from PIL import Image
 from torchvision import transforms
-
-_Z_RE = re.compile(r"_z(\d+)")
-
-
-def _slice_z(path):
-    m = _Z_RE.search(os.path.basename(path))
-    return int(m.group(1)) if m else 0
 
 from .transforms import (
     GaussianBlur,
@@ -120,59 +109,10 @@ class DataAugmentationDINO(object):
         output["global_crops_teacher"] = [global_crop_1, global_crop_2]
 
         # local crops:
-        if os.environ.get("DINO_LOCAL_EQ_GLOBAL") == "1":
-            # DIAGNOSTIC (not a training improvement): make every local crop pixel-identical
-            # to global_crop_1 — no independent RandomResizedCrop / flip / color / blur. This
-            # tests whether dino_local stays high only because the local views differ from the
-            # teacher's globals. With identical views, dino_local should collapse toward its
-            # floor (aligning an image with itself through the EMA teacher). Risk: trivial
-            # objective / representation collapse, so judge by the probe, not the loss.
-            local_crops = [global_crop_1 for _ in range(self.local_crops_number)]
-        else:
-            local_crops = [
-                self.local_transfo(self.geometric_augmentation_local(image)) for _ in range(self.local_crops_number)
-            ]
+        local_crops = [
+            self.local_transfo(self.geometric_augmentation_local(image)) for _ in range(self.local_crops_number)
+        ]
         output["local_crops"] = local_crops
         output["offsets"] = ()
 
-        return output
-
-
-class MultiSliceAugmentationDINO(DataAugmentationDINO):
-    """Same crops/augmentations as DataAugmentationDINO, but each view comes from a DIFFERENT
-    randomly-sampled slice of the SAME subject. Input is the LIST of that subject's slice
-    PATHS (from SubjectSliceFolder). The 2 global crops = 2 different slices; the N local crops
-    = N other different slices. Position is randomised between the views to be aligned, so the
-    model can't use slice height as a shortcut and must rely on subject features. The batch
-    still contains slices at many positions, so the teacher target stays peaked (loss active)."""
-
-    def __call__(self, paths):
-        need = 2 + self.local_crops_number
-        window = int(os.environ.get("DINO_SLICE_WINDOW", "0"))
-        ordered = sorted(paths, key=_slice_z)
-        if window > 0 and len(ordered) >= 2:
-            # NEARBY mode: all crops come from a SMALL consecutive window of positions, so every
-            # view (2 global + N local) is close in slice height -> alignable without collapse.
-            # A window SMALLER than `need` is allowed (sample with replacement); batch variety
-            # comes from each subject's window starting at a different random position.
-            w = min(window, len(ordered))
-            start = random.randint(0, len(ordered) - w)
-            win = ordered[start:start + w]
-            chosen = random.sample(win, need) if w >= need else [random.choice(win) for _ in range(need)]
-        elif len(ordered) >= need:
-            chosen = random.sample(ordered, need)          # RANDOM mode: any slices of the subject
-        else:
-            chosen = [random.choice(ordered) for _ in range(need)]
-        imgs = [Image.open(p).convert("RGB") for p in chosen]
-
-        output = {}
-        global_crop_1 = self.global_transfo1(self.geometric_augmentation_global(imgs[0]))
-        global_crop_2 = self.global_transfo2(self.geometric_augmentation_global(imgs[1]))
-        output["global_crops"] = [global_crop_1, global_crop_2]
-        output["global_crops_teacher"] = [global_crop_1, global_crop_2]
-        output["local_crops"] = [
-            self.local_transfo(self.geometric_augmentation_local(imgs[2 + i]))
-            for i in range(self.local_crops_number)
-        ]
-        output["offsets"] = ()
         return output
