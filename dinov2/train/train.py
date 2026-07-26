@@ -250,6 +250,23 @@ def do_train(cfg, model, resume=False):
     metric_logger = MetricLogger(delimiter="  ", output_file=metrics_file)
     header = "Training"
 
+    # periodic linear probe (fMRI add-on, env-gated, single-GPU): PROBE_ROOT set -> probe the teacher
+    # backbone every PROBE_EVERY iters (and at iter 0), print an evolution summary at the end.
+    _probe_root = os.environ.get("PROBE_ROOT")
+    _probe_hist = []
+    _probe_every = int(os.environ.get("PROBE_EVERY", "2000"))
+    if _probe_root:
+        from fmri2d.online_probe import probe_backbone
+
+    def _do_probe(it):
+        m, s = probe_backbone(
+            model.teacher.backbone, _probe_root, os.environ["PROBE_LABELS"],
+            os.environ.get("PROBE_LABEL_COL", "Gender"), int(os.environ.get("PROBE_CV", "5")),
+            os.environ.get("PROBE_AVGPOOL", "1") != "0",
+        )
+        _probe_hist.append((it, m, s))
+        logger.info(f"PROBE @ iter {it}: {m * 100:.2f}% +/- {s * 100:.2f}%")
+
     for data in metric_logger.log_every(
         data_loader,
         10,
@@ -260,6 +277,9 @@ def do_train(cfg, model, resume=False):
         current_batch_size = data["collated_global_crops"].shape[0] / 2
         if iteration > max_iter:
             return
+
+        if _probe_root and iteration % _probe_every == 0:   # probe at iter 0, 2000, 4000, ...
+            _do_probe(iteration)
 
         # apply schedules
 
@@ -324,6 +344,13 @@ def do_train(cfg, model, resume=False):
         periodic_checkpointer.step(iteration)
 
         iteration = iteration + 1
+
+    if _probe_root:                                          # final probe + evolution summary
+        _do_probe(iteration - 1)
+        logger.info("=== PROBE EVOLUTION (linear sex probe, subject-level CV) ===")
+        for it, m, s in _probe_hist:
+            logger.info(f"  iter {it:>6}: {m * 100:5.2f}% +/- {s * 100:.2f}%")
+        logger.info("===========================================================")
     metric_logger.synchronize_between_processes()
     return {k: meter.global_avg for k, meter in metric_logger.meters.items()}
 
