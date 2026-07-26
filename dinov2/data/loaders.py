@@ -10,7 +10,7 @@ from typing import Any, Callable, List, Optional, TypeVar
 import torch
 from torch.utils.data import Sampler
 
-from .datasets import ImageNet, ImageNet22k, HPAone, HPAFoV, CHAMMI_CP, CHAMMI_HPA, CHAMMI_WTC, ImageFolder
+from .datasets import ImageNet, ImageNet22k, HPAone, HPAFoV, CHAMMI_CP, CHAMMI_HPA, CHAMMI_WTC, ImageFolder, SliceNeighborsFolder
 from .samplers import EpochSampler, InfiniteSampler, ShardedInfiniteSampler
 
 
@@ -70,6 +70,8 @@ def _parse_dataset_str(dataset_str: str):
         class_ = CHAMMI_HPA
     elif name == "ImageFolder":  # added to load a folder of PNGs (brain slices / Imagenette)
         class_ = ImageFolder
+    elif name == "SliceNeighborsFolder":  # neighbor-slice SSL: one sample = one slice + its neighbors
+        class_ = SliceNeighborsFolder
     else:
         raise ValueError(f'Unsupported dataset "{name}"')
 

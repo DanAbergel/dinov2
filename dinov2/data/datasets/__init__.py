@@ -11,3 +11,4 @@ from .cell_dino.chammi_cp import CHAMMI_CP
 from .cell_dino.chammi_hpa import CHAMMI_HPA
 from .cell_dino.chammi_wtc import CHAMMI_WTC
 from .image_folder import ImageFolder  # added to load a folder of PNGs (brain slices / Imagenette)
+from .slice_neighbors import SliceNeighborsFolder, NeighborSliceAugmentation  # neighbor-slice SSL (fMRI add-on)
