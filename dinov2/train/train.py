@@ -255,12 +255,20 @@ def do_train(cfg, model, resume=False):
     _probe_root = os.environ.get("PROBE_ROOT")
     _probe_hist = []
     _probe_every = int(os.environ.get("PROBE_EVERY", "2000"))
+    _eval_backbone = None
     if _probe_root:
         from fmri2d.online_probe import probe_backbone
+        from dinov2.models import build_model_from_cfg
+        # separate NON-FSDP backbone, reloaded from the teacher each probe -> avoids calling
+        # forward on an FSDP submodule mid-training (which trips the _is_root assertion).
+        _eval_backbone, _ = build_model_from_cfg(cfg, only_teacher=True)
+        _eval_backbone = _eval_backbone.cuda().eval()
 
     def _do_probe(it):
+        sd = {k[len("backbone."):]: v for k, v in model.teacher.state_dict().items() if k.startswith("backbone.")}
+        _eval_backbone.load_state_dict(sd, strict=True)
         m, s = probe_backbone(
-            model.teacher.backbone, _probe_root, os.environ["PROBE_LABELS"],
+            _eval_backbone, _probe_root, os.environ["PROBE_LABELS"],
             os.environ.get("PROBE_LABEL_COL", "Gender"), int(os.environ.get("PROBE_CV", "5")),
             os.environ.get("PROBE_AVGPOOL", "1") != "0",
         )
