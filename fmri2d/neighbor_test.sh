@@ -33,6 +33,7 @@ LOCAL_SIZE="${LOCAL_SIZE:-224}"                     # neighbor slices resized to
 OUTPUT_DIR="$LAB_DIR/runs/brain/$RUN"
 
 export DINO_NEIGHBOR_STRIDE="$STRIDE"
+export DINO_NEIGHBOR_MODE="${DINO_NEIGHBOR_MODE:-z}"   # "z" (subject/z) or "slice_time" (subject+slice / time)
 export PROBE_ROOT="$PROBE_DATA"; export PROBE_EVERY="${PROBE_EVERY:-2000}"
 export PROBE_LABEL_COL=Gender; export PROBE_CV=5; export PROBE_AVGPOOL=1
 export TMPDIR="$LAB_DIR/tmp"; export XDG_CACHE_HOME="$LAB_DIR/cache"; export HOME="$LAB_DIR"

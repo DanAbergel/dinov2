@@ -19,33 +19,39 @@ from torchvision import transforms
 
 from ..augmentations import DataAugmentationDINO
 
-_SUBJ = re.compile(r"subject_(\d+)")
-_Z = re.compile(r"_z(\d+)")
-
-
-def _zpos(p):
-    m = _Z.search(os.path.basename(p))
-    return int(m.group(1)) if m else 0
-
-
 class SliceNeighborsFolder(Dataset):
-    """root/<class>/subject_<id>_z<NNN>.png (dense, consecutive z). One sample = one slice;
-    __getitem__ hands the transform (ordered_slice_paths_of_that_subject, index_of_this_slice)."""
+    """One sample = one image; __getitem__ hands the transform (ordered_group_paths, index).
+    Grouping/ordering set by env DINO_NEIGHBOR_MODE:
+      "z" (default): group by subject, order by _z -> neighbors in POSITION or TIME-as-z
+          (root/<class>/subject_<id>_z<NNN>.png)
+      "slice_time" : group by (subject, slice z), order by _t -> neighbors in TIME per slice
+          (root/<class>/subject_<id>_z<ZZZ>_t<TTT>.png), i.e. many slices/subject, each a time series."""
 
     def __init__(self, *, root, transforms=None, transform=None, target_transform=None):
         self.transform = transform
-        by_subject = {}
+        if os.environ.get("DINO_NEIGHBOR_MODE", "z") == "slice_time":
+            group_re = re.compile(r"subject_(\d+)_z(\d+)")   # group = subject + slice
+            order_re = re.compile(r"_t(\d+)")                # order by timepoint
+        else:
+            group_re = re.compile(r"subject_(\d+)")          # group = subject
+            order_re = re.compile(r"_z(\d+)")                # order by z (position, or time named as z)
+
+        def order_key(p):
+            m = order_re.search(os.path.basename(p))
+            return int(m.group(1)) if m else 0
+
+        groups = {}
         for p in sorted(glob.glob(os.path.join(root, "*", "*.png"))):
-            m = _SUBJ.search(os.path.basename(p))
+            m = group_re.search(os.path.basename(p))
             if m:
-                by_subject.setdefault(m.group(1), []).append(p)
-        self.index = []                                   # list of (ordered_paths, idx_in_subject)
-        for _sid, ps in sorted(by_subject.items()):
-            ps = sorted(ps, key=_zpos)
+                groups.setdefault("_".join(m.groups()), []).append(p)
+        self.index = []                                   # list of (ordered_paths, idx_in_group)
+        for _k, ps in sorted(groups.items()):
+            ps = sorted(ps, key=order_key)
             for i in range(len(ps)):
                 self.index.append((ps, i))
         if not self.index:
-            raise RuntimeError(f"SliceNeighborsFolder: no subject_<id>_z<NN>.png under {root}")
+            raise RuntimeError(f"SliceNeighborsFolder: no matching PNGs under {root} (mode={os.environ.get('DINO_NEIGHBOR_MODE', 'z')})")
 
     def __len__(self):
         return len(self.index)
