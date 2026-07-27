@@ -24,6 +24,7 @@ from dinov2.train.train import get_args_parser
 from dinov2.utils.config import setup
 from dinov2.train.ssl_meta_arch import SSLMetaArch
 from dinov2.fsdp import FSDPCheckpointer
+from dinov2.models import build_model_from_cfg
 
 from fmri2d.online_probe import probe_backbone
 
@@ -43,8 +44,13 @@ def main():
     model = SSLMetaArch(cfg).to(torch.device("cuda"))
     model.prepare_for_distributed_training()
     FSDPCheckpointer(model, cfg.train.output_dir).resume_or_load(cfg.MODEL.WEIGHTS, resume=True)
-    backbone = model.teacher.backbone
-    backbone.eval()
+
+    # get_intermediate_layers doesn't work on the FSDP-wrapped backbone (len(self.blocks[-1]) fails).
+    # Build a plain (non-FSDP) backbone and load the teacher's weights into it.
+    backbone, _ = build_model_from_cfg(cfg, only_teacher=True)
+    backbone = backbone.cuda().eval()
+    sd = {k[len("backbone."):]: v for k, v in model.teacher.state_dict().items() if k.startswith("backbone.")}
+    backbone.load_state_dict(sd, strict=True)
 
     print(f"probing {cfg.train.output_dir} on {args.features_root} (official repr, {args.label_col})...", flush=True)
     mean, std = probe_backbone(
