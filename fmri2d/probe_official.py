@@ -233,6 +233,10 @@ def main():
     linear_classifiers, optim_param_groups = setup_linear_classifiers(
         sample_output, n_last_blocks_list, args.learning_rates, args.batch_size, num_classes,
     )                                                          # linear.py:509-515
+    # setup_linear_classifiers wraps in DDP when a process group is initialized (it is, to load the
+    # FSDP checkpoint). On a single GPU that wrapper is useless and breaks len()/classifiers_dict; unwrap.
+    if hasattr(linear_classifiers, "module"):
+        linear_classifiers = linear_classifiers.module
 
     # ---- optimizer / scheduler / loop: reproduced faithfully from eval_linear ----
     optimizer = torch.optim.SGD(optim_param_groups, momentum=0.9, weight_decay=0)   # linear.py:517
