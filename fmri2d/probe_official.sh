@@ -49,4 +49,5 @@ srun python fmri2d/probe_official.py \
     --labels-csv "$LABELS" \
     --label-col "${LABEL_COL:-Gender}" \
     ${VAL_FRAC:+--val-frac "$VAL_FRAC"} \
+    ${NO_AUG:+--no-aug} \
     ${PROBE_OPTS:-}

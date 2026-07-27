@@ -177,6 +177,9 @@ def main():
         default=[1e-5, 2e-5, 5e-5, 1e-4, 2e-4, 5e-4, 1e-3, 2e-3, 5e-3, 1e-2, 2e-2, 5e-2, 0.1],
     )
     ap.add_argument("--seed", type=int, default=0)
+    ap.add_argument("--no-aug", action="store_true",
+                    help="medical mode: train the classifier WITHOUT RandomResizedCrop/flip "
+                         "(use the eval transform on train too) - these augmentations break MNI-registered slices")
     args = ap.parse_args()
 
     # official run_eval_linear uses seed = 0
@@ -215,7 +218,9 @@ def main():
     if num_classes < 2 or len(tr_p) == 0 or len(va_p) == 0:
         raise SystemExit("need >=2 classes and non-empty train/val splits")
 
-    train_dataset = BrainSexDataset(tr_p, tr_y, make_classification_train_transform())
+    train_tf = make_classification_eval_transform() if args.no_aug else make_classification_train_transform()
+    print(f"train transform: {'eval (NO augmentation, medical mode)' if args.no_aug else 'official train (RandomResizedCrop+flip)'}", flush=True)
+    train_dataset = BrainSexDataset(tr_p, tr_y, train_tf)
     val_dataset = BrainSexDataset(va_p, va_y, make_classification_eval_transform())
 
     train_loader = DataLoader(
