@@ -40,7 +40,7 @@ mkdir -p "$TMPDIR" "$OUTPUT_DIR" "$TRITON_CACHE_DIR" "$TORCHINDUCTOR_CACHE_DIR"
 source "$LAB_DIR/torch_env/bin/activate"
 export PYTHONPATH="$LAB_DIR/repos/FAIR_official:${PYTHONPATH:-}"
 
-[ -d "$DATA_ROOT/HCP" ] || { echo "ERROR: $DATA_ROOT not found — extract it first (test_frames.sh for multi-frame, extract_hcp.sh for mean)"; exit 1; }
+[ -d "$DATA_ROOT" ] || { echo "ERROR: DATA_ROOT '$DATA_ROOT' not found — check the path (brain: extract first; imagenette: .../data/imagenette/train)"; exit 1; }
 
 # local=global crops only when LOCAL_GLOBAL=1 (array keeps the [..] scale from bash globbing/splitting)
 CROPS=()
