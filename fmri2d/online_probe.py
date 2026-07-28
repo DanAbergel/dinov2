@@ -47,7 +47,7 @@ def _extract(backbone, root, n_blocks=4, bs=128, workers=8):
         patch_mean.append(outs[-1][0].mean(dim=1).float().cpu().numpy())
     cls_per_block = [np.concatenate(c) for c in cls_per_block]
     patch_mean = np.concatenate(patch_mean)
-    return cls_per_block, patch_mean, [p for p, _ in ds.samples]
+    return cls_per_block, patch_mean, ds.samples          # samples = list of (path, class_idx)
 
 
 def _linear_input(cls_per_block, patch_mean, use_n_blocks, use_avgpool):
@@ -63,36 +63,51 @@ def probe_backbone(backbone, root, labels_csv, label_col="Gender", cv=5, avgpool
     was_training = backbone.training
     backbone.eval()
     try:
-        cls_per_block, patch_mean, paths = _extract(backbone, root, n_blocks=n_blocks)
+        cls_per_block, patch_mean, samples = _extract(backbone, root, n_blocks=n_blocks)
     finally:
         if was_training:
             backbone.train()
 
-    labmap = {}
-    for r in csv.DictReader(open(labels_csv)):
-        labmap[str(r[id_col]).strip()] = str(r[label_col]).strip()
-    classes = sorted({v for v in labmap.values() if v and v.lower() != "nan"})
-    cls2i = {c: i for i, c in enumerate(classes)}
-
-    keep, y, groups = [], [], []
-    for i, p in enumerate(paths):
-        m = _SUBJ.search(os.path.basename(p))
-        lab = labmap.get(m.group(1)) if m else None
-        if lab in cls2i:
-            keep.append(i)
-            y.append(cls2i[lab])
-            groups.append(m.group(1))
-    keep = np.array(keep)
-    y, groups = np.array(y), np.array(groups)
-    if len(set(groups)) < cv or len(classes) < 2:
+    paths = [p for p, _ in samples]
+    if labels_csv == "IMAGEFOLDER":
+        # Imagenette-style: label = ImageFolder class index, image-level StratifiedKFold (no subjects)
+        y = np.array([t for _, t in samples])
+        keep = np.arange(len(y))
+        groups = None
+        n_classes = len(set(y.tolist()))
+    else:
+        labmap = {}
+        for r in csv.DictReader(open(labels_csv)):
+            labmap[str(r[id_col]).strip()] = str(r[label_col]).strip()
+        classes = sorted({v for v in labmap.values() if v and v.lower() != "nan"})
+        cls2i = {c: i for i, c in enumerate(classes)}
+        keep, y, groups = [], [], []
+        for i, p in enumerate(paths):
+            m = _SUBJ.search(os.path.basename(p))
+            lab = labmap.get(m.group(1)) if m else None
+            if lab in cls2i:
+                keep.append(i)
+                y.append(cls2i[lab])
+                groups.append(m.group(1))
+        keep = np.array(keep)
+        y, groups = np.array(y), np.array(groups)
+        n_classes = len(classes)
+    if n_classes < 2 or len(y) < cv or (groups is not None and len(set(groups)) < cv):
         return float("nan"), float("nan")
+
+    # subject-level GroupKFold for brains; image-level StratifiedKFold for Imagenette
+    if groups is None:
+        from sklearn.model_selection import StratifiedKFold
+        folds = list(StratifiedKFold(n_splits=cv, shuffle=True, random_state=0).split(np.zeros(len(y)), y))
+    else:
+        folds = list(GroupKFold(n_splits=cv).split(np.zeros(len(y)), y, groups))
 
     best_mean, best_std, best_cfg = -1.0, 0.0, None
     for n in sorted({1, n_blocks}):
         for avg in (False, True):
             X = _linear_input(cls_per_block, patch_mean, n, avg)[keep]
             accs = []
-            for tr, te in GroupKFold(n_splits=cv).split(X, y, groups):
+            for tr, te in folds:
                 sc = StandardScaler().fit(X[tr])
                 clf = LogisticRegression(max_iter=2000).fit(sc.transform(X[tr]), y[tr])
                 accs.append(accuracy_score(y[te], clf.predict(sc.transform(X[te]))))

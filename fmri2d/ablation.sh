@@ -50,11 +50,15 @@ LR_OPT=()
 
 # optional PERIODIC probe during training (set PROBE_ROOT=<ImageFolder> to enable the train.py hook)
 if [ -n "${PROBE_ROOT:-}" ]; then
-    _PLABELS="$TMPDIR/HCP_YA_subjects.csv"
-    git show origin/fmri-multi-source:data/HCP_YA_subjects.csv > "$_PLABELS"
-    export PROBE_ROOT PROBE_LABELS="$_PLABELS" PROBE_EVERY="${PROBE_EVERY:-2000}"
+    # PROBE_LABELS may be preset to "IMAGEFOLDER" (Imagenette: label = folder class); else fetch the sex CSV
+    if [ -z "${PROBE_LABELS:-}" ]; then
+        _PLABELS="$TMPDIR/HCP_YA_subjects.csv"
+        git show origin/fmri-multi-source:data/HCP_YA_subjects.csv > "$_PLABELS"
+        PROBE_LABELS="$_PLABELS"
+    fi
+    export PROBE_ROOT PROBE_LABELS PROBE_EVERY="${PROBE_EVERY:-2000}"
     export PROBE_LABEL_COL="${LABEL_COL:-Gender}" PROBE_CV="$CV" PROBE_AVGPOOL="${AVGPOOL:-1}"
-    echo "=== periodic probe ON: root=$(basename "$PROBE_ROOT") every=$PROBE_EVERY label=${LABEL_COL:-Gender} ==="
+    echo "=== periodic probe ON: root=$(basename "$PROBE_ROOT") every=$PROBE_EVERY labels=$PROBE_LABELS ==="
 fi
 
 echo "=== ABLATION $RUN : data=$(basename "$DATA_ROOT") local_global=$LOCAL_GLOBAL protos=$PROTOS temp=$WARMUP_TT->$TT (warmup $WARMUP_EPOCHS) lr=${LR:-default} dino_w=$DINO_WEIGHT ibot_w=$IBOT_WEIGHT cv=$CV  $(date) ==="
