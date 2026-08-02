@@ -31,6 +31,7 @@ DINO_WEIGHT="${DINO_WEIGHT:-1}"                    # 0 = disable the DINO/CLS lo
 IBOT_WEIGHT="${IBOT_WEIGHT:-1}"                    # 0 = disable the iBOT patch loss (DINO-only run)
 CENTERING="${CENTERING:-centering}"               # "centering" (default) or "sinkhorn_knopp" (forces spread) 1
 LR="${LR:-}"                                       # override optim.base_lr (e.g. 0.001); empty = config default (0.004)
+KOLEO="${KOLEO:-0}"                                # KoLeo regulariser weight (0 = off; 0.1 = official DINOv2 default)
 OUTPUT_DIR="$LAB_DIR/runs/brain/$RUN"
 
 export TMPDIR="$LAB_DIR/tmp"; export XDG_CACHE_HOME="$LAB_DIR/cache"; export HOME="$LAB_DIR"
@@ -61,7 +62,7 @@ if [ -n "${PROBE_ROOT:-}" ]; then
     echo "=== periodic probe ON: root=$(basename "$PROBE_ROOT") every=$PROBE_EVERY labels=$PROBE_LABELS ==="
 fi
 
-echo "=== ABLATION $RUN : data=$(basename "$DATA_ROOT") local_global=$LOCAL_GLOBAL protos=$PROTOS temp=$WARMUP_TT->$TT (warmup $WARMUP_EPOCHS) lr=${LR:-default} dino_w=$DINO_WEIGHT ibot_w=$IBOT_WEIGHT cv=$CV  $(date) ==="
+echo "=== ABLATION $RUN : data=$(basename "$DATA_ROOT") local_global=$LOCAL_GLOBAL protos=$PROTOS temp=$WARMUP_TT->$TT (warmup $WARMUP_EPOCHS) lr=${LR:-default} dino_w=$DINO_WEIGHT ibot_w=$IBOT_WEIGHT koleo=$KOLEO cv=$CV  $(date) ==="
 
 # 1) TRAIN
 srun python dinov2/train/train.py --no-resume \
@@ -69,7 +70,7 @@ srun python dinov2/train/train.py --no-resume \
     train.dataset_path="ImageFolder:root=$DATA_ROOT" \
     "${CROPS[@]}" "${LR_OPT[@]}" \
     teacher.warmup_teacher_temp="$WARMUP_TT" teacher.teacher_temp="$TT" teacher.warmup_teacher_temp_epochs="$WARMUP_EPOCHS" \
-    dino.head_n_prototypes="$PROTOS" ibot.head_n_prototypes="$PROTOS" dino.koleo_loss_weight=0 \
+    dino.head_n_prototypes="$PROTOS" ibot.head_n_prototypes="$PROTOS" dino.koleo_loss_weight="$KOLEO" \
     dino.loss_weight="$DINO_WEIGHT" ibot.loss_weight="$IBOT_WEIGHT" \
     train.centering="$CENTERING"
 
