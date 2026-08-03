@@ -7,10 +7,10 @@
 
 train:
   dataset_path: Mixed                 # 5-source corpus (HCP/ABIDE/OASIS/AOMIC/ADNI), 4627 scans @ T_fixed=270
-  batch_size_per_gpu: 4               # REAL batch (grad_accum=1) so centering/Sinkhorn see the whole batch, not 2.
-                                      # Default 4: Test 1's 8 FULL-volume locals OOM a single h200 above ~4 (the
-                                      # patch_embed conv3d on 8x270 frames is huge). Test 2's light temporal-zoom
-                                      # locals fit BATCH_PER_GPU=16 (or 32). Must divide the quota block (32): 4/8/16/32.
+  batch_size_per_gpu: 8               # REAL batch (grad_accum=1) so centering/Sinkhorn see the whole batch, not 2.
+                                      # Default 8: safe with 4 FULL-volume locals on one h200. Test 1 can try
+                                      # BATCH_PER_GPU=16 (tighter); Test 2 (light temporal-zoom locals) fits 16 easily.
+                                      # Must divide the quota block (32): 4/8/16/32.
   num_workers: 4                      # data loading bottleneck; cap at 4 to fit cgroup RAM
   cache_dataset: false
   OFFICIAL_EPOCH_LENGTH: 2300         # ~ one pass over 4627 scans at micro-batch 2 (4627/2); drives the LR schedule
@@ -82,7 +82,8 @@ optim:
 
 crops:
   global_crops_scale: [0.32, 1.0]
-  local_crops_number: 8               # 2 global + 8 local, like official DINOv2 (Ariel 2026-08)
+  local_crops_number: 4               # 2 global + 4 local (down from 8: Test 1's full-volume locals are
+                                      # redundant + memory-heavy; centering only needs the globals anyway)
   local_crops_scale: [0.05, 0.32]
   global_crops_size: 224              # unused in fmri_mode (img_size comes from fmri_img_size) but must be present for the schema
   local_crops_size: 96                # same — accepted for API parity with DataAugmentationDINO
