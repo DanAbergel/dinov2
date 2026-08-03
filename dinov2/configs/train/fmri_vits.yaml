@@ -7,7 +7,8 @@
 
 train:
   dataset_path: Mixed                 # 5-source corpus (HCP/ABIDE/OASIS/AOMIC/ADNI), 4627 scans @ T_fixed=270
-  batch_size_per_gpu: 2               # micro-batch 2; effective 16 via grad_accum=8 (= sum(quota) proportional block)
+  batch_size_per_gpu: 16              # REAL batch 16 in ONE forward (grad_accum=1) so centering/Sinkhorn see all 16.
+                                      # Test 2 (light temporal-zoom locals) can push to 32 via BATCH_PER_GPU=32.
   num_workers: 4                      # data loading bottleneck; cap at 4 to fit cgroup RAM
   cache_dataset: false
   OFFICIAL_EPOCH_LENGTH: 2300         # ~ one pass over 4627 scans at micro-batch 2 (4627/2); drives the LR schedule
@@ -62,7 +63,7 @@ teacher:
 
 optim:
   freeze_pretrained: "fmri_plus_last_3"  # B: freeze DINOv2 blocks 0-8; train patch_embed + blocks 9-11 + norm + heads. ('none'=A full-FT, 'fmri_only'=C)
-  grad_accum_steps: 8                 # batch=2 * accum=8 -> effective batch = 16 (unchanged).
+  grad_accum_steps: 1                 # NO accum: grad accum doesn't feed centering/Sinkhorn, so a real batch is required.
   epochs: 10                          # halved (was 20). Aggressive LR + shorter warmup means we know fast if it works.
   weight_decay: 0.04
   weight_decay_end: 0.4
