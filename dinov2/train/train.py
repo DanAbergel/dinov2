@@ -396,6 +396,14 @@ def do_train(cfg, model, resume=False):
     metric_logger = MetricLogger(delimiter="  ", output_file=metrics_file)
     header = "Training"
 
+    # FMRI ADDITION — not in upstream DINOv2. Periodic OFFICIAL linear probe on the
+    # live teacher (env-gated by PERIODIC_PROBE_EVERY, in iters; 0 = off). Uses the
+    # exact dinov2/eval/linear.py protocol on the full HCP test set — see
+    # dinov2/eval/fmri_periodic_probe.py. Rank-0 only; never crashes training.
+    _probe_every = int(os.environ.get("PERIODIC_PROBE_EVERY", "0"))
+    if _probe_every > 0:
+        logger.info(f"Periodic official probe ON: every {_probe_every} iters (HCP, full test set)")
+
     for data in metric_logger.log_every(
         data_loader,
         10,
@@ -464,6 +472,25 @@ def do_train(cfg, model, resume=False):
             do_test(cfg, model, f"training_{iteration}")
             torch.cuda.synchronize()
         periodic_checkpointer.step(iteration)
+
+        # FMRI ADDITION: periodic OFFICIAL linear probe (rank-0 only, defensive —
+        # a probe failure must never kill an hours-long training run).
+        if _probe_every > 0 and (iteration + 1) % _probe_every == 0 and distributed.is_main_process():
+            try:
+                from dinov2.eval.fmri_periodic_probe import run_periodic_probe
+                _res = run_periodic_probe(model.teacher.backbone, torch.device("cuda"))
+                if _res:
+                    logger.info(
+                        f"PERIODIC PROBE @ iter {iteration + 1} "
+                        f"(epoch {(iteration + 1) / OFFICIAL_EPOCH_LENGTH:.1f}): "
+                        f"HCP {_res['task']} test_acc={_res['test_acc']:.4f} "
+                        f"val_acc={_res['val_acc']:.4f} [best {_res['best']}] n_test={_res['n_test']}"
+                    )
+                else:
+                    logger.warning("periodic probe: HCP data unavailable, skipped")
+            except Exception as _e:
+                logger.warning(f"periodic probe failed at iter {iteration + 1}: {_e}")
+            model.train()  # restore train mode after the probe
 
         iteration = iteration + 1
     metric_logger.synchronize_between_processes()
