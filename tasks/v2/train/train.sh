@@ -120,9 +120,9 @@ echo "Training done: $(date)"
 if [ "${SMOKE:-0}" != "1" ] && [ "${PROBE:-1}" = "1" ]; then
     RES_DIR="$OFFICIAL_DIR/tasks/v2/probe/json_results"
     mkdir -p "$RES_DIR"
-    # ABIDE (broad) + the Brain-JEPA benchmarks we can do: ADNI (NC/MCI, AD/HC,
-    # Amyloid), HCP (Sex), OASIS (AD Conversion — needs oasis_labels.csv, else NaN).
-    for D in ABIDE ADNI HCP OASIS; do
+    # Datasets to probe at the end. Default HCP-only (these tests are HCP-only);
+    # override with PROBE_DATASETS="ABIDE ADNI HCP OASIS" for the full downstream set.
+    for D in ${PROBE_DATASETS:-HCP}; do
         echo ""
         echo "==== auto linear-probe: $D  ($(date)) ===="
         ds=$(echo "$D" | tr 'A-Z' 'a-z')
