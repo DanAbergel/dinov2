@@ -16,7 +16,9 @@ train:
   fmri_augmentation: true             # fMRI token grid (T_eff, N_spatial) + fMRI augmentation branch
   fmri_masking_only: true             # full-image crops + per-token random masking (meeting 2026-06-14 §2)
   proportional_sampler: true          # per-batch dataset quota (block sums to the effective batch = 16)
-  proportional_quota: {HCP: 16}       # HCP-ONLY for now (Ariel 2026-08); other cohorts discovered but never sampled
+  proportional_quota: {HCP: 32}       # HCP-ONLY (Ariel 2026-08). Block=32 so a REAL batch up to 32 fits in one
+                                      # forward (BATCH_PER_GPU=32 GRAD_ACCUM=1) -> centering/Sinkhorn see the FULL
+                                      # batch, not a 2-sample micro-batch (grad-accum doesn't feed centering).
   seed: 42
 
 student:
