@@ -426,45 +426,84 @@ class MixedFMRIDataset(Dataset):
 # variant DINOv2's training loop needs; MixedFMRIDataset only has to expose dataset_indices.
 
 
+# Two augmentation knobs (env, read once at import) — for the "MNI-registered brain"
+# experiments (Ariel/meeting 2026-08). The registered, z-scored volume must NOT get
+# flip or spatial zoom (those break anatomical correspondence); the only image-space
+# corruption we allow is additive Gaussian noise.
+#   FMRI_VIEW_NOISE_STD       : sigma of independent per-view Gaussian noise (0 = off).
+#   FMRI_LOCAL_TEMPORAL_FRAMES: if >0, each LOCAL crop is a random temporal sub-window
+#                               of this many frames (a "temporal zoom"); globals stay
+#                               the full T_fixed volume. 0 = locals are full volume too.
+_VIEW_NOISE_STD = float(os.environ.get("FMRI_VIEW_NOISE_STD", "0.0"))
+_LOCAL_TEMPORAL_FRAMES = int(os.environ.get("FMRI_LOCAL_TEMPORAL_FRAMES", "0"))
+
+
 class FullVolumeViews3D:
-    """Produces the DINO view dict (2 global + N local), each the FULL volume.
+    """Produces the DINO view dict (2 global + N local) for MNI-registered fMRI.
 
-    IMPORTANT: this class does NOT mask and does NOT crop. It only builds the
-    multi-view STRUCTURE that do_train expects from DataAugmentationDINO — here
-    every view is just a reference to the same preprocessed volume. The only
-    augmentation of the fMRI pipeline (per-token random masking, for iBOT) is
-    applied later, per batch, in collate_data_and_cast (via RandomTokenMasking
-    Generator) — NOT here. We drop DINO's spatial crops on purpose: a brain is a
-    fixed anatomical structure, not a scene to crop (meeting 2026-06-14, §2).
+    A brain volume is registered to MNI and z-scored, so DINO's usual view
+    augmentations (spatial RandomResizedCrop, flip, blur, solarize, colour) would
+    break anatomical correspondence and are dropped on purpose (meeting 2026-06-14,
+    §2). The ONLY image-space corruption we allow is additive Gaussian noise —
+    `FMRI_VIEW_NOISE_STD` sets its sigma, applied INDEPENDENTLY to every view so the
+    two globals (and the locals) genuinely differ. Per-token random masking (iBOT)
+    is still applied later, per batch, in collate_data_and_cast.
 
-    Crop counts (constants over arguments):
-      - global = GLOBAL_CROPS_NUMBER (fmri_const): the DINO invariant, 2 views.
-      - local  = local_crops_number: the ONLY argument, because it must equal
-        cfg.crops.local_crops_number — the same value the DINO loss reads
-        (ssl_meta_arch). Sourcing it from cfg keeps one source of truth; a
-        separate constant could silently diverge from the loss and break training.
-    DataAugmentationDINO's scale/size args are NOT accepted: masking-only never
-    crops, so they were dead. **_ignored absorbs them if a caller still passes them.
+    Two regimes (env-selected):
+      - Test 1 (FMRI_LOCAL_TEMPORAL_FRAMES=0): locals have the SAME dimensions as the
+        globals — the full T_fixed volume — plus their own noise. No zoom at all.
+      - Test 2 (FMRI_LOCAL_TEMPORAL_FRAMES=L>0): each local is a random L-frame
+        temporal sub-window ("temporal zoom") + noise; globals stay full-volume.
+        Requires the T_eff-aware positional embedding (PositionEmbedding3D.
+        combined_patch_pos slices to the crop's temporal length).
+
+    Crop counts: global = GLOBAL_CROPS_NUMBER (fmri_const, the DINO invariant, 2);
+    local = local_crops_number (must equal cfg.crops.local_crops_number, which the
+    DINO loss reads — single source of truth). **_ignored absorbs DataAugmentationDINO's
+    dead scale/size args if a caller still passes them.
     """
 
     def __init__(self, local_crops_number, **_ignored):
         self.global_crops_number = GLOBAL_CROPS_NUMBER
         self.local_crops_number = int(local_crops_number)
-        logger.info(f"fMRI full-volume views: global={self.global_crops_number} "
-                    f"local={self.local_crops_number} (masking applied later in collate)")
+        self.noise_std = _VIEW_NOISE_STD
+        self.local_temporal_frames = _LOCAL_TEMPORAL_FRAMES
+        logger.info(
+            f"fMRI views: global={self.global_crops_number} local={self.local_crops_number} "
+            f"noise_std={self.noise_std} local_temporal_frames={self.local_temporal_frames} "
+            f"(masking still applied later in collate)"
+        )
+
+    def _noise(self, v):
+        """Independent additive Gaussian noise (no-op if noise_std == 0)."""
+        if self.noise_std > 0:
+            return v + torch.randn_like(v, dtype=torch.float32).to(v.dtype) * self.noise_std
+        return v
+
+    def _local_view(self, scan):
+        """One local view: optional random temporal sub-window, then its own noise."""
+        L = self.local_temporal_frames
+        if L > 0 and scan.shape[0] > L:
+            start = int(torch.randint(0, scan.shape[0] - L + 1, (1,)).item())
+            v = scan[start:start + L]
+        else:
+            v = scan
+        return self._noise(v)
 
     def __call__(self, scan):
-        """Build the DINO views. No cropping — every view is the FULL volume repeated
-        (the per-token masking in the collate is the only corruption).
+        """Build the DINO views.
 
         Args:
           scan : one preprocessed window (T_fixed, 1, 45, 54, 45).
         Returns:
           dict with `global_crops` / `global_crops_teacher` (x global_crops_number),
           `local_crops` (x local_crops_number), and empty `offsets` — the contract
-          do_train expects from DataAugmentationDINO.
+          do_train expects from DataAugmentationDINO. Globals share the same noised
+          tensors for student & teacher (official DINOv2: same input, EMA-different nets).
         """
-        return {"global_crops":         [scan] * self.global_crops_number,
-                "global_crops_teacher": [scan] * self.global_crops_number,
-                "local_crops":          [scan] * self.local_crops_number,
+        globals_ = [self._noise(scan) for _ in range(self.global_crops_number)]
+        locals_ = [self._local_view(scan) for _ in range(self.local_crops_number)]
+        return {"global_crops":         globals_,
+                "global_crops_teacher": globals_,
+                "local_crops":          locals_,
                 "offsets":              ()}

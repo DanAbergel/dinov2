@@ -107,11 +107,19 @@ class PositionEmbedding3D(nn.Module):
         trunc_normal_(self.pos_spatial,  std=0.02)
         trunc_normal_(self.pos_cls,      std=0.02)
 
-    def combined_patch_pos(self) -> torch.Tensor:
-        """(1, T_eff * N_spatial, embed_dim) — broadcast sum of the two
-        factorised embeddings. Order: (t outer, n inner)."""
-        pos_t = repeat(self.pos_temporal, '1 t d -> 1 (t n) d', n=self.num_spatial_patches)
-        pos_s = repeat(self.pos_spatial,  '1 n d -> 1 (t n) d', t=self.num_temporal_patches)
+    def combined_patch_pos(self, t_eff: int = None) -> torch.Tensor:
+        """(1, t_eff * N_spatial, embed_dim) — broadcast sum of the two factorised
+        embeddings. Order: (t outer, n inner).
+
+        `t_eff` defaults to the full `num_temporal_patches`. Passing a smaller value
+        (a local crop that is a temporal sub-window) slices the temporal table to its
+        first `t_eff` positions — the temporal analogue of DINOv2's spatial pos-embed
+        interpolation for smaller local crops. Full-volume crops pass t_eff=None and
+        behave exactly as before.
+        """
+        n_t = self.num_temporal_patches if t_eff is None else int(t_eff)
+        pos_t = repeat(self.pos_temporal[:, :n_t], '1 t d -> 1 (t n) d', n=self.num_spatial_patches)
+        pos_s = repeat(self.pos_spatial,  '1 n d -> 1 (t n) d', t=n_t)
         return pos_t + pos_s
 
 

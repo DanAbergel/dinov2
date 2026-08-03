@@ -15,8 +15,8 @@ train:
   cell_augmentation: false
   fmri_augmentation: true             # fMRI token grid (T_eff, N_spatial) + fMRI augmentation branch
   fmri_masking_only: true             # full-image crops + per-token random masking (meeting 2026-06-14 §2)
-  proportional_sampler: true          # per-batch dataset quota HCP4/ABIDE4/OASIS4/ADNI3/AOMIC1 (=16)
-  proportional_quota: null            # null -> default quota; override e.g. when a dataset is excluded
+  proportional_sampler: true          # per-batch dataset quota (block sums to the effective batch = 16)
+  proportional_quota: {HCP: 16}       # HCP-ONLY for now (Ariel 2026-08); other cohorts discovered but never sampled
   seed: 42
 
 student:
@@ -77,7 +77,7 @@ optim:
 
 crops:
   global_crops_scale: [0.32, 1.0]
-  local_crops_number: 3               # meeting §2: keep 2 global (DINOv2 forward) + 3 local, all full-image
+  local_crops_number: 8               # 2 global + 8 local, like official DINOv2 (Ariel 2026-08)
   local_crops_scale: [0.05, 0.32]
   global_crops_size: 224              # unused in fmri_mode (img_size comes from fmri_img_size) but must be present for the schema
   local_crops_size: 96                # same — accepted for API parity with DataAugmentationDINO

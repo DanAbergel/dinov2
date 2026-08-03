@@ -245,8 +245,12 @@ class DinoVisionTransformer(nn.Module):
             if masks is not None:
                 # Mask BEFORE pos, as in the official 4D path L219.
                 x = torch.where(masks.unsqueeze(-1), self.mask_token.to(x.dtype).unsqueeze(0), x)
-            # Factorised patch pos (carried by PatchEmbed3DPlus1D.pos).
-            x = x + self.patch_embed.pos.combined_patch_pos()
+            # Factorised patch pos (carried by PatchEmbed3DPlus1D.pos). Compute the
+            # actual temporal-token count from the sequence length so temporal
+            # sub-window (local) crops with fewer frames than T_fixed get a matching
+            # (sliced) positional embedding instead of a broadcast mismatch.
+            t_eff_actual = x.shape[1] // self.patch_embed.pos.num_spatial_patches
+            x = x + self.patch_embed.pos.combined_patch_pos(t_eff=t_eff_actual)
             # Prepend CLS (with its own pos), then insert register tokens
             # afterwards (registers get no pos, same convention as official).
             cls = self.cls_token.expand(x.shape[0], -1, -1) + self.patch_embed.pos.pos_cls
