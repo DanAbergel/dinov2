@@ -5,11 +5,11 @@
 #   tail -f tasks/v2/probe/logs/random_baseline.out
 #SBATCH --job-name=fmri-randbase
 #SBATCH --account=arieljaffe
-#SBATCH --gres=gpu:h200:1
+#SBATCH --gres=gpu:l40s:1
 #SBATCH --ntasks=1
 #SBATCH --ntasks-per-node=1
 #SBATCH --cpus-per-task=8
-#SBATCH --mem=128G
+#SBATCH --mem=64G
 #SBATCH --time=2:00:00
 #SBATCH --output=/dev/null
 #SBATCH --error=/dev/null
