@@ -58,9 +58,9 @@ student:
 teacher:
   momentum_teacher: 0.992
   final_momentum_teacher: 1.0
-  warmup_teacher_temp: 0.04
-  teacher_temp: 0.07
-  warmup_teacher_temp_epochs: 5
+  warmup_teacher_temp: 0.01           # SHARP start (small-corpus recipe): the 2D work proved the ImageNet-soft
+  teacher_temp: 0.04                  # 0.04->0.07 pins the loss at the indecisive floor -> no learning.
+  warmup_teacher_temp_epochs: 5       # sharp-then-soft 0.01->0.04 over half of training was the 2D winner (+30 pts on Imagenette).
   in_chans: 1
   channel_adaptive: false
 
@@ -95,7 +95,8 @@ dino:
   head_bottleneck_dim: 256
   head_nlayers: 3
   head_hidden_dim: 2048
-  koleo_loss_weight: 0.1
+  koleo_loss_weight: 0                # OFF: KoLeo hurts on near-identical registered brains (A/B this session:
+                                      # random 78.5% -> 75.3% with koleo) and risks log(0)->NaN on homogeneous data.
 
 ibot:
   loss_weight: 1.0
