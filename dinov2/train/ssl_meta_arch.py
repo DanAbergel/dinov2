@@ -240,6 +240,19 @@ class SSLMetaArch(nn.Module):
                         n_masked_patches_tensor=n_masked_patches_tensor,
                     )
 
+            elif self.cfg.train.centering == "none":
+                # NO centering / NO Sinkhorn: plain sharpened softmax teacher (center frozen at 0).
+                # The teacher target is then per-sample, so gradient accumulation emulates a larger
+                # batch (centering/Sinkhorn are batch-coupled per forward and would NOT). NOTE: this
+                # removes DINOv2's main anti-collapse mechanism -> real collapse risk.
+                teacher_dino_softmaxed_centered_list = torch.softmax(
+                    teacher_cls_tokens_after_head / teacher_temp, dim=-1
+                ).view(n_global_crops_teacher, -1, *teacher_cls_tokens_after_head.shape[1:])
+                if do_ibot:
+                    masked_teacher_ibot_softmaxed_centered = torch.softmax(
+                        masked_teacher_patch_tokens_after_head / teacher_temp, dim=-1
+                    )
+
             else:
                 raise NotImplementedError
 
