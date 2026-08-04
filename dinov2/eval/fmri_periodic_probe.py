@@ -42,14 +42,15 @@ _LR_GRID = [1e-5, 2e-5, 5e-5, 1e-4, 2e-4, 5e-4, 1e-3, 2e-3, 5e-3, 1e-2, 2e-2, 5e
 
 
 @torch.no_grad()
-def _scan_tokens(teacher, path, native_tr, n_blocks, device):
+def _scan_tokens(teacher, path, native_tr, n_blocks, device, t_fixed=T_FIXED):
     """Per scan: (cls_per_block [n_blocks, D], mean_patch_last [D]) averaged over sliding windows.
 
     Same harmonisation as training/probelib. get_intermediate_layers returns a list of
     (patch_tokens, cls_token) for the last `n_blocks` blocks; we mean CLS per block and the
-    last block's patch tokens over the token axis, then over windows.
+    last block's patch tokens over the token axis, then over windows. `t_fixed` MUST match the
+    trained model's fmri_temporal_size, else the clip length breaks the temporal token grid.
     """
-    win = max(1, round(T_FIXED * TARGET_TR / native_tr))
+    win = max(1, round(t_fixed * TARGET_TR / native_tr))
     stride = max(1, win // 2)
     scan = _load_mmap(path).float()
     if scan.ndim == 4:
@@ -57,7 +58,7 @@ def _scan_tokens(teacher, path, native_tr, n_blocks, device):
     cls_sum = patch_sum = None
     nw = 0
     for s in range(0, max(scan.shape[0] - win + 1, 1), stride):
-        clip = _zscore_per_frame(_temporal_resample(scan[s:s + win].clone(), T_FIXED))
+        clip = _zscore_per_frame(_temporal_resample(scan[s:s + win].clone(), t_fixed))
         toks = teacher.get_intermediate_layers(
             clip.unsqueeze(0).to(device), n=n_blocks, return_class_token=True
         )
@@ -112,21 +113,22 @@ def _accuracy(classifiers, cls_t, patch_t, y, n_blocks, device, bs=256):
     return {k: c / total for k, c in correct.items()}
 
 
-def run_periodic_probe(teacher, device, max_iter=2000, batch_size=128, seed=0):
+def run_periodic_probe(teacher, device, max_iter=2000, batch_size=128, seed=0, t_fixed=T_FIXED):
     """Official linear probe on HCP Sex with the live teacher. Returns a dict with the best
-    classifier's val/test accuracy (+ its config), or None if HCP data is unavailable."""
+    classifier's val/test accuracy (+ its config), or None if HCP data is unavailable.
+    `t_fixed` must match the model's fmri_temporal_size (passed from the train hook)."""
     from probelib.datasets import HCP
     from probelib.splits import split_masks
 
     was_training = teacher.training
     teacher.eval()                                     # deterministic features (no droppath) during the probe
     try:
-        return _run_probe(teacher, device, max_iter, batch_size, seed)
+        return _run_probe(teacher, device, max_iter, batch_size, seed, t_fixed)
     finally:
         teacher.train(was_training)                    # restore whatever mode training was in
 
 
-def _run_probe(teacher, device, max_iter, batch_size, seed):
+def _run_probe(teacher, device, max_iter, batch_size, seed, t_fixed=T_FIXED):
     from probelib.datasets import HCP
     from probelib.splits import split_masks
 
@@ -150,7 +152,7 @@ def _run_probe(teacher, device, max_iter, batch_size, seed):
     for s, k in zip(S, keep):
         if not k:
             cls_list.append(None); patch_list.append(None); continue
-        c, p = _scan_tokens(teacher, s["path"], s["tr"], n_blocks, device)
+        c, p = _scan_tokens(teacher, s["path"], s["tr"], n_blocks, device, t_fixed)
         cls_list.append(c); patch_list.append(p)
 
     idx_tr = np.where(tr_mask)[0]

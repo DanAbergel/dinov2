@@ -478,7 +478,10 @@ def do_train(cfg, model, resume=False):
         if _probe_every > 0 and (iteration + 1) % _probe_every == 0 and distributed.is_main_process():
             try:
                 from dinov2.eval.fmri_periodic_probe import run_periodic_probe
-                _res = run_periodic_probe(model.teacher.backbone, torch.device("cuda"))
+                _res = run_periodic_probe(
+                    model.teacher.backbone, torch.device("cuda"),
+                    t_fixed=cfg.student.fmri_temporal_size,   # match the trained temporal length
+                )
                 if _res:
                     logger.info(
                         f"PERIODIC PROBE @ iter {iteration + 1} "

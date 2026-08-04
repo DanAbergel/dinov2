@@ -6,7 +6,8 @@
 # values that genuinely need to change for fMRI.
 
 train:
-  dataset_path: Mixed                 # 5-source corpus (HCP/ABIDE/OASIS/AOMIC/ADNI), 4627 scans @ T_fixed=270
+  dataset_path: "Mixed:t_fixed=90"    # HCP-only (via quota). T_fixed=90 (65s @ 0.72s) instead of 270: ~3x less
+                                      # conv memory, ~9x less attention -> batch 8/16 fits; also drops fewer short scans.
   batch_size_per_gpu: 8               # REAL batch (grad_accum=1) so centering/Sinkhorn see the whole batch, not 2.
                                       # Default 8: safe with 4 FULL-volume locals on one h200. Test 1 can try
                                       # BATCH_PER_GPU=16 (tighter); Test 2 (light temporal-zoom locals) fits 16 easily.
@@ -48,8 +49,8 @@ student:
   # ----- fMRI-specific fields (consumed by build_model_from_cfg) -----
   fmri_mode: true
   fmri_img_size: [45, 54, 45]         # HCP downsampled volume; patch=9 -> 5*6*5 = 150 spatial tokens
-  fmri_temporal_size: 270             # T_fixed window (= 194.4 s @ TR 0.72 s) shared by all 5 datasets
-  fmri_temporal_kernel: 10            # T_eff = 270 / 10 = 27 temporal tokens per crop (even kernel: 270->135->27)
+  fmri_temporal_size: 90              # T_fixed window (= 64.8 s @ TR 0.72 s). MUST match dataset t_fixed above.
+  fmri_temporal_kernel: 10            # T_eff = 90 / 10 = 9 temporal tokens per crop (pools 2 then 5: 90->45->9)
   # Token grid: T_eff * N_spatial = 27 * 150 = 4050 tokens.
   # Factorised (learned) pos params: (27 + 150 + 1) * 384 = 68 352.
   # Downsampling is always AvgPool on stride-1 convs (spatial and temporal).
