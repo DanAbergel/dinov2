@@ -70,8 +70,9 @@ optim:
   epochs: 10                          # halved (was 20). Aggressive LR + shorter warmup means we know fast if it works.
   weight_decay: 0.04
   weight_decay_end: 0.4
-  base_lr: 3.0e-4                     # Option C: back to baseline HCP-only LR (was 3e-3 in previous Mixed run). Effective = 3e-4 * sqrt(16/1024) = 3.75e-5. Isolates the LR variable: if Mixed-with-baseline-LR matches HCP-only baseline downstream, the LR x10 was the culprit.
-  warmup_epochs: 0.3                  # kept from previous Mixed run for fast feedback. With LR back to baseline, no explosion risk from short warmup.
+  base_lr: 3.0e-3                     # effective = 3e-3 * sqrt(16/1024) = 3.75e-4 (was 3e-4 -> 3.75e-5, 13x too low
+                                      # = an LR-isolation experiment, NOT a training config; the model couldn't learn).
+  warmup_epochs: 1.0                  # 0.3 was too short for the 10x-higher LR; 1 epoch avoids an early explosion.
   min_lr: 1.0e-06
   clip_grad: 3.0
   freeze_last_layer_epochs: 1
