@@ -96,8 +96,8 @@ dino:
   head_bottleneck_dim: 256
   head_nlayers: 3
   head_hidden_dim: 2048
-  koleo_loss_weight: 0                # OFF: KoLeo hurts on near-identical registered brains (A/B this session:
-                                      # random 78.5% -> 75.3% with koleo) and risks log(0)->NaN on homogeneous data.
+  koleo_loss_weight: 0.1              # kept ON (Dan's call); koleo on/off is a fine knob, not the loss blocker
+                                      # (the blockers were teacher_temp + LR). A clean koleo on/off ablation comes later.
 
 ibot:
   loss_weight: 1.0
